@@ -37,17 +37,20 @@
         </header>
 
         <div class="toolbar">
-          <input type="search" id="search-input" placeholder="搜尋姓名 / 系級 / 聯絡人..." />
+          <input type="search" id="search-input" placeholder="搜尋姓名 / 系級 / 背景 / 聯絡人..." />
           <select id="filter-status">
             <option value="">所有成全狀況</option>
-          </select>
-          <select id="filter-background">
-            <option value="">所有背景</option>
-            <option value="社團">社團</option>
-            <option value="家教">家教</option>
-            <option value="系隊">系隊</option>
-            <option value="打工">打工</option>
-            <option value="其他">其他</option>
+            <option value="未求道">未求道</option>
+            <option value="已求道">已求道</option>
+            <option value="法會畢">法會畢</option>
+            <option value="新民班畢">新民班畢</option>
+            <option value="至善班畢">至善班畢</option>
+            <option value="行德班畢">行德班畢</option>
+            <option value="崇德班畢">崇德班畢</option>
+            <option value="人才培訓班畢">人才培訓班畢</option>
+            <option value="講培班畢">講培班畢</option>
+            <option value="講師">講師</option>
+            <option value="未確定">未確定</option>
           </select>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
@@ -91,13 +94,7 @@
             </label>
             <label>
               背景
-              <select id="field-background">
-                <option value="社團">社團</option>
-                <option value="家教">家教</option>
-                <option value="系隊">系隊</option>
-                <option value="打工">打工</option>
-                <option value="其他">其他</option>
-              </select>
+              <textarea id="field-background" rows="2" placeholder="用文字描述背景，例如：熱音社社員、大四資工系家教、系排球隊、超商打工"></textarea>
             </label>
             <label>
               備註
@@ -109,15 +106,20 @@
             </label>
             <label>
               成全狀況
-              <input type="text" id="field-status" list="status-options" placeholder="例：未接觸 / 接觸中 / 已邀約 / 已成全" />
-              <datalist id="status-options">
-                <option value="未接觸"></option>
-                <option value="接觸中"></option>
-                <option value="已邀約"></option>
-                <option value="已成全"></option>
-                <option value="暫緩"></option>
-                <option value="婉拒"></option>
-              </datalist>
+              <select id="field-status">
+                <option value="">請選擇</option>
+                <option value="未求道">未求道</option>
+                <option value="已求道">已求道</option>
+                <option value="法會畢">法會畢</option>
+                <option value="新民班畢">新民班畢</option>
+                <option value="至善班畢">至善班畢</option>
+                <option value="行德班畢">行德班畢</option>
+                <option value="崇德班畢">崇德班畢</option>
+                <option value="人才培訓班畢">人才培訓班畢</option>
+                <option value="講培班畢">講培班畢</option>
+                <option value="講師">講師</option>
+                <option value="未確定">未確定</option>
+              </select>
             </label>
             <label>
               策略
@@ -128,20 +130,32 @@
               <textarea id="field-method" rows="2"></textarea>
             </label>
 
-            <div class="activities-section">
-              <div class="activities-header">
-                <span>活動紀錄</span>
-                <button type="button" id="add-activity-btn" class="btn-secondary btn-small">＋ 新增一筆</button>
-              </div>
-              <div id="activities-list"></div>
-              <p class="hint-text">記錄這個人參加過哪些活動、當下的反應。可新增多筆。</p>
-            </div>
-
             <div class="modal-actions">
               <button type="button" id="cancel-btn" class="btn-secondary">取消</button>
               <button type="submit" class="btn-primary">儲存</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <!-- 活動紀錄 對話框（每個人獨立管理，不依附在新增名單表單裡） -->
+      <div id="activity-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>活動紀錄 - <span id="activity-modal-name"></span></h2>
+
+          <div id="activities-list"></div>
+          <p id="activities-empty-hint" class="hint-text">尚無活動紀錄。</p>
+
+          <div class="activity-add-row">
+            <input type="text" id="new-act-name" placeholder="活動名稱" />
+            <input type="text" id="new-act-date" placeholder="日期(選填)" />
+            <input type="text" id="new-act-reaction" placeholder="反應 / 回饋" />
+            <button type="button" id="add-activity-btn" class="btn-primary btn-small">新增</button>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" id="activity-close-btn" class="btn-secondary">關閉</button>
+          </div>
         </div>
       </div>
     </div>

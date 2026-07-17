@@ -265,18 +265,9 @@ tbody tr:hover {
   color: #c0392b;
 }
 
-/* 活動紀錄 */
-.activities-section {
-  margin-bottom: 1rem;
-}
-
-.activities-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 0.9rem;
-  color: #444;
-  margin-bottom: 0.5rem;
+/* 活動紀錄對話框 */
+#activity-modal .modal-content {
+  max-width: 660px;
 }
 
 .btn-small {
@@ -286,12 +277,22 @@ tbody tr:hover {
 
 .activity-row {
   display: grid;
-  grid-template-columns: 1.3fr 0.9fr 1.6fr auto;
+  grid-template-columns: 1.2fr 0.8fr 1.5fr auto auto;
   gap: 0.4rem;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
 }
 
-.activity-row input {
+.activity-add-row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 1.5fr auto;
+  gap: 0.4rem;
+  margin: 1rem 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid #edeef0;
+}
+
+.activity-row input,
+.activity-add-row input {
   margin-top: 0 !important;
   padding: 0.45rem 0.55rem;
   border: 1px solid #d5d8dd;
@@ -301,7 +302,8 @@ tbody tr:hover {
   min-width: 0;
 }
 
-.act-remove {
+.act-save,
+.act-delete {
   align-self: stretch;
 }
 

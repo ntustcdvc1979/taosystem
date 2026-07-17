@@ -30,7 +30,6 @@ const logoutBtn = document.getElementById("logout-btn");
 
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
-const filterBackground = document.getElementById("filter-background");
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesTbody = document.getElementById("entries-tbody");
 
@@ -48,8 +47,17 @@ const fieldContact = document.getElementById("field-contact");
 const fieldStatus = document.getElementById("field-status");
 const fieldStrategy = document.getElementById("field-strategy");
 const fieldMethod = document.getElementById("field-method");
-const addActivityBtn = document.getElementById("add-activity-btn");
+
+// 活動紀錄對話框（每個人獨立管理）
+const activityModal = document.getElementById("activity-modal");
+const activityModalName = document.getElementById("activity-modal-name");
 const activitiesList = document.getElementById("activities-list");
+const activitiesEmptyHint = document.getElementById("activities-empty-hint");
+const newActName = document.getElementById("new-act-name");
+const newActDate = document.getElementById("new-act-date");
+const newActReaction = document.getElementById("new-act-reaction");
+const addActivityBtn = document.getElementById("add-activity-btn");
+const activityCloseBtn = document.getElementById("activity-close-btn");
 
 let allEntries = [];
 let unsubscribeEntries = null;
@@ -97,8 +105,8 @@ function subscribeEntries() {
     q,
     (snapshot) => {
       allEntries = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      updateStatusFilterOptions();
       renderTable();
+      refreshOpenActivityModal();
     },
     (err) => {
       // 通常是這個 Google 帳號不在白名單內，被 Firestore 規則擋下
@@ -113,30 +121,15 @@ function subscribeEntries() {
   );
 }
 
-function updateStatusFilterOptions() {
-  const current = filterStatus.value;
-  const statuses = [...new Set(allEntries.map((e) => e.status).filter(Boolean))].sort();
-  filterStatus.innerHTML = '<option value="">所有成全狀況</option>';
-  statuses.forEach((s) => {
-    const opt = document.createElement("option");
-    opt.value = s;
-    opt.textContent = s;
-    filterStatus.appendChild(opt);
-  });
-  if (statuses.includes(current)) filterStatus.value = current;
-}
-
 // ---------- Render ----------
 function renderTable() {
   const searchTerm = searchInput.value.trim().toLowerCase();
   const statusVal = filterStatus.value;
-  const backgroundVal = filterBackground.value;
 
   const filtered = allEntries.filter((entry) => {
     if (statusVal && entry.status !== statusVal) return false;
-    if (backgroundVal && getBackground(entry) !== backgroundVal) return false;
     if (searchTerm) {
-      const haystack = [entry.name, entry.department, entry.contact]
+      const haystack = [entry.name, entry.department, getBackground(entry), entry.contact]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -166,6 +159,7 @@ function renderTable() {
       <td>${renderActivitiesCell(entry.activities)}</td>
       <td class="row-actions">
         <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
+        <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
         <button data-action="delete" data-id="${entry.id}" class="btn-danger">刪除</button>
       </td>
     `;
@@ -203,44 +197,110 @@ function escapeHtml(value) {
 
 searchInput.addEventListener("input", renderTable);
 filterStatus.addEventListener("change", renderTable);
-filterBackground.addEventListener("change", renderTable);
 
-// ---------- 活動紀錄（modal 內的動態列） ----------
-function addActivityRow(activity = {}) {
-  const row = document.createElement("div");
-  row.className = "activity-row";
-  row.innerHTML = `
-    <input type="text" class="act-field-name" placeholder="活動名稱" />
-    <input type="text" class="act-field-date" placeholder="日期(選填)" />
-    <input type="text" class="act-field-reaction" placeholder="反應 / 回饋" />
-    <button type="button" class="btn-danger btn-small act-remove">✕</button>
-  `;
-  row.querySelector(".act-field-name").value = activity.activity || "";
-  row.querySelector(".act-field-date").value = activity.date || "";
-  row.querySelector(".act-field-reaction").value = activity.reaction || "";
-  activitiesList.appendChild(row);
+// ---------- 活動紀錄對話框（每個人獨立新增/編輯，與新增名單表單分開） ----------
+let activityModalEntryId = null;
+let activityModalActivities = [];
+
+function openActivityModal(entry) {
+  activityModalEntryId = entry.id;
+  activityModalActivities = (entry.activities || []).map((a) => ({ ...a }));
+  activityModalName.textContent = entry.name || "";
+  newActName.value = "";
+  newActDate.value = "";
+  newActReaction.value = "";
+  renderActivityModalList();
+  activityModal.classList.remove("hidden");
 }
 
-function renderActivityRows(activities) {
+function closeActivityModal() {
+  activityModal.classList.add("hidden");
+  activityModalEntryId = null;
+}
+
+// 若目前開著某人的活動紀錄視窗，其他人（或自己另一分頁）更新資料時，同步刷新畫面
+function refreshOpenActivityModal() {
+  if (!activityModalEntryId) return;
+  const entry = allEntries.find((en) => en.id === activityModalEntryId);
+  if (!entry) return;
+  activityModalActivities = (entry.activities || []).map((a) => ({ ...a }));
+  renderActivityModalList();
+}
+
+function renderActivityModalList() {
   activitiesList.innerHTML = "";
-  (activities || []).forEach((a) => addActivityRow(a));
+  activitiesEmptyHint.classList.toggle("hidden", activityModalActivities.length > 0);
+
+  activityModalActivities.forEach((a, index) => {
+    const row = document.createElement("div");
+    row.className = "activity-row";
+    row.dataset.index = String(index);
+    row.innerHTML = `
+      <input type="text" class="act-field-name" placeholder="活動名稱" />
+      <input type="text" class="act-field-date" placeholder="日期(選填)" />
+      <input type="text" class="act-field-reaction" placeholder="反應 / 回饋" />
+      <button type="button" class="btn-secondary btn-small act-save">儲存</button>
+      <button type="button" class="btn-danger btn-small act-delete">刪除</button>
+    `;
+    row.querySelector(".act-field-name").value = a.activity || "";
+    row.querySelector(".act-field-date").value = a.date || "";
+    row.querySelector(".act-field-reaction").value = a.reaction || "";
+    activitiesList.appendChild(row);
+  });
 }
 
-function collectActivities() {
-  return [...activitiesList.querySelectorAll(".activity-row")]
-    .map((row) => ({
+async function persistActivities() {
+  try {
+    await updateDoc(doc(db, ENTRIES_COLLECTION, activityModalEntryId), {
+      activities: activityModalActivities,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+  } catch (err) {
+    alert("儲存活動紀錄失敗：" + err.message);
+  }
+}
+
+activitiesList.addEventListener("click", async (e) => {
+  const row = e.target.closest(".activity-row");
+  if (!row) return;
+  const index = Number(row.dataset.index);
+
+  if (e.target.closest(".act-save")) {
+    activityModalActivities[index] = {
       activity: row.querySelector(".act-field-name").value.trim(),
       date: row.querySelector(".act-field-date").value.trim(),
       reaction: row.querySelector(".act-field-reaction").value.trim(),
-    }))
-    .filter((a) => a.activity || a.reaction);
-}
-
-addActivityBtn.addEventListener("click", () => addActivityRow());
-activitiesList.addEventListener("click", (e) => {
-  if (e.target.closest(".act-remove")) {
-    e.target.closest(".activity-row").remove();
+    };
+    await persistActivities();
+  } else if (e.target.closest(".act-delete")) {
+    activityModalActivities.splice(index, 1);
+    renderActivityModalList();
+    await persistActivities();
   }
+});
+
+addActivityBtn.addEventListener("click", async () => {
+  const activity = newActName.value.trim();
+  if (!activity) {
+    newActName.focus();
+    return;
+  }
+  activityModalActivities.push({
+    activity,
+    date: newActDate.value.trim(),
+    reaction: newActReaction.value.trim(),
+  });
+  newActName.value = "";
+  newActDate.value = "";
+  newActReaction.value = "";
+  renderActivityModalList();
+  await persistActivities();
+});
+
+activityCloseBtn.addEventListener("click", closeActivityModal);
+activityModal.addEventListener("click", (e) => {
+  if (e.target === activityModal) closeActivityModal();
 });
 
 // ---------- Modal open/close ----------
@@ -251,17 +311,15 @@ function openModal(entry = null) {
     fieldId.value = entry.id;
     fieldName.value = entry.name || "";
     fieldDepartment.value = entry.department || "";
-    fieldBackground.value = getBackground(entry) || "社團";
+    fieldBackground.value = getBackground(entry);
     fieldNotes.value = entry.notes || "";
     fieldContact.value = entry.contact || "";
     fieldStatus.value = entry.status || "";
     fieldStrategy.value = entry.strategy || "";
     fieldMethod.value = entry.method || "";
-    renderActivityRows(entry.activities);
   } else {
     modalTitle.textContent = "新增名單";
     fieldId.value = "";
-    renderActivityRows([]);
   }
   entryModal.classList.remove("hidden");
   fieldName.focus();
@@ -280,16 +338,17 @@ entryModal.addEventListener("click", (e) => {
 // ---------- Create / Update / Delete ----------
 entryForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  // 注意：activities 不在這裡處理，改由活動紀錄對話框獨立新增/編輯，
+  // 這裡不能帶入這個欄位，否則 updateDoc 會把既有的活動紀錄整個蓋掉。
   const data = {
     name: fieldName.value.trim(),
     department: fieldDepartment.value.trim(),
-    background: fieldBackground.value,
+    background: fieldBackground.value.trim(),
     notes: fieldNotes.value.trim(),
     contact: fieldContact.value.trim(),
-    status: fieldStatus.value.trim(),
+    status: fieldStatus.value,
     strategy: fieldStrategy.value.trim(),
     method: fieldMethod.value.trim(),
-    activities: collectActivities(),
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.email || null,
   };
@@ -301,6 +360,7 @@ entryForm.addEventListener("submit", async (e) => {
     } else {
       await addDoc(collection(db, ENTRIES_COLLECTION), {
         ...data,
+        activities: [],
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.email || null,
       });
@@ -319,6 +379,8 @@ entriesTbody.addEventListener("click", async (e) => {
 
   if (btn.dataset.action === "edit") {
     openModal(entry);
+  } else if (btn.dataset.action === "activities") {
+    openActivityModal(entry);
   } else if (btn.dataset.action === "delete") {
     if (confirm(`確定要刪除「${entry.name}」的資料嗎？此動作無法復原。`)) {
       try {
