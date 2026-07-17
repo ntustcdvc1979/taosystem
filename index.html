@@ -87,6 +87,7 @@
             <label>
               姓名 <span class="required">*</span>
               <input type="text" id="field-name" required />
+              <span class="hint-text">儲存時會自動去識別化（例：王小明 → 王○明），資料庫不會保存完整姓名。</span>
             </label>
             <label>
               系級
@@ -155,6 +156,48 @@
 
           <div class="modal-actions">
             <button type="button" id="activity-close-btn" class="btn-secondary">關閉</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI 成全建議 對話框 -->
+      <div id="ai-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>AI 成全建議 - <span id="ai-modal-name"></span></h2>
+
+          <!-- API Key 設定（只存在瀏覽器 localStorage，不會上傳） -->
+          <div id="ai-key-section" class="ai-key-section">
+            <label>
+              Anthropic API Key
+              <input type="password" id="ai-api-key-input" placeholder="sk-ant-..." autocomplete="off" />
+              <span class="hint-text">
+                Key 只儲存在你自己的瀏覽器（localStorage），不會上傳到任何伺服器或寫入程式碼。
+                可到 <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a> 申請。
+              </span>
+            </label>
+            <button type="button" id="ai-save-key-btn" class="btn-primary btn-small">儲存 Key</button>
+          </div>
+
+          <div id="ai-ready-section" class="hidden">
+            <p class="hint-text">
+              會將此對象「去識別化後」的背景、成全狀況與活動紀錄送給 Claude 分析，產生建議的策略與具體做法。
+              <button type="button" id="ai-change-key-btn" class="btn-link">更換 API Key</button>
+            </p>
+            <button type="button" id="ai-generate-btn" class="btn-primary">產生建議</button>
+            <p id="ai-loading" class="hint-text hidden">分析中，請稍候（約需 10～60 秒）...</p>
+            <p id="ai-error" class="error-text"></p>
+
+            <div id="ai-result" class="ai-result hidden">
+              <h3>策略</h3>
+              <p id="ai-result-strategy"></p>
+              <h3>具體做法</h3>
+              <p id="ai-result-method"></p>
+              <button type="button" id="ai-apply-btn" class="btn-primary">套用到「策略 / 做法」欄位</button>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" id="ai-close-btn" class="btn-secondary">關閉</button>
           </div>
         </div>
       </div>

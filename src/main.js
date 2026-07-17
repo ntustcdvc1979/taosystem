@@ -1,6 +1,12 @@
 import "./style.css";
 import { auth, db } from "./firebase.js";
 import {
+  getStoredApiKey,
+  storeApiKey,
+  clearApiKey,
+  generateSuggestion,
+} from "./ai.js";
+import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
@@ -58,6 +64,23 @@ const newActDate = document.getElementById("new-act-date");
 const newActReaction = document.getElementById("new-act-reaction");
 const addActivityBtn = document.getElementById("add-activity-btn");
 const activityCloseBtn = document.getElementById("activity-close-btn");
+
+// AI 成全建議對話框
+const aiModal = document.getElementById("ai-modal");
+const aiModalName = document.getElementById("ai-modal-name");
+const aiKeySection = document.getElementById("ai-key-section");
+const aiReadySection = document.getElementById("ai-ready-section");
+const aiApiKeyInput = document.getElementById("ai-api-key-input");
+const aiSaveKeyBtn = document.getElementById("ai-save-key-btn");
+const aiChangeKeyBtn = document.getElementById("ai-change-key-btn");
+const aiGenerateBtn = document.getElementById("ai-generate-btn");
+const aiLoading = document.getElementById("ai-loading");
+const aiError = document.getElementById("ai-error");
+const aiResult = document.getElementById("ai-result");
+const aiResultStrategy = document.getElementById("ai-result-strategy");
+const aiResultMethod = document.getElementById("ai-result-method");
+const aiApplyBtn = document.getElementById("ai-apply-btn");
+const aiCloseBtn = document.getElementById("ai-close-btn");
 
 let allEntries = [];
 let unsubscribeEntries = null;
@@ -160,6 +183,7 @@ function renderTable() {
       <td class="row-actions">
         <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
         <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
+        <button data-action="ai" data-id="${entry.id}" class="btn-secondary">AI 建議</button>
         <button data-action="delete" data-id="${entry.id}" class="btn-danger">刪除</button>
       </td>
     `;
@@ -170,6 +194,17 @@ function renderTable() {
 // 相容舊資料：以前欄位叫 channel，現在叫 background
 function getBackground(entry) {
   return entry.background ?? entry.channel ?? "";
+}
+
+// 去識別化：儲存前遮罩姓名，資料庫永遠不保存完整姓名。
+// 王小明 → 王○明；王明 → 王○；歐陽小明 → 歐○○明；已含 ○ 的視為已遮罩，不重複處理。
+function deidentifyName(name) {
+  const trimmed = (name || "").trim();
+  if (!trimmed || trimmed.includes("○")) return trimmed;
+  const chars = [...trimmed];
+  if (chars.length === 1) return trimmed;
+  if (chars.length === 2) return chars[0] + "○";
+  return chars[0] + "○".repeat(chars.length - 2) + chars[chars.length - 1];
 }
 
 // 表格內顯示活動紀錄：每筆一行，「活動：反應」
@@ -341,7 +376,7 @@ entryForm.addEventListener("submit", async (e) => {
   // 注意：activities 不在這裡處理，改由活動紀錄對話框獨立新增/編輯，
   // 這裡不能帶入這個欄位，否則 updateDoc 會把既有的活動紀錄整個蓋掉。
   const data = {
-    name: fieldName.value.trim(),
+    name: deidentifyName(fieldName.value),
     department: fieldDepartment.value.trim(),
     background: fieldBackground.value.trim(),
     notes: fieldNotes.value.trim(),
@@ -381,6 +416,8 @@ entriesTbody.addEventListener("click", async (e) => {
     openModal(entry);
   } else if (btn.dataset.action === "activities") {
     openActivityModal(entry);
+  } else if (btn.dataset.action === "ai") {
+    openAiModal(entry);
   } else if (btn.dataset.action === "delete") {
     if (confirm(`確定要刪除「${entry.name}」的資料嗎？此動作無法復原。`)) {
       try {
@@ -390,4 +427,107 @@ entriesTbody.addEventListener("click", async (e) => {
       }
     }
   }
+});
+
+// ---------- AI 成全建議 ----------
+let aiModalEntryId = null;
+let aiLastSuggestion = null;
+
+function refreshAiKeyView() {
+  const hasKey = !!getStoredApiKey();
+  aiKeySection.classList.toggle("hidden", hasKey);
+  aiReadySection.classList.toggle("hidden", !hasKey);
+}
+
+function openAiModal(entry) {
+  aiModalEntryId = entry.id;
+  aiLastSuggestion = null;
+  aiModalName.textContent = entry.name || "";
+  aiError.textContent = "";
+  aiResult.classList.add("hidden");
+  aiLoading.classList.add("hidden");
+  aiGenerateBtn.disabled = false;
+  aiApiKeyInput.value = "";
+  refreshAiKeyView();
+  aiModal.classList.remove("hidden");
+}
+
+function closeAiModal() {
+  aiModal.classList.add("hidden");
+  aiModalEntryId = null;
+}
+
+aiSaveKeyBtn.addEventListener("click", () => {
+  const key = aiApiKeyInput.value.trim();
+  if (!key) {
+    aiApiKeyInput.focus();
+    return;
+  }
+  storeApiKey(key);
+  aiApiKeyInput.value = "";
+  refreshAiKeyView();
+});
+
+aiChangeKeyBtn.addEventListener("click", () => {
+  clearApiKey();
+  refreshAiKeyView();
+  aiApiKeyInput.focus();
+});
+
+aiGenerateBtn.addEventListener("click", async () => {
+  const entry = allEntries.find((en) => en.id === aiModalEntryId);
+  if (!entry) return;
+
+  aiError.textContent = "";
+  aiResult.classList.add("hidden");
+  aiLoading.classList.remove("hidden");
+  aiGenerateBtn.disabled = true;
+
+  try {
+    const suggestion = await generateSuggestion(getStoredApiKey(), {
+      name: entry.name, // 資料庫中已是去識別化後的姓名
+      department: entry.department,
+      background: getBackground(entry),
+      notes: entry.notes,
+      status: entry.status,
+      strategy: entry.strategy,
+      method: entry.method,
+      activities: entry.activities,
+    });
+    aiLastSuggestion = suggestion;
+    aiResultStrategy.textContent = suggestion.strategy;
+    aiResultMethod.textContent = suggestion.method;
+    aiResult.classList.remove("hidden");
+  } catch (err) {
+    if (err?.status === 401) {
+      aiError.textContent = "API Key 無效或已過期，請點「更換 API Key」重新設定。";
+    } else if (err?.status === 429) {
+      aiError.textContent = "請求太頻繁或額度不足，請稍後再試。";
+    } else {
+      aiError.textContent = "產生建議失敗：" + (err?.message || err);
+    }
+  } finally {
+    aiLoading.classList.add("hidden");
+    aiGenerateBtn.disabled = false;
+  }
+});
+
+aiApplyBtn.addEventListener("click", async () => {
+  if (!aiLastSuggestion || !aiModalEntryId) return;
+  try {
+    await updateDoc(doc(db, ENTRIES_COLLECTION, aiModalEntryId), {
+      strategy: aiLastSuggestion.strategy,
+      method: aiLastSuggestion.method,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+    closeAiModal();
+  } catch (err) {
+    aiError.textContent = "套用失敗：" + err.message;
+  }
+});
+
+aiCloseBtn.addEventListener("click", closeAiModal);
+aiModal.addEventListener("click", (e) => {
+  if (e.target === aiModal) closeAiModal();
 });
