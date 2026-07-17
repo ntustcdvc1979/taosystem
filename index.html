@@ -87,7 +87,7 @@
             <label>
               姓名 <span class="required">*</span>
               <input type="text" id="field-name" required />
-              <span class="hint-text">儲存時會自動去識別化（例：王小明 → 王○明），資料庫不會保存完整姓名。</span>
+              <span class="hint-text">系統內照常顯示完整姓名；只有送給 AI 分析時才會自動遮罩（例：王小明 → 王○明）。</span>
             </label>
             <label>
               系級
@@ -165,23 +165,9 @@
         <div class="modal-content">
           <h2>AI 成全建議 - <span id="ai-modal-name"></span></h2>
 
-          <!-- API Key 設定（只存在瀏覽器 localStorage，不會上傳） -->
-          <div id="ai-key-section" class="ai-key-section">
-            <label>
-              Anthropic API Key
-              <input type="password" id="ai-api-key-input" placeholder="sk-ant-..." autocomplete="off" />
-              <span class="hint-text">
-                Key 只儲存在你自己的瀏覽器（localStorage），不會上傳到任何伺服器或寫入程式碼。
-                可到 <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a> 申請。
-              </span>
-            </label>
-            <button type="button" id="ai-save-key-btn" class="btn-primary btn-small">儲存 Key</button>
-          </div>
-
-          <div id="ai-ready-section" class="hidden">
+          <div id="ai-ready-section">
             <p class="hint-text">
-              會將此對象「去識別化後」的背景、成全狀況與活動紀錄送給 Claude 分析，產生建議的策略與具體做法。
-              <button type="button" id="ai-change-key-btn" class="btn-link">更換 API Key</button>
+              會將此對象「去識別化後」（姓名遮罩）的背景、成全狀況與活動紀錄送給 Claude 分析，產生建議的策略與具體做法。
             </p>
             <button type="button" id="ai-generate-btn" class="btn-primary">產生建議</button>
             <p id="ai-loading" class="hint-text hidden">分析中，請稍候（約需 10～60 秒）...</p>

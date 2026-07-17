@@ -1,18 +1,18 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "./firebase.js";
 
-// API Key 只存在使用者自己的瀏覽器 localStorage，絕不寫進程式碼或上傳到任何地方。
-const API_KEY_STORAGE = "taosystem_anthropic_api_key";
+// 共用的 API Key 存在 Firestore 的 config/ai 文件（欄位 anthropicApiKey），
+// 由 Firestore 安全規則的 Email 白名單保護：只有登入且在白名單內的人讀得到。
+// Key 不寫在程式碼、不進 git、也不會出現在部署後的公開 JS 裡。
+let cachedKey = null;
 
-export function getStoredApiKey() {
-  return localStorage.getItem(API_KEY_STORAGE) || "";
-}
-
-export function storeApiKey(key) {
-  localStorage.setItem(API_KEY_STORAGE, key.trim());
-}
-
-export function clearApiKey() {
-  localStorage.removeItem(API_KEY_STORAGE);
+export async function getSharedApiKey() {
+  if (cachedKey) return cachedKey;
+  const snap = await getDoc(doc(db, "config", "ai"));
+  const key = snap.exists() ? (snap.data().anthropicApiKey || "").trim() : "";
+  if (key) cachedKey = key;
+  return key;
 }
 
 const SYSTEM_PROMPT = `你是一位資深的一貫道校園成全前賢，熟悉如何依照每個人的背景、興趣與目前的成全狀況，規劃下一步的成全策略。
@@ -31,13 +31,13 @@ const SYSTEM_PROMPT = `你是一位資深的一貫道校園成全前賢，熟悉
 
 /**
  * 產生成全建議。回傳 { strategy, method }。
- * @param {string} apiKey - 使用者自己的 Anthropic API Key
+ * @param {string} apiKey - 從 Firestore config/ai 取得的共用 API Key
  * @param {object} person - 已去識別化的對象資料
  */
 export async function generateSuggestion(apiKey, person) {
   const client = new Anthropic({
     apiKey,
-    dangerouslyAllowBrowser: true, // 純前端網站，key 由使用者本人提供並存於其瀏覽器
+    dangerouslyAllowBrowser: true, // 純前端網站；key 由 Firestore 白名單規則保護
   });
 
   const activityLines = (person.activities || [])

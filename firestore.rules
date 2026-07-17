@@ -19,6 +19,13 @@ service cloud.firestore {
       allow read, write: if isAllowed();
     }
 
+    // 共用設定（含 AI 的共用 API Key，存在 config/ai 文件的 anthropicApiKey 欄位）。
+    // 只有白名單成員能讀取；寫入僅限透過 Firebase Console（管理員）操作。
+    match /config/{docId} {
+      allow read: if isAllowed();
+      allow write: if false;
+    }
+
     // 其他所有路徑一律拒絕
     match /{document=**} {
       allow read, write: if false;

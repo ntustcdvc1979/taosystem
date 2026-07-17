@@ -1,11 +1,6 @@
 import "./style.css";
 import { auth, db } from "./firebase.js";
-import {
-  getStoredApiKey,
-  storeApiKey,
-  clearApiKey,
-  generateSuggestion,
-} from "./ai.js";
+import { getSharedApiKey, generateSuggestion } from "./ai.js";
 import {
   onAuthStateChanged,
   GoogleAuthProvider,
@@ -68,11 +63,6 @@ const activityCloseBtn = document.getElementById("activity-close-btn");
 // AI 成全建議對話框
 const aiModal = document.getElementById("ai-modal");
 const aiModalName = document.getElementById("ai-modal-name");
-const aiKeySection = document.getElementById("ai-key-section");
-const aiReadySection = document.getElementById("ai-ready-section");
-const aiApiKeyInput = document.getElementById("ai-api-key-input");
-const aiSaveKeyBtn = document.getElementById("ai-save-key-btn");
-const aiChangeKeyBtn = document.getElementById("ai-change-key-btn");
 const aiGenerateBtn = document.getElementById("ai-generate-btn");
 const aiLoading = document.getElementById("ai-loading");
 const aiError = document.getElementById("ai-error");
@@ -196,7 +186,7 @@ function getBackground(entry) {
   return entry.background ?? entry.channel ?? "";
 }
 
-// 去識別化：儲存前遮罩姓名，資料庫永遠不保存完整姓名。
+// 去識別化：只在把資料送給 AI 分析時遮罩姓名；系統顯示與資料庫儲存皆保留完整姓名。
 // 王小明 → 王○明；王明 → 王○；歐陽小明 → 歐○○明；已含 ○ 的視為已遮罩，不重複處理。
 function deidentifyName(name) {
   const trimmed = (name || "").trim();
@@ -376,7 +366,7 @@ entryForm.addEventListener("submit", async (e) => {
   // 注意：activities 不在這裡處理，改由活動紀錄對話框獨立新增/編輯，
   // 這裡不能帶入這個欄位，否則 updateDoc 會把既有的活動紀錄整個蓋掉。
   const data = {
-    name: deidentifyName(fieldName.value),
+    name: fieldName.value.trim(),
     department: fieldDepartment.value.trim(),
     background: fieldBackground.value.trim(),
     notes: fieldNotes.value.trim(),
@@ -433,12 +423,6 @@ entriesTbody.addEventListener("click", async (e) => {
 let aiModalEntryId = null;
 let aiLastSuggestion = null;
 
-function refreshAiKeyView() {
-  const hasKey = !!getStoredApiKey();
-  aiKeySection.classList.toggle("hidden", hasKey);
-  aiReadySection.classList.toggle("hidden", !hasKey);
-}
-
 function openAiModal(entry) {
   aiModalEntryId = entry.id;
   aiLastSuggestion = null;
@@ -447,8 +431,6 @@ function openAiModal(entry) {
   aiResult.classList.add("hidden");
   aiLoading.classList.add("hidden");
   aiGenerateBtn.disabled = false;
-  aiApiKeyInput.value = "";
-  refreshAiKeyView();
   aiModal.classList.remove("hidden");
 }
 
@@ -456,23 +438,6 @@ function closeAiModal() {
   aiModal.classList.add("hidden");
   aiModalEntryId = null;
 }
-
-aiSaveKeyBtn.addEventListener("click", () => {
-  const key = aiApiKeyInput.value.trim();
-  if (!key) {
-    aiApiKeyInput.focus();
-    return;
-  }
-  storeApiKey(key);
-  aiApiKeyInput.value = "";
-  refreshAiKeyView();
-});
-
-aiChangeKeyBtn.addEventListener("click", () => {
-  clearApiKey();
-  refreshAiKeyView();
-  aiApiKeyInput.focus();
-});
 
 aiGenerateBtn.addEventListener("click", async () => {
   const entry = allEntries.find((en) => en.id === aiModalEntryId);
@@ -484,8 +449,15 @@ aiGenerateBtn.addEventListener("click", async () => {
   aiGenerateBtn.disabled = true;
 
   try {
-    const suggestion = await generateSuggestion(getStoredApiKey(), {
-      name: entry.name, // 資料庫中已是去識別化後的姓名
+    // 共用 Key 存在 Firestore config/ai，由白名單規則保護
+    const apiKey = await getSharedApiKey();
+    if (!apiKey) {
+      throw new Error(
+        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
+      );
+    }
+    const suggestion = await generateSuggestion(apiKey, {
+      name: deidentifyName(entry.name), // 只在送 AI 時遮罩姓名
       department: entry.department,
       background: getBackground(entry),
       notes: entry.notes,
@@ -500,7 +472,7 @@ aiGenerateBtn.addEventListener("click", async () => {
     aiResult.classList.remove("hidden");
   } catch (err) {
     if (err?.status === 401) {
-      aiError.textContent = "API Key 無效或已過期，請點「更換 API Key」重新設定。";
+      aiError.textContent = "共用 API Key 無效或已過期，請管理員到 Firestore 的 config/ai 文件更新。";
     } else if (err?.status === 429) {
       aiError.textContent = "請求太頻繁或額度不足，請稍後再試。";
     } else {
