@@ -30,7 +30,7 @@ const logoutBtn = document.getElementById("logout-btn");
 
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
-const filterChannel = document.getElementById("filter-channel");
+const filterBackground = document.getElementById("filter-background");
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesTbody = document.getElementById("entries-tbody");
 
@@ -42,12 +42,14 @@ const cancelBtn = document.getElementById("cancel-btn");
 const fieldId = document.getElementById("entry-id");
 const fieldName = document.getElementById("field-name");
 const fieldDepartment = document.getElementById("field-department");
-const fieldChannel = document.getElementById("field-channel");
+const fieldBackground = document.getElementById("field-background");
 const fieldNotes = document.getElementById("field-notes");
 const fieldContact = document.getElementById("field-contact");
 const fieldStatus = document.getElementById("field-status");
 const fieldStrategy = document.getElementById("field-strategy");
 const fieldMethod = document.getElementById("field-method");
+const addActivityBtn = document.getElementById("add-activity-btn");
+const activitiesList = document.getElementById("activities-list");
 
 let allEntries = [];
 let unsubscribeEntries = null;
@@ -128,11 +130,11 @@ function updateStatusFilterOptions() {
 function renderTable() {
   const searchTerm = searchInput.value.trim().toLowerCase();
   const statusVal = filterStatus.value;
-  const channelVal = filterChannel.value;
+  const backgroundVal = filterBackground.value;
 
   const filtered = allEntries.filter((entry) => {
     if (statusVal && entry.status !== statusVal) return false;
-    if (channelVal && entry.channel !== channelVal) return false;
+    if (backgroundVal && getBackground(entry) !== backgroundVal) return false;
     if (searchTerm) {
       const haystack = [entry.name, entry.department, entry.contact]
         .filter(Boolean)
@@ -146,7 +148,7 @@ function renderTable() {
   entriesTbody.innerHTML = "";
 
   if (filtered.length === 0) {
-    entriesTbody.innerHTML = '<tr><td colspan="9" class="empty-text">尚無資料</td></tr>';
+    entriesTbody.innerHTML = '<tr><td colspan="10" class="empty-text">尚無資料</td></tr>';
     return;
   }
 
@@ -155,12 +157,13 @@ function renderTable() {
     tr.innerHTML = `
       <td>${escapeHtml(entry.name)}</td>
       <td>${escapeHtml(entry.department)}</td>
-      <td>${escapeHtml(entry.channel)}</td>
+      <td>${escapeHtml(getBackground(entry))}</td>
       <td>${escapeHtml(entry.notes)}</td>
       <td>${escapeHtml(entry.contact)}</td>
       <td>${entry.status ? `<span class="status-badge">${escapeHtml(entry.status)}</span>` : ""}</td>
       <td>${escapeHtml(entry.strategy)}</td>
       <td>${escapeHtml(entry.method)}</td>
+      <td>${renderActivitiesCell(entry.activities)}</td>
       <td class="row-actions">
         <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
         <button data-action="delete" data-id="${entry.id}" class="btn-danger">刪除</button>
@@ -168,6 +171,25 @@ function renderTable() {
     `;
     entriesTbody.appendChild(tr);
   });
+}
+
+// 相容舊資料：以前欄位叫 channel，現在叫 background
+function getBackground(entry) {
+  return entry.background ?? entry.channel ?? "";
+}
+
+// 表格內顯示活動紀錄：每筆一行，「活動：反應」
+function renderActivitiesCell(activities) {
+  if (!Array.isArray(activities) || activities.length === 0) return "";
+  return activities
+    .map((a) => {
+      const act = escapeHtml(a.activity);
+      const reaction = escapeHtml(a.reaction);
+      const date = a.date ? `<span class="act-date">${escapeHtml(a.date)}</span> ` : "";
+      const body = reaction ? `${act}：${reaction}` : act;
+      return `<div class="act-item">${date}${body}</div>`;
+    })
+    .join("");
 }
 
 function escapeHtml(value) {
@@ -181,7 +203,45 @@ function escapeHtml(value) {
 
 searchInput.addEventListener("input", renderTable);
 filterStatus.addEventListener("change", renderTable);
-filterChannel.addEventListener("change", renderTable);
+filterBackground.addEventListener("change", renderTable);
+
+// ---------- 活動紀錄（modal 內的動態列） ----------
+function addActivityRow(activity = {}) {
+  const row = document.createElement("div");
+  row.className = "activity-row";
+  row.innerHTML = `
+    <input type="text" class="act-field-name" placeholder="活動名稱" />
+    <input type="text" class="act-field-date" placeholder="日期(選填)" />
+    <input type="text" class="act-field-reaction" placeholder="反應 / 回饋" />
+    <button type="button" class="btn-danger btn-small act-remove">✕</button>
+  `;
+  row.querySelector(".act-field-name").value = activity.activity || "";
+  row.querySelector(".act-field-date").value = activity.date || "";
+  row.querySelector(".act-field-reaction").value = activity.reaction || "";
+  activitiesList.appendChild(row);
+}
+
+function renderActivityRows(activities) {
+  activitiesList.innerHTML = "";
+  (activities || []).forEach((a) => addActivityRow(a));
+}
+
+function collectActivities() {
+  return [...activitiesList.querySelectorAll(".activity-row")]
+    .map((row) => ({
+      activity: row.querySelector(".act-field-name").value.trim(),
+      date: row.querySelector(".act-field-date").value.trim(),
+      reaction: row.querySelector(".act-field-reaction").value.trim(),
+    }))
+    .filter((a) => a.activity || a.reaction);
+}
+
+addActivityBtn.addEventListener("click", () => addActivityRow());
+activitiesList.addEventListener("click", (e) => {
+  if (e.target.closest(".act-remove")) {
+    e.target.closest(".activity-row").remove();
+  }
+});
 
 // ---------- Modal open/close ----------
 function openModal(entry = null) {
@@ -191,15 +251,17 @@ function openModal(entry = null) {
     fieldId.value = entry.id;
     fieldName.value = entry.name || "";
     fieldDepartment.value = entry.department || "";
-    fieldChannel.value = entry.channel || "社團";
+    fieldBackground.value = getBackground(entry) || "社團";
     fieldNotes.value = entry.notes || "";
     fieldContact.value = entry.contact || "";
     fieldStatus.value = entry.status || "";
     fieldStrategy.value = entry.strategy || "";
     fieldMethod.value = entry.method || "";
+    renderActivityRows(entry.activities);
   } else {
     modalTitle.textContent = "新增名單";
     fieldId.value = "";
+    renderActivityRows([]);
   }
   entryModal.classList.remove("hidden");
   fieldName.focus();
@@ -221,12 +283,13 @@ entryForm.addEventListener("submit", async (e) => {
   const data = {
     name: fieldName.value.trim(),
     department: fieldDepartment.value.trim(),
-    channel: fieldChannel.value,
+    background: fieldBackground.value,
     notes: fieldNotes.value.trim(),
     contact: fieldContact.value.trim(),
     status: fieldStatus.value.trim(),
     strategy: fieldStrategy.value.trim(),
     method: fieldMethod.value.trim(),
+    activities: collectActivities(),
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.email || null,
   };

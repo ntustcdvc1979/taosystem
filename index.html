@@ -41,8 +41,8 @@
           <select id="filter-status">
             <option value="">所有成全狀況</option>
           </select>
-          <select id="filter-channel">
-            <option value="">所有管道</option>
+          <select id="filter-background">
+            <option value="">所有背景</option>
             <option value="社團">社團</option>
             <option value="家教">家教</option>
             <option value="系隊">系隊</option>
@@ -58,17 +58,18 @@
               <tr>
                 <th>姓名</th>
                 <th>系級</th>
-                <th>管道</th>
+                <th>背景</th>
                 <th>備註</th>
                 <th>聯絡人</th>
                 <th>成全狀況</th>
                 <th>策略</th>
                 <th>做法</th>
+                <th>活動紀錄</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody id="entries-tbody">
-              <tr id="empty-row"><td colspan="9" class="empty-text">尚無資料</td></tr>
+              <tr id="empty-row"><td colspan="10" class="empty-text">尚無資料</td></tr>
             </tbody>
           </table>
         </div>
@@ -89,8 +90,8 @@
               <input type="text" id="field-department" placeholder="例：資工三" />
             </label>
             <label>
-              管道
-              <select id="field-channel">
+              背景
+              <select id="field-background">
                 <option value="社團">社團</option>
                 <option value="家教">家教</option>
                 <option value="系隊">系隊</option>
@@ -126,6 +127,16 @@
               做法
               <textarea id="field-method" rows="2"></textarea>
             </label>
+
+            <div class="activities-section">
+              <div class="activities-header">
+                <span>活動紀錄</span>
+                <button type="button" id="add-activity-btn" class="btn-secondary btn-small">＋ 新增一筆</button>
+              </div>
+              <div id="activities-list"></div>
+              <p class="hint-text">記錄這個人參加過哪些活動、當下的反應。可新增多筆。</p>
+            </div>
+
             <div class="modal-actions">
               <button type="button" id="cancel-btn" class="btn-secondary">取消</button>
               <button type="submit" class="btn-primary">儲存</button>

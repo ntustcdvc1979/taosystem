@@ -265,6 +265,66 @@ tbody tr:hover {
   color: #c0392b;
 }
 
+/* 活動紀錄 */
+.activities-section {
+  margin-bottom: 1rem;
+}
+
+.activities-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: #444;
+  margin-bottom: 0.5rem;
+}
+
+.btn-small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.activity-row {
+  display: grid;
+  grid-template-columns: 1.3fr 0.9fr 1.6fr auto;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.activity-row input {
+  margin-top: 0 !important;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-family: inherit;
+  min-width: 0;
+}
+
+.act-remove {
+  align-self: stretch;
+}
+
+.hint-text {
+  font-size: 0.78rem;
+  color: #999;
+  margin: 0.3rem 0 0;
+}
+
+/* 表格內的活動紀錄 */
+.act-item {
+  margin-bottom: 0.25rem;
+}
+
+.act-item:last-child {
+  margin-bottom: 0;
+}
+
+.act-date {
+  color: #888;
+  font-size: 0.78rem;
+}
+
 @media (max-width: 640px) {
   .toolbar .btn-primary {
     margin-left: 0;
