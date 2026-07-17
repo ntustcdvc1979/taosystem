@@ -1,0 +1,272 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  background: #f5f6f8;
+  color: #222;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* 登入畫面 */
+#login-view {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-box {
+  background: #fff;
+  padding: 2.5rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  width: 100%;
+  max-width: 360px;
+}
+
+.login-box h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+}
+
+.subtitle {
+  color: #777;
+  margin: 0 0 1.5rem;
+}
+
+#login-form label,
+#entry-form label {
+  display: block;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+#login-form input,
+#entry-form input,
+#entry-form textarea,
+#entry-form select {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+
+.error-text {
+  color: #c0392b;
+  font-size: 0.85rem;
+  min-height: 1.2em;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  border: none;
+  border-radius: 6px;
+  padding: 0.6rem 1.1rem;
+}
+
+.btn-primary {
+  background: #2f6fed;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #2559c4;
+}
+
+.btn-secondary {
+  background: #e7e9ec;
+  color: #333;
+}
+
+.btn-secondary:hover {
+  background: #dadde1;
+}
+
+.btn-google {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.7rem;
+  background: #fff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  font-weight: 500;
+}
+
+.btn-google:hover {
+  background: #f7f8f8;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 主畫面 */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.topbar h1 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 1rem 1.5rem;
+}
+
+.toolbar input,
+.toolbar select {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+#search-input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.toolbar .btn-primary {
+  margin-left: auto;
+}
+
+.table-wrapper {
+  padding: 0 1.5rem 2rem;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  min-width: 900px;
+}
+
+thead {
+  background: #f0f2f5;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid #edeef0;
+  font-size: 0.88rem;
+  vertical-align: top;
+  max-width: 220px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+tbody tr:hover {
+  background: #f9fafb;
+}
+
+.empty-text {
+  text-align: center;
+  color: #999;
+  padding: 2rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.row-actions button {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.btn-danger {
+  background: #fdecea;
+  color: #c0392b;
+}
+
+.btn-danger:hover {
+  background: #f9d6d2;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: #eef1f5;
+  color: #444;
+}
+
+/* Modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 50;
+}
+
+.modal-content {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.8rem;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-content h2 {
+  margin-top: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.required {
+  color: #c0392b;
+}
+
+@media (max-width: 640px) {
+  .toolbar .btn-primary {
+    margin-left: 0;
+  }
+}

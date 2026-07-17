@@ -1,0 +1,27 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== 授權白名單 =====
+    // 只有下面清單裡的 Google 帳號 Email 才能存取資料。
+    // 要新增使用者：把對方的 Google Email 加到這個陣列裡，然後重新發布規則。
+    function isAllowed() {
+      return request.auth != null &&
+             request.auth.token.email in [
+               'damoncho510@gmail.com'
+               // , 'someone@gmail.com'
+               // , 'another@gmail.com'
+             ];
+    }
+
+    match /entries/{entryId} {
+      allow read, write: if isAllowed();
+    }
+
+    // 其他所有路徑一律拒絕
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
