@@ -307,6 +307,43 @@ tbody tr:hover {
   align-self: stretch;
 }
 
+/* 聊天成全紀錄對話框 */
+#talk-modal .modal-content {
+  max-width: 640px;
+}
+
+.talk-row {
+  display: grid;
+  grid-template-columns: 0.9fr 2fr auto auto;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.talk-add-row {
+  display: grid;
+  grid-template-columns: 0.9fr 2fr auto;
+  gap: 0.4rem;
+  margin: 1rem 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid #edeef0;
+}
+
+.talk-row input,
+.talk-add-row input {
+  margin-top: 0 !important;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-family: inherit;
+  min-width: 0;
+}
+
+.talk-save,
+.talk-delete {
+  align-self: stretch;
+}
+
 .hint-text {
   font-size: 0.78rem;
   color: #999;

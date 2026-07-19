@@ -26,6 +26,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // AI 成全助手的對話紀錄，每位使用者一份（文件 ID = 使用者 uid）。
+    // 除了要在白名單內，還限定只能讀寫自己那一份，看不到別人的對話。
+    match /chatHistories/{userId} {
+      allow read, write: if isAllowed() && request.auth.uid == userId;
+    }
+
     // 其他所有路徑一律拒絕
     match /{document=**} {
       allow read, write: if false;

@@ -60,6 +60,7 @@
             <thead>
               <tr>
                 <th>姓名</th>
+                <th>乾坤</th>
                 <th>系級</th>
                 <th>背景</th>
                 <th>備註</th>
@@ -68,11 +69,12 @@
                 <th>策略</th>
                 <th>做法</th>
                 <th>活動紀錄</th>
+                <th>聊天成全紀錄</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody id="entries-tbody">
-              <tr id="empty-row"><td colspan="10" class="empty-text">尚無資料</td></tr>
+              <tr id="empty-row"><td colspan="12" class="empty-text">尚無資料</td></tr>
             </tbody>
           </table>
         </div>
@@ -88,6 +90,14 @@
               姓名 <span class="required">*</span>
               <input type="text" id="field-name" required />
               <span class="hint-text">系統內照常顯示完整姓名；只有送給 AI 分析時才會換成中性代號（例：王小明 → 代號3，看不出是誰），AI 回覆後再自動轉回真名。</span>
+            </label>
+            <label>
+              乾坤
+              <select id="field-gender">
+                <option value="">請選擇</option>
+                <option value="乾">乾</option>
+                <option value="坤">坤</option>
+              </select>
             </label>
             <label>
               系級
@@ -157,6 +167,27 @@
 
           <div class="modal-actions">
             <button type="button" id="activity-close-btn" class="btn-secondary">關閉</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 聊天成全紀錄 對話框（每個人獨立管理） -->
+      <div id="talk-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>聊天成全紀錄 - <span id="talk-modal-name"></span></h2>
+          <p class="hint-text">記錄每次跟這個人聊天成全的日期與內容，AI 產生建議時會一併參考。</p>
+
+          <div id="talks-list"></div>
+          <p id="talks-empty-hint" class="hint-text">尚無聊天紀錄。</p>
+
+          <div class="talk-add-row">
+            <input type="text" id="new-talk-date" placeholder="日期，例：2026/07/18" />
+            <input type="text" id="new-talk-content" placeholder="聊了什麼、對方的反應" />
+            <button type="button" id="add-talk-btn" class="btn-primary btn-small">新增</button>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" id="talk-close-btn" class="btn-secondary">關閉</button>
           </div>
         </div>
       </div>

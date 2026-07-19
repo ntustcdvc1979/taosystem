@@ -13,6 +13,8 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  getDoc,
+  setDoc,
   onSnapshot,
   serverTimestamp,
   query,
@@ -20,6 +22,7 @@ import {
 } from "firebase/firestore";
 
 const ENTRIES_COLLECTION = "entries";
+const CHAT_COLLECTION = "chatHistories"; // 每位使用者一份，文件 ID = 使用者 uid
 
 // ---------- DOM refs ----------
 const loginView = document.getElementById("login-view");
@@ -41,6 +44,7 @@ const cancelBtn = document.getElementById("cancel-btn");
 
 const fieldId = document.getElementById("entry-id");
 const fieldName = document.getElementById("field-name");
+const fieldGender = document.getElementById("field-gender");
 const fieldDepartment = document.getElementById("field-department");
 const fieldBackground = document.getElementById("field-background");
 const fieldNotes = document.getElementById("field-notes");
@@ -59,6 +63,16 @@ const newActDate = document.getElementById("new-act-date");
 const newActReaction = document.getElementById("new-act-reaction");
 const addActivityBtn = document.getElementById("add-activity-btn");
 const activityCloseBtn = document.getElementById("activity-close-btn");
+
+// 聊天成全紀錄對話框（每個人獨立管理）
+const talkModal = document.getElementById("talk-modal");
+const talkModalName = document.getElementById("talk-modal-name");
+const talksList = document.getElementById("talks-list");
+const talksEmptyHint = document.getElementById("talks-empty-hint");
+const newTalkDate = document.getElementById("new-talk-date");
+const newTalkContent = document.getElementById("new-talk-content");
+const addTalkBtn = document.getElementById("add-talk-btn");
+const talkCloseBtn = document.getElementById("talk-close-btn");
 
 // AI 成全建議對話框
 const aiModal = document.getElementById("ai-modal");
@@ -94,6 +108,7 @@ onAuthStateChanged(auth, (user) => {
     currentUserLabel.textContent = user.email;
     chatFab.classList.remove("hidden");
     subscribeEntries();
+    loadChatHistory();
   } else {
     appView.classList.add("hidden");
     loginView.classList.remove("hidden");
@@ -104,6 +119,7 @@ onAuthStateChanged(auth, (user) => {
       unsubscribeEntries = null;
     }
     allEntries = [];
+    chatHistory = [];
   }
 });
 
@@ -134,6 +150,7 @@ function subscribeEntries() {
       allEntries = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderTable();
       refreshOpenActivityModal();
+      refreshOpenTalkModal();
     },
     (err) => {
       // 通常是這個 Google 帳號不在白名單內，被 Firestore 規則擋下
@@ -168,7 +185,7 @@ function renderTable() {
   entriesTbody.innerHTML = "";
 
   if (filtered.length === 0) {
-    entriesTbody.innerHTML = '<tr><td colspan="10" class="empty-text">尚無資料</td></tr>';
+    entriesTbody.innerHTML = '<tr><td colspan="12" class="empty-text">尚無資料</td></tr>';
     return;
   }
 
@@ -176,6 +193,7 @@ function renderTable() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(entry.name)}</td>
+      <td>${escapeHtml(entry.gender)}</td>
       <td>${escapeHtml(entry.department)}</td>
       <td>${escapeHtml(getBackground(entry))}</td>
       <td>${escapeHtml(entry.notes)}</td>
@@ -184,9 +202,11 @@ function renderTable() {
       <td>${escapeHtml(entry.strategy)}</td>
       <td>${escapeHtml(entry.method)}</td>
       <td>${renderActivitiesCell(entry.activities)}</td>
+      <td>${renderTalksCell(entry.talks)}</td>
       <td class="row-actions">
         <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
         <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
+        <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聊天紀錄</button>
         <button data-action="ai" data-id="${entry.id}" class="btn-secondary">AI 建議</button>
         <button data-action="delete" data-id="${entry.id}" class="btn-danger">刪除</button>
       </td>
@@ -274,6 +294,7 @@ function unmaskNames(text, reverse) {
 function maskEntry(entry, forward) {
   return {
     name: maskNames(entry.name, forward),
+    gender: entry.gender,
     department: maskNames(entry.department, forward),
     background: maskNames(getBackground(entry), forward),
     notes: maskNames(entry.notes, forward),
@@ -285,6 +306,10 @@ function maskEntry(entry, forward) {
       ...a,
       activity: maskNames(a.activity, forward),
       reaction: maskNames(a.reaction, forward),
+    })),
+    talks: (entry.talks || []).map((t) => ({
+      ...t,
+      content: maskNames(t.content, forward),
     })),
   };
 }
@@ -299,6 +324,17 @@ function renderActivitiesCell(activities) {
       const date = a.date ? `<span class="act-date">${escapeHtml(a.date)}</span> ` : "";
       const body = reaction ? `${act}：${reaction}` : act;
       return `<div class="act-item">${date}${body}</div>`;
+    })
+    .join("");
+}
+
+// 表格內顯示聊天成全紀錄：每筆一行，「日期 內容」
+function renderTalksCell(talks) {
+  if (!Array.isArray(talks) || talks.length === 0) return "";
+  return talks
+    .map((t) => {
+      const date = t.date ? `<span class="act-date">${escapeHtml(t.date)}</span> ` : "";
+      return `<div class="act-item">${date}${escapeHtml(t.content)}</div>`;
     })
     .join("");
 }
@@ -420,6 +456,102 @@ activityModal.addEventListener("click", (e) => {
   if (e.target === activityModal) closeActivityModal();
 });
 
+// ---------- 聊天成全紀錄對話框（每個人獨立新增/編輯） ----------
+let talkModalEntryId = null;
+let talkModalTalks = [];
+
+function openTalkModal(entry) {
+  talkModalEntryId = entry.id;
+  talkModalTalks = (entry.talks || []).map((t) => ({ ...t }));
+  talkModalName.textContent = entry.name || "";
+  newTalkDate.value = "";
+  newTalkContent.value = "";
+  renderTalkModalList();
+  talkModal.classList.remove("hidden");
+}
+
+function closeTalkModal() {
+  talkModal.classList.add("hidden");
+  talkModalEntryId = null;
+}
+
+// 其他人（或自己另一分頁）更新資料時，同步刷新開著的視窗
+function refreshOpenTalkModal() {
+  if (!talkModalEntryId) return;
+  const entry = allEntries.find((en) => en.id === talkModalEntryId);
+  if (!entry) return;
+  talkModalTalks = (entry.talks || []).map((t) => ({ ...t }));
+  renderTalkModalList();
+}
+
+function renderTalkModalList() {
+  talksList.innerHTML = "";
+  talksEmptyHint.classList.toggle("hidden", talkModalTalks.length > 0);
+
+  talkModalTalks.forEach((t, index) => {
+    const row = document.createElement("div");
+    row.className = "talk-row";
+    row.dataset.index = String(index);
+    row.innerHTML = `
+      <input type="text" class="talk-field-date" placeholder="日期" />
+      <input type="text" class="talk-field-content" placeholder="聊了什麼、對方的反應" />
+      <button type="button" class="btn-secondary btn-small talk-save">儲存</button>
+      <button type="button" class="btn-danger btn-small talk-delete">刪除</button>
+    `;
+    row.querySelector(".talk-field-date").value = t.date || "";
+    row.querySelector(".talk-field-content").value = t.content || "";
+    talksList.appendChild(row);
+  });
+}
+
+async function persistTalks() {
+  try {
+    await updateDoc(doc(db, ENTRIES_COLLECTION, talkModalEntryId), {
+      talks: talkModalTalks,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+  } catch (err) {
+    alert("儲存聊天紀錄失敗：" + err.message);
+  }
+}
+
+talksList.addEventListener("click", async (e) => {
+  const row = e.target.closest(".talk-row");
+  if (!row) return;
+  const index = Number(row.dataset.index);
+
+  if (e.target.closest(".talk-save")) {
+    talkModalTalks[index] = {
+      date: row.querySelector(".talk-field-date").value.trim(),
+      content: row.querySelector(".talk-field-content").value.trim(),
+    };
+    await persistTalks();
+  } else if (e.target.closest(".talk-delete")) {
+    talkModalTalks.splice(index, 1);
+    renderTalkModalList();
+    await persistTalks();
+  }
+});
+
+addTalkBtn.addEventListener("click", async () => {
+  const content = newTalkContent.value.trim();
+  if (!content) {
+    newTalkContent.focus();
+    return;
+  }
+  talkModalTalks.push({ date: newTalkDate.value.trim(), content });
+  newTalkDate.value = "";
+  newTalkContent.value = "";
+  renderTalkModalList();
+  await persistTalks();
+});
+
+talkCloseBtn.addEventListener("click", closeTalkModal);
+talkModal.addEventListener("click", (e) => {
+  if (e.target === talkModal) closeTalkModal();
+});
+
 // ---------- Modal open/close ----------
 function openModal(entry = null) {
   entryForm.reset();
@@ -427,6 +559,7 @@ function openModal(entry = null) {
     modalTitle.textContent = "編輯名單";
     fieldId.value = entry.id;
     fieldName.value = entry.name || "";
+    fieldGender.value = entry.gender || "";
     fieldDepartment.value = entry.department || "";
     fieldBackground.value = getBackground(entry);
     fieldNotes.value = entry.notes || "";
@@ -455,10 +588,11 @@ entryModal.addEventListener("click", (e) => {
 // ---------- Create / Update / Delete ----------
 entryForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  // 注意：activities 不在這裡處理，改由活動紀錄對話框獨立新增/編輯，
-  // 這裡不能帶入這個欄位，否則 updateDoc 會把既有的活動紀錄整個蓋掉。
+  // 注意：activities / talks 不在這裡處理，改由各自的對話框獨立新增/編輯，
+  // 這裡不能帶入這些欄位，否則 updateDoc 會把既有紀錄整個蓋掉。
   const data = {
     name: fieldName.value.trim(),
+    gender: fieldGender.value,
     department: fieldDepartment.value.trim(),
     background: fieldBackground.value.trim(),
     notes: fieldNotes.value.trim(),
@@ -478,6 +612,7 @@ entryForm.addEventListener("submit", async (e) => {
       await addDoc(collection(db, ENTRIES_COLLECTION), {
         ...data,
         activities: [],
+        talks: [],
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.email || null,
       });
@@ -498,6 +633,8 @@ entriesTbody.addEventListener("click", async (e) => {
     openModal(entry);
   } else if (btn.dataset.action === "activities") {
     openActivityModal(entry);
+  } else if (btn.dataset.action === "talks") {
+    openTalkModal(entry);
   } else if (btn.dataset.action === "ai") {
     openAiModal(entry);
   } else if (btn.dataset.action === "delete") {
@@ -605,8 +742,37 @@ aiModal.addEventListener("click", (e) => {
 });
 
 // ---------- AI Agent 聊天室（可看到整份去識別化名單） ----------
+// 對話紀錄存在 Firestore 的 chatHistories/{uid}，每位使用者一份、只有本人讀得到，
+// 重新整理或換裝置都還在。內容以真名保存（與名單同等級的資料，受同一份白名單規則保護）。
 let chatHistory = [];
 let chatBusy = false;
+
+async function loadChatHistory() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    const snap = await getDoc(doc(db, CHAT_COLLECTION, uid));
+    chatHistory = snap.exists() ? snap.data().messages || [] : [];
+  } catch (err) {
+    console.error(err);
+    chatHistory = [];
+  }
+  renderChat();
+}
+
+async function saveChatHistory() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, CHAT_COLLECTION, uid), {
+      messages: chatHistory,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
 
 function renderChat() {
   chatMessages.innerHTML =
@@ -653,6 +819,7 @@ async function sendChatMessage() {
     }));
     const reply = await chatWithAgent(apiKey, roster, apiHistory);
     chatHistory.push({ role: "assistant", content: unmaskNames(reply, reverse) });
+    await saveChatHistory();
   } catch (err) {
     chatHistory.pop(); // 失敗時移除剛送出的訊息，讓使用者修正後重送
     chatInput.value = raw;
@@ -670,10 +837,11 @@ chatFab.addEventListener("click", () => {
   if (!chatPanel.classList.contains("hidden")) chatInput.focus();
 });
 chatCloseBtn.addEventListener("click", () => chatPanel.classList.add("hidden"));
-chatClearBtn.addEventListener("click", () => {
+chatClearBtn.addEventListener("click", async () => {
   chatHistory = [];
   chatError.textContent = "";
   renderChat();
+  await saveChatHistory();
 });
 chatSendBtn.addEventListener("click", sendChatMessage);
 chatInput.addEventListener("keydown", (e) => {
