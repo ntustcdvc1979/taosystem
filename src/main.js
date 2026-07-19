@@ -204,21 +204,52 @@ function getBackground(entry) {
 // 送給 AI 前，把名單上出現的姓名/聯絡人換成中性代號（代號1、代號2…），完全看不出是誰；
 // AI 回覆後，再依同一份對照表把代號換回真名顯示。系統畫面與資料庫永遠保留真名。
 //
-// buildNameMap 依目前名單建立「真名 → 代號」的 Map；同一個真名字串永遠對到同一個代號。
+// buildNameMap 依目前名單建立兩份對照表：
+//   forward：真名/簡稱 → 代號（送 AI 前用，同一人的各種寫法都對到同一個代號）
+//   reverse：代號 → 完整姓名（AI 回覆後還原用，一律還原成完整姓名）
+// 背景、備註等自由文字裡提到名單上的人時，也會靠這份對照表一併換成代號。
 function buildNameMap() {
   const forward = new Map();
+  const reverse = new Map();
   let counter = 0;
-  const add = (raw) => {
-    const n = (raw || "").trim();
-    if (!n || forward.has(n)) return;
+
+  const register = (raw) => {
+    const full = (raw || "").trim();
+    if (!full || forward.has(full)) return;
     counter += 1;
-    forward.set(n, `代號${counter}`);
+    const pseudo = `代號${counter}`;
+    forward.set(full, pseudo);
+    reverse.set(pseudo, full); // 還原時用完整姓名
+
+    // 含分隔符號的視為多人欄位（例：「張三、李四」），不推導簡稱，交給下面逐一拆開處理
+    if (/[、,，/／;；\s]/.test(full)) return;
+
+    // 簡稱：背景常只寫名字不寫姓（王小明 → 小明、歐陽小明 → 小明），
+    // 三個字以上才推導，兩個字的名字去掉姓只剩一個字，會誤蓋到一般用字。
+    const chars = [...full];
+    if (chars.length >= 3) {
+      const given = chars.slice(-2).join("");
+      if (!forward.has(given)) forward.set(given, pseudo);
+    }
   };
+
+  // 一個欄位可能寫了多個名字（例：聯絡人「張三、李四」），整串與拆開的每個名字都要建立對應
+  const registerField = (raw) => {
+    const value = (raw || "").trim();
+    if (!value) return;
+    register(value);
+    value
+      .split(/[、,，/／;；\s]+/)
+      .map((part) => part.trim())
+      .filter((part) => part.length >= 2 && part !== value)
+      .forEach(register);
+  };
+
   allEntries.forEach((entry) => {
-    add(entry.name);
-    add(entry.contact);
+    registerField(entry.name);
+    registerField(entry.contact);
   });
-  return forward;
+  return { forward, reverse };
 }
 
 // 真名 → 代號。先換較長的名字，避免「王」誤蓋到「王小明」的一部分。
@@ -230,12 +261,10 @@ function maskNames(text, forward) {
   return result;
 }
 
-// 代號 → 真名。先換較長的代號（代號12 先於 代號1），避免前綴誤蓋。
-function unmaskNames(text, forward) {
+// 代號 → 完整姓名。先換較長的代號（代號12 先於 代號1），避免前綴誤蓋。
+function unmaskNames(text, reverse) {
   if (!text) return text;
-  const pairs = [...forward.entries()]
-    .map(([real, pseudo]) => [pseudo, real])
-    .sort((a, b) => b[0].length - a[0].length);
+  const pairs = [...reverse.entries()].sort((a, b) => b[0].length - a[0].length);
   let result = text;
   for (const [pseudo, real] of pairs) result = result.split(pseudo).join(real);
   return result;
@@ -533,16 +562,16 @@ aiGenerateBtn.addEventListener("click", async () => {
         "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
       );
     }
-    // 送 AI 前把姓名/聯絡人（含各欄位裡出現的名單成員）換成代號；AI 回覆後再換回真名
-    const forward = buildNameMap();
+    // 送 AI 前把姓名/聯絡人（含背景、備註等欄位裡提到的名單成員）換成代號；AI 回覆後再換回真名
+    const { forward, reverse } = buildNameMap();
     const suggestion = await generateSuggestion(
       apiKey,
       maskEntry(entry, forward),
       maskNames(aiGuidance.value.trim(), forward)
     );
     aiLastSuggestion = {
-      strategy: unmaskNames(suggestion.strategy, forward),
-      method: unmaskNames(suggestion.method, forward),
+      strategy: unmaskNames(suggestion.strategy, reverse),
+      method: unmaskNames(suggestion.method, reverse),
     };
     aiResultStrategy.textContent = aiLastSuggestion.strategy;
     aiResultMethod.textContent = aiLastSuggestion.method;
@@ -616,14 +645,14 @@ async function sendChatMessage() {
         "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
       );
     }
-    const forward = buildNameMap();
+    const { forward, reverse } = buildNameMap();
     const roster = allEntries.map((entry) => maskEntry(entry, forward));
     const apiHistory = chatHistory.map((m) => ({
       role: m.role,
       content: maskNames(m.content, forward),
     }));
     const reply = await chatWithAgent(apiKey, roster, apiHistory);
-    chatHistory.push({ role: "assistant", content: unmaskNames(reply, forward) });
+    chatHistory.push({ role: "assistant", content: unmaskNames(reply, reverse) });
   } catch (err) {
     chatHistory.pop(); // 失敗時移除剛送出的訊息，讓使用者修正後重送
     chatInput.value = raw;
