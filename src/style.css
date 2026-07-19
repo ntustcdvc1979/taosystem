@@ -193,6 +193,21 @@ tbody tr:hover {
   background: #f9fafb;
 }
 
+/* 長文字欄位：預設收合為 3 行，點一下展開/收合 */
+.cell-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.cell-clamp.expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
 .empty-text {
   text-align: center;
   color: #999;

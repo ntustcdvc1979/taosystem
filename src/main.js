@@ -189,20 +189,24 @@ function renderTable() {
     return;
   }
 
+  // 長文字欄位包進可收合容器：預設只顯示前幾行，點一下展開/收合
+  const clamp = (html) =>
+    html ? `<div class="cell-clamp" title="點一下展開／收合">${html}</div>` : "";
+
   filtered.forEach((entry) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(entry.name)}</td>
       <td>${escapeHtml(entry.gender)}</td>
       <td>${escapeHtml(entry.department)}</td>
-      <td>${escapeHtml(getBackground(entry))}</td>
-      <td>${escapeHtml(entry.notes)}</td>
+      <td>${clamp(escapeHtml(getBackground(entry)))}</td>
+      <td>${clamp(escapeHtml(entry.notes))}</td>
       <td>${escapeHtml(entry.contact)}</td>
       <td>${entry.status ? `<span class="status-badge">${escapeHtml(entry.status)}</span>` : ""}</td>
-      <td>${escapeHtml(entry.strategy)}</td>
-      <td>${escapeHtml(entry.method)}</td>
-      <td>${renderActivitiesCell(entry.activities)}</td>
-      <td>${renderTalksCell(entry.talks)}</td>
+      <td>${clamp(escapeHtml(entry.strategy))}</td>
+      <td>${clamp(escapeHtml(entry.method))}</td>
+      <td>${clamp(renderActivitiesCell(entry.activities))}</td>
+      <td>${clamp(renderTalksCell(entry.talks))}</td>
       <td class="row-actions">
         <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
         <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
@@ -624,6 +628,13 @@ entryForm.addEventListener("submit", async (e) => {
 });
 
 entriesTbody.addEventListener("click", async (e) => {
+  // 點長文字儲存格：展開/收合
+  const clampEl = e.target.closest(".cell-clamp");
+  if (clampEl) {
+    clampEl.classList.toggle("expanded");
+    return;
+  }
+
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
   const id = btn.dataset.id;
