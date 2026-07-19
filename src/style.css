@@ -159,38 +159,82 @@ button {
   margin-left: auto;
 }
 
-.table-wrapper {
+/* 卡片式名單 */
+.cards-wrap {
   padding: 0 1.5rem 2rem;
-  overflow-x: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 1rem;
+  align-items: start;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
+.cards-wrap > .empty-text {
+  grid-column: 1 / -1;
+}
+
+.person-card {
   background: #fff;
   border-radius: 10px;
-  overflow: hidden;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
-  min-width: 900px;
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
 }
 
-thead {
-  background: #f0f2f5;
+.person-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
-th, td {
-  text-align: left;
-  padding: 0.7rem 0.8rem;
-  border-bottom: 1px solid #edeef0;
+.person-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.gender-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: #eef4ff;
+  color: #2f6fed;
+  border: 1px solid #d6e4ff;
+}
+
+.person-meta {
+  color: #777;
+  font-size: 0.85rem;
+}
+
+.card-field {
   font-size: 0.88rem;
-  vertical-align: top;
-  max-width: 220px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-tbody tr:hover {
-  background: #f9fafb;
+.field-label {
+  display: block;
+  color: #999;
+  font-size: 0.76rem;
+  margin-bottom: 0.12rem;
+}
+
+.card-recommend {
+  background: #f0f7ff;
+  border: 1px solid #d6e6fb;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.88rem;
+}
+
+.card-actions {
+  max-width: none;
+  margin-top: auto;
+  padding-top: 0.6rem;
+  border-top: 1px solid #f0f2f5;
 }
 
 /* 長文字欄位：預設收合為 3 行，點一下展開/收合 */
@@ -359,6 +403,40 @@ tbody tr:hover {
 .talk-save,
 .talk-delete {
   align-self: stretch;
+}
+
+/* 活動管理對話框 */
+#events-modal .modal-content {
+  max-width: 640px;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.event-add-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 0.4rem;
+  margin: 1rem 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid #edeef0;
+}
+
+.event-row input,
+.event-row select,
+.event-add-row input,
+.event-add-row select {
+  margin-top: 0 !important;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-family: inherit;
+  min-width: 0;
 }
 
 .hint-text {

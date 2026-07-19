@@ -52,31 +52,12 @@
             <option value="講師">講師</option>
             <option value="未確定">未確定</option>
           </select>
+          <button id="events-manage-btn" class="btn-secondary">活動管理</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
 
-        <div class="table-wrapper">
-          <table id="entries-table">
-            <thead>
-              <tr>
-                <th>姓名</th>
-                <th>乾坤</th>
-                <th>系級</th>
-                <th>背景</th>
-                <th>備註</th>
-                <th>聯絡人</th>
-                <th>成全狀況</th>
-                <th>策略</th>
-                <th>做法</th>
-                <th>活動紀錄</th>
-                <th>聊天成全紀錄</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="entries-tbody">
-              <tr id="empty-row"><td colspan="12" class="empty-text">尚無資料</td></tr>
-            </tbody>
-          </table>
+        <div id="entries-list" class="cards-wrap">
+          <p class="empty-text">尚無資料</p>
         </div>
       </section>
 
@@ -89,10 +70,9 @@
             <label>
               姓名 <span class="required">*</span>
               <input type="text" id="field-name" required />
-              <span class="hint-text">系統內照常顯示完整姓名；只有送給 AI 分析時才會換成中性代號（例：王小明 → 代號3，看不出是誰），AI 回覆後再自動轉回真名。</span>
             </label>
             <label>
-              乾坤
+              性別
               <select id="field-gender">
                 <option value="">請選擇</option>
                 <option value="乾">乾</option>
@@ -106,11 +86,6 @@
             <label>
               背景
               <textarea id="field-background" rows="2" placeholder="用文字描述背景，例如：熱音社社員、大四資工系家教、系排球隊、超商打工"></textarea>
-              <span class="hint-text">這裡若提到名單上的人（含簡稱，如「小明介紹的」），送給 AI 前也會一併換成代號。</span>
-            </label>
-            <label>
-              備註
-              <textarea id="field-notes" rows="2"></textarea>
             </label>
             <label>
               聯絡人
@@ -214,12 +189,40 @@
               <p id="ai-result-strategy"></p>
               <h3>具體做法</h3>
               <p id="ai-result-method"></p>
-              <button type="button" id="ai-apply-btn" class="btn-primary">套用到「策略 / 做法」欄位</button>
+              <h3>推薦活動</h3>
+              <p id="ai-result-activity"></p>
+              <button type="button" id="ai-apply-btn" class="btn-primary">套用到「策略 / 做法 / 推薦活動」欄位</button>
             </div>
           </div>
 
           <div class="modal-actions">
             <button type="button" id="ai-close-btn" class="btn-secondary">關閉</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 活動管理 對話框（近期活動：名稱、日期、類型） -->
+      <div id="events-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>活動管理</h2>
+          <p class="hint-text">登錄近期活動與類型（廣結善緣／成全求道／法會），AI 產生建議時會參照，推薦對象適合參加的活動。</p>
+
+          <div id="events-list"></div>
+          <p id="events-empty-hint" class="hint-text">尚無活動。</p>
+
+          <div class="event-add-row">
+            <input type="date" id="new-event-date" />
+            <input type="text" id="new-event-name" placeholder="活動名稱" />
+            <select id="new-event-type">
+              <option value="廣結善緣">廣結善緣</option>
+              <option value="成全求道">成全求道</option>
+              <option value="法會">法會</option>
+            </select>
+            <button type="button" id="add-event-btn" class="btn-primary btn-small">新增</button>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" id="events-close-btn" class="btn-secondary">關閉</button>
           </div>
         </div>
       </div>
@@ -235,7 +238,6 @@
             <button type="button" id="chat-close-btn" class="btn-link-light">✕</button>
           </div>
         </div>
-        <p class="chat-privacy-hint">AI 看到的名單裡，姓名、聯絡人都已換成代號；你打的名字送出前也會換成代號。這裡顯示的對話已自動轉回真名。</p>
         <div id="chat-messages" class="chat-messages">
           <div class="chat-msg chat-msg-assistant">你好！我能看到整份成全名單，可以問我：誰適合邀約參加法會、某位對象下一步怎麼做、整體的優先順序建議等等。</div>
         </div>

@@ -41,10 +41,9 @@ function formatPerson(person) {
     .join("\n");
 
   return `姓名代號：${person.name || "（未填）"}
-乾坤：${person.gender || "（未填）"}
+性別（乾/坤）：${person.gender || "（未填）"}
 系級：${person.department || "（未填）"}
 背景：${person.background || "（未填）"}
-備註：${person.notes || "（未填）"}
 聯絡人代號：${person.contact || "（未填）"}
 目前成全狀況：${person.status || "（未填）"}
 目前策略：${person.strategy || "（尚無）"}
@@ -55,6 +54,14 @@ ${activityLines || "（尚無活動紀錄）"}
 ${talkLines || "（尚無聊天紀錄）"}`;
 }
 
+// 近期活動清單（活動管理頁維護），依日期排序
+function formatEvents(events) {
+  if (!events || events.length === 0) return "（近期沒有已登錄的活動）";
+  return events
+    .map((e) => `- ${e.date || "日期未定"}【${e.type || "未分類"}】${e.name}`)
+    .join("\n");
+}
+
 function makeClient(apiKey) {
   return new Anthropic({
     apiKey,
@@ -63,19 +70,24 @@ function makeClient(apiKey) {
 }
 
 /**
- * 針對單一對象產生成全建議。回傳 { strategy, method }（可能含代號，由呼叫端還原）。
+ * 針對單一對象產生成全建議。回傳 { strategy, method, recommendedActivity }（可能含代號，由呼叫端還原）。
  * @param {string} apiKey - 從 Firestore config/ai 取得的共用 Anthropic API Key
  * @param {object} person - 已做代號替換的對象資料
  * @param {string} guidance - 使用者提供的方向（已做代號替換），可為空
+ * @param {object[]} events - 近期活動（name/date/type），可為空陣列
  */
-export async function generateSuggestion(apiKey, person, guidance = "") {
+export async function generateSuggestion(apiKey, person, guidance = "", events = []) {
   const client = makeClient(apiKey);
 
   const system = `${DOMAIN_CONTEXT}
 
+近期活動（依日期排序）：
+${formatEvents(events)}
+
 使用者會提供一位成全對象的資料，可能附上他希望的策略方向。請提出：
 1. strategy：一句話的成全策略大方向，例如「讓他喜歡來上新民班」。若使用者已提供方向，以他的方向為主軸，幫他修飾得更精準。
-2. method：2-4 點可實際執行的做法，具體到可以直接照著做，例如邀約的話術方向、適合搭配的活動、由誰出面、頻率等，以換行分隔。`;
+2. method：2-4 點可實際執行的做法，具體到可以直接照著做，例如邀約的話術方向、適合搭配的活動、由誰出面、頻率等，以換行分隔。
+3. recommendedActivity：從上面的近期活動中挑選最適合這位對象目前狀況的「一個」活動，填「日期 活動名稱」；若近期沒有合適的活動就填空字串。挑選原則：還在建立關係、接觸初期或反應冷淡的對象，優先推薦廣結善緣類型；已求道、關係穩定的對象可推薦成全求道類型或法會。做法（method）中請一併說明如何鋪陳邀約這個活動。`;
 
   const user = `請為以下成全對象規劃策略與具體做法：
 
@@ -95,8 +107,12 @@ ${formatPerson(person)}${guidance ? `\n\n我希望的策略方向：${guidance}`
           properties: {
             strategy: { type: "string", description: "一句話的成全策略大方向" },
             method: { type: "string", description: "2-4 點具體可執行的做法，以換行分隔" },
+            recommendedActivity: {
+              type: "string",
+              description: "從近期活動挑選的推薦活動，格式「日期 活動名稱」；無合適活動則為空字串",
+            },
           },
-          required: ["strategy", "method"],
+          required: ["strategy", "method", "recommendedActivity"],
           additionalProperties: false,
         },
       },
@@ -116,8 +132,9 @@ ${formatPerson(person)}${guidance ? `\n\n我希望的策略方向：${guidance}`
  * @param {string} apiKey - 共用 Anthropic API Key
  * @param {object[]} roster - 已做代號替換的全部名單
  * @param {{role: string, content: string}[]} history - 聊天歷史（已做代號替換，含最新一則 user 訊息）
+ * @param {object[]} events - 近期活動（name/date/type），可為空陣列
  */
-export async function chatWithAgent(apiKey, roster, history) {
+export async function chatWithAgent(apiKey, roster, history, events = []) {
   const client = makeClient(apiKey);
 
   const rosterText = roster
@@ -130,7 +147,10 @@ export async function chatWithAgent(apiKey, roster, history) {
 
 ${rosterText || "（目前名單是空的）"}
 
-使用者是負責成全的同修，會向你詢問名單相關的建議（例如：誰適合邀約參加法會、某位對象下一步怎麼做、整體優先順序等）。請根據名單內容給出具體、可執行的建議；回答保持精簡，不要長篇大論。記得一律用代號指稱名單上的人。`;
+近期活動（依日期排序）：
+${formatEvents(events)}
+
+使用者是負責成全的同修，會向你詢問名單相關的建議（例如：誰適合邀約參加法會、某位對象下一步怎麼做、整體優先順序等）。請根據名單內容給出具體、可執行的建議；規劃時參照近期活動——依對象目前的狀況建議適合參加哪個活動、如何鋪陳邀約（接觸初期優先廣結善緣類型，已求道、關係穩定者再推成全求道類型或法會）。回答保持精簡，不要長篇大論。記得一律用代號指稱名單上的人。`;
 
   const response = await client.messages.create({
     model: MODEL,

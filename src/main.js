@@ -23,6 +23,7 @@ import {
 
 const ENTRIES_COLLECTION = "entries";
 const CHAT_COLLECTION = "chatHistories"; // 每位使用者一份，文件 ID = 使用者 uid
+const EVENTS_COLLECTION = "events"; // 近期活動（名稱、日期、類型）
 
 // ---------- DOM refs ----------
 const loginView = document.getElementById("login-view");
@@ -35,7 +36,7 @@ const logoutBtn = document.getElementById("logout-btn");
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
 const addEntryBtn = document.getElementById("add-entry-btn");
-const entriesTbody = document.getElementById("entries-tbody");
+const entriesList = document.getElementById("entries-list");
 
 const entryModal = document.getElementById("entry-modal");
 const entryForm = document.getElementById("entry-form");
@@ -47,7 +48,6 @@ const fieldName = document.getElementById("field-name");
 const fieldGender = document.getElementById("field-gender");
 const fieldDepartment = document.getElementById("field-department");
 const fieldBackground = document.getElementById("field-background");
-const fieldNotes = document.getElementById("field-notes");
 const fieldContact = document.getElementById("field-contact");
 const fieldStatus = document.getElementById("field-status");
 const fieldStrategy = document.getElementById("field-strategy");
@@ -74,6 +74,17 @@ const newTalkContent = document.getElementById("new-talk-content");
 const addTalkBtn = document.getElementById("add-talk-btn");
 const talkCloseBtn = document.getElementById("talk-close-btn");
 
+// 活動管理對話框
+const eventsModal = document.getElementById("events-modal");
+const eventsManageBtn = document.getElementById("events-manage-btn");
+const eventsList = document.getElementById("events-list");
+const eventsEmptyHint = document.getElementById("events-empty-hint");
+const newEventDate = document.getElementById("new-event-date");
+const newEventName = document.getElementById("new-event-name");
+const newEventType = document.getElementById("new-event-type");
+const addEventBtn = document.getElementById("add-event-btn");
+const eventsCloseBtn = document.getElementById("events-close-btn");
+
 // AI 成全建議對話框
 const aiModal = document.getElementById("ai-modal");
 const aiModalName = document.getElementById("ai-modal-name");
@@ -84,6 +95,7 @@ const aiError = document.getElementById("ai-error");
 const aiResult = document.getElementById("ai-result");
 const aiResultStrategy = document.getElementById("ai-result-strategy");
 const aiResultMethod = document.getElementById("ai-result-method");
+const aiResultActivity = document.getElementById("ai-result-activity");
 const aiApplyBtn = document.getElementById("ai-apply-btn");
 const aiCloseBtn = document.getElementById("ai-close-btn");
 
@@ -99,6 +111,8 @@ const chatCloseBtn = document.getElementById("chat-close-btn");
 
 let allEntries = [];
 let unsubscribeEntries = null;
+let allEvents = [];
+let unsubscribeEventsSub = null;
 
 // ---------- Auth ----------
 onAuthStateChanged(auth, (user) => {
@@ -108,6 +122,7 @@ onAuthStateChanged(auth, (user) => {
     currentUserLabel.textContent = user.email;
     chatFab.classList.remove("hidden");
     subscribeEntries();
+    subscribeEvents();
     loadChatHistory();
   } else {
     appView.classList.add("hidden");
@@ -118,7 +133,12 @@ onAuthStateChanged(auth, (user) => {
       unsubscribeEntries();
       unsubscribeEntries = null;
     }
+    if (unsubscribeEventsSub) {
+      unsubscribeEventsSub();
+      unsubscribeEventsSub = null;
+    }
     allEntries = [];
+    allEvents = [];
     chatHistory = [];
   }
 });
@@ -148,7 +168,7 @@ function subscribeEntries() {
     q,
     (snapshot) => {
       allEntries = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      renderTable();
+      renderEntries();
       refreshOpenActivityModal();
       refreshOpenTalkModal();
     },
@@ -165,8 +185,28 @@ function subscribeEntries() {
   );
 }
 
-// ---------- Render ----------
-function renderTable() {
+function subscribeEvents() {
+  const q = query(collection(db, EVENTS_COLLECTION), orderBy("date"));
+  unsubscribeEventsSub = onSnapshot(
+    q,
+    (snapshot) => {
+      allEvents = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      renderEventsList();
+    },
+    (err) => {
+      if (err.code !== "permission-denied") console.error(err);
+    }
+  );
+}
+
+// 今天（含）以後的活動，依日期排序（date 為 YYYY-MM-DD，字串比較即可）
+function upcomingEvents() {
+  const today = new Date().toISOString().slice(0, 10);
+  return allEvents.filter((ev) => (ev.date || "") >= today);
+}
+
+// ---------- Render（卡片式名單） ----------
+function renderEntries() {
   const searchTerm = searchInput.value.trim().toLowerCase();
   const statusVal = filterStatus.value;
 
@@ -182,40 +222,45 @@ function renderTable() {
     return true;
   });
 
-  entriesTbody.innerHTML = "";
+  entriesList.innerHTML = "";
 
   if (filtered.length === 0) {
-    entriesTbody.innerHTML = '<tr><td colspan="12" class="empty-text">尚無資料</td></tr>';
+    entriesList.innerHTML = '<p class="empty-text">尚無資料</p>';
     return;
   }
 
   // 長文字欄位包進可收合容器：預設只顯示前幾行，點一下展開/收合
-  const clamp = (html) =>
-    html ? `<div class="cell-clamp" title="點一下展開／收合">${html}</div>` : "";
+  const field = (label, html) =>
+    html
+      ? `<div class="card-field"><span class="field-label">${label}</span><div class="cell-clamp" title="點一下展開／收合">${html}</div></div>`
+      : "";
 
   filtered.forEach((entry) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${escapeHtml(entry.name)}</td>
-      <td>${escapeHtml(entry.gender)}</td>
-      <td>${escapeHtml(entry.department)}</td>
-      <td>${clamp(escapeHtml(getBackground(entry)))}</td>
-      <td>${clamp(escapeHtml(entry.notes))}</td>
-      <td>${escapeHtml(entry.contact)}</td>
-      <td>${entry.status ? `<span class="status-badge">${escapeHtml(entry.status)}</span>` : ""}</td>
-      <td>${clamp(escapeHtml(entry.strategy))}</td>
-      <td>${clamp(escapeHtml(entry.method))}</td>
-      <td>${clamp(renderActivitiesCell(entry.activities))}</td>
-      <td>${clamp(renderTalksCell(entry.talks))}</td>
-      <td class="row-actions">
+    const card = document.createElement("div");
+    card.className = "person-card";
+    card.innerHTML = `
+      <div class="person-card-header">
+        <span class="person-name">${escapeHtml(entry.name)}</span>
+        ${entry.gender ? `<span class="gender-badge">${escapeHtml(entry.gender)}</span>` : ""}
+        ${entry.department ? `<span class="person-meta">${escapeHtml(entry.department)}</span>` : ""}
+        ${entry.status ? `<span class="status-badge">${escapeHtml(entry.status)}</span>` : ""}
+      </div>
+      ${entry.contact ? `<div class="person-meta">聯絡人：${escapeHtml(entry.contact)}</div>` : ""}
+      ${entry.recommendedActivity ? `<div class="card-recommend"><span class="field-label">推薦活動</span>${escapeHtml(entry.recommendedActivity)}</div>` : ""}
+      ${field("背景", escapeHtml(getBackground(entry)))}
+      ${field("策略", escapeHtml(entry.strategy))}
+      ${field("做法", escapeHtml(entry.method))}
+      ${field("活動紀錄", renderActivitiesCell(entry.activities))}
+      ${field("聊天成全紀錄", renderTalksCell(entry.talks))}
+      <div class="row-actions card-actions">
         <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
         <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
         <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聊天紀錄</button>
         <button data-action="ai" data-id="${entry.id}" class="btn-secondary">AI 建議</button>
         <button data-action="delete" data-id="${entry.id}" class="btn-danger">刪除</button>
-      </td>
+      </div>
     `;
-    entriesTbody.appendChild(tr);
+    entriesList.appendChild(card);
   });
 }
 
@@ -301,7 +346,6 @@ function maskEntry(entry, forward) {
     gender: entry.gender,
     department: maskNames(entry.department, forward),
     background: maskNames(getBackground(entry), forward),
-    notes: maskNames(entry.notes, forward),
     contact: maskNames(entry.contact, forward),
     status: entry.status,
     strategy: maskNames(entry.strategy, forward),
@@ -316,6 +360,15 @@ function maskEntry(entry, forward) {
       content: maskNames(t.content, forward),
     })),
   };
+}
+
+// 近期活動送 AI 前也做代號替換（活動名稱可能提到名單上的人）
+function maskedUpcomingEvents(forward) {
+  return upcomingEvents().map((ev) => ({
+    name: maskNames(ev.name, forward),
+    date: ev.date,
+    type: ev.type,
+  }));
 }
 
 // 表格內顯示活動紀錄：每筆一行，「活動：反應」
@@ -352,8 +405,8 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-searchInput.addEventListener("input", renderTable);
-filterStatus.addEventListener("change", renderTable);
+searchInput.addEventListener("input", renderEntries);
+filterStatus.addEventListener("change", renderEntries);
 
 // ---------- 活動紀錄對話框（每個人獨立新增/編輯，與新增名單表單分開） ----------
 let activityModalEntryId = null;
@@ -566,7 +619,6 @@ function openModal(entry = null) {
     fieldGender.value = entry.gender || "";
     fieldDepartment.value = entry.department || "";
     fieldBackground.value = getBackground(entry);
-    fieldNotes.value = entry.notes || "";
     fieldContact.value = entry.contact || "";
     fieldStatus.value = entry.status || "";
     fieldStrategy.value = entry.strategy || "";
@@ -599,7 +651,6 @@ entryForm.addEventListener("submit", async (e) => {
     gender: fieldGender.value,
     department: fieldDepartment.value.trim(),
     background: fieldBackground.value.trim(),
-    notes: fieldNotes.value.trim(),
     contact: fieldContact.value.trim(),
     status: fieldStatus.value,
     strategy: fieldStrategy.value.trim(),
@@ -627,7 +678,7 @@ entryForm.addEventListener("submit", async (e) => {
   }
 });
 
-entriesTbody.addEventListener("click", async (e) => {
+entriesList.addEventListener("click", async (e) => {
   // 點長文字儲存格：展開/收合
   const clampEl = e.target.closest(".cell-clamp");
   if (clampEl) {
@@ -657,6 +708,86 @@ entriesTbody.addEventListener("click", async (e) => {
       }
     }
   }
+});
+
+// ---------- 活動管理（近期活動：名稱、日期、類型） ----------
+const EVENT_TYPES = ["廣結善緣", "成全求道", "法會"];
+
+function renderEventsList() {
+  eventsList.innerHTML = "";
+  eventsEmptyHint.classList.toggle("hidden", allEvents.length > 0);
+
+  allEvents.forEach((ev) => {
+    const row = document.createElement("div");
+    row.className = "event-row";
+    row.dataset.id = ev.id;
+    const typeOptions = EVENT_TYPES.map(
+      (t) => `<option value="${t}"${t === ev.type ? " selected" : ""}>${t}</option>`
+    ).join("");
+    row.innerHTML = `
+      <input type="date" class="event-field-date" />
+      <input type="text" class="event-field-name" placeholder="活動名稱" />
+      <select class="event-field-type">${typeOptions}</select>
+      <button type="button" class="btn-secondary btn-small event-save">儲存</button>
+      <button type="button" class="btn-danger btn-small event-delete">刪除</button>
+    `;
+    row.querySelector(".event-field-date").value = ev.date || "";
+    row.querySelector(".event-field-name").value = ev.name || "";
+    eventsList.appendChild(row);
+  });
+}
+
+eventsList.addEventListener("click", async (e) => {
+  const row = e.target.closest(".event-row");
+  if (!row) return;
+
+  if (e.target.closest(".event-save")) {
+    try {
+      await updateDoc(doc(db, EVENTS_COLLECTION, row.dataset.id), {
+        date: row.querySelector(".event-field-date").value,
+        name: row.querySelector(".event-field-name").value.trim(),
+        type: row.querySelector(".event-field-type").value,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || null,
+      });
+    } catch (err) {
+      alert("儲存活動失敗：" + err.message);
+    }
+  } else if (e.target.closest(".event-delete")) {
+    try {
+      await deleteDoc(doc(db, EVENTS_COLLECTION, row.dataset.id));
+    } catch (err) {
+      alert("刪除活動失敗：" + err.message);
+    }
+  }
+});
+
+addEventBtn.addEventListener("click", async () => {
+  const name = newEventName.value.trim();
+  const date = newEventDate.value;
+  if (!name || !date) {
+    (!date ? newEventDate : newEventName).focus();
+    return;
+  }
+  try {
+    await addDoc(collection(db, EVENTS_COLLECTION), {
+      name,
+      date,
+      type: newEventType.value,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.email || null,
+    });
+    newEventName.value = "";
+    newEventDate.value = "";
+  } catch (err) {
+    alert("新增活動失敗：" + err.message);
+  }
+});
+
+eventsManageBtn.addEventListener("click", () => eventsModal.classList.remove("hidden"));
+eventsCloseBtn.addEventListener("click", () => eventsModal.classList.add("hidden"));
+eventsModal.addEventListener("click", (e) => {
+  if (e.target === eventsModal) eventsModal.classList.add("hidden");
 });
 
 // ---------- AI 成全建議 ----------
@@ -710,19 +841,22 @@ aiGenerateBtn.addEventListener("click", async () => {
         "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
       );
     }
-    // 送 AI 前把姓名/聯絡人（含背景、備註等欄位裡提到的名單成員）換成代號；AI 回覆後再換回真名
+    // 送 AI 前把姓名/聯絡人（含背景等欄位裡提到的名單成員）換成代號；AI 回覆後再換回真名
     const { forward, reverse } = buildNameMap();
     const suggestion = await generateSuggestion(
       apiKey,
       maskEntry(entry, forward),
-      maskNames(aiGuidance.value.trim(), forward)
+      maskNames(aiGuidance.value.trim(), forward),
+      maskedUpcomingEvents(forward)
     );
     aiLastSuggestion = {
       strategy: unmaskNames(suggestion.strategy, reverse),
       method: unmaskNames(suggestion.method, reverse),
+      recommendedActivity: unmaskNames(suggestion.recommendedActivity || "", reverse),
     };
     aiResultStrategy.textContent = aiLastSuggestion.strategy;
     aiResultMethod.textContent = aiLastSuggestion.method;
+    aiResultActivity.textContent = aiLastSuggestion.recommendedActivity || "（近期無合適活動）";
     aiResult.classList.remove("hidden");
   } catch (err) {
     aiError.textContent = aiErrorMessage(err, "產生建議失敗");
@@ -738,6 +872,7 @@ aiApplyBtn.addEventListener("click", async () => {
     await updateDoc(doc(db, ENTRIES_COLLECTION, aiModalEntryId), {
       strategy: aiLastSuggestion.strategy,
       method: aiLastSuggestion.method,
+      recommendedActivity: aiLastSuggestion.recommendedActivity || "",
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
     });
@@ -828,7 +963,7 @@ async function sendChatMessage() {
       role: m.role,
       content: maskNames(m.content, forward),
     }));
-    const reply = await chatWithAgent(apiKey, roster, apiHistory);
+    const reply = await chatWithAgent(apiKey, roster, apiHistory, maskedUpcomingEvents(forward));
     chatHistory.push({ role: "assistant", content: unmaskNames(reply, reverse) });
     await saveChatHistory();
   } catch (err) {

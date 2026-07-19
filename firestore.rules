@@ -26,6 +26,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // 近期活動（活動管理頁維護：名稱、日期、類型），白名單成員可讀寫
+    match /events/{eventId} {
+      allow read, write: if isAllowed();
+    }
+
     // AI 成全助手的對話紀錄，每位使用者一份（文件 ID = 使用者 uid）。
     // 除了要在白名單內，還限定只能讀寫自己那一份，看不到別人的對話。
     match /chatHistories/{userId} {
