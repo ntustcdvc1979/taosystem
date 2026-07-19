@@ -167,8 +167,12 @@
 
           <div id="ai-ready-section">
             <p class="hint-text">
-              會將此對象「去識別化後」（姓名、聯絡人遮罩）的背景、成全狀況與活動紀錄送給 Claude 分析，產生建議的策略與具體做法。
+              會將此對象「去識別化後」（姓名、聯絡人遮罩）的背景、成全狀況與活動紀錄送給 AI 分析，產生建議的策略與具體做法。
             </p>
+            <label>
+              策略方向（選填）
+              <textarea id="ai-guidance" rows="2" placeholder="一句話的成全策略大方向，例：讓他喜歡來上新民班。留空則由 AI 自行判斷。"></textarea>
+            </label>
             <button type="button" id="ai-generate-btn" class="btn-primary">產生建議</button>
             <p id="ai-loading" class="hint-text hidden">分析中，請稍候（約需 10～60 秒）...</p>
             <p id="ai-error" class="error-text"></p>
@@ -185,6 +189,28 @@
           <div class="modal-actions">
             <button type="button" id="ai-close-btn" class="btn-secondary">關閉</button>
           </div>
+        </div>
+      </div>
+
+      <!-- 右下角 AI Agent 聊天室 -->
+      <button id="chat-fab" class="chat-fab hidden" type="button" title="AI 成全助手">AI</button>
+
+      <div id="chat-panel" class="chat-panel hidden">
+        <div class="chat-header">
+          <span>AI 成全助手</span>
+          <div>
+            <button type="button" id="chat-clear-btn" class="btn-link-light">清除對話</button>
+            <button type="button" id="chat-close-btn" class="btn-link-light">✕</button>
+          </div>
+        </div>
+        <p class="chat-privacy-hint">AI 能看到全部名單（姓名、聯絡人已遮罩）。你訊息中出現名單上的名字時，送出前也會自動遮罩。</p>
+        <div id="chat-messages" class="chat-messages">
+          <div class="chat-msg chat-msg-assistant">你好！我能看到整份成全名單，可以問我：誰適合邀約參加法會、某位對象下一步怎麼做、整體的優先順序建議等等。</div>
+        </div>
+        <p id="chat-error" class="error-text chat-error"></p>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" placeholder="輸入問題..." />
+          <button type="button" id="chat-send-btn" class="btn-primary btn-small">送出</button>
         </div>
       </div>
     </div>

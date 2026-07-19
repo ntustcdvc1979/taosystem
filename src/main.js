@@ -1,6 +1,6 @@
 import "./style.css";
 import { auth, db } from "./firebase.js";
-import { getSharedApiKey, generateSuggestion } from "./ai.js";
+import { getSharedApiKey, generateSuggestion, chatWithAgent } from "./ai.js";
 import {
   onAuthStateChanged,
   GoogleAuthProvider,
@@ -63,6 +63,7 @@ const activityCloseBtn = document.getElementById("activity-close-btn");
 // AI 成全建議對話框
 const aiModal = document.getElementById("ai-modal");
 const aiModalName = document.getElementById("ai-modal-name");
+const aiGuidance = document.getElementById("ai-guidance");
 const aiGenerateBtn = document.getElementById("ai-generate-btn");
 const aiLoading = document.getElementById("ai-loading");
 const aiError = document.getElementById("ai-error");
@@ -71,6 +72,16 @@ const aiResultStrategy = document.getElementById("ai-result-strategy");
 const aiResultMethod = document.getElementById("ai-result-method");
 const aiApplyBtn = document.getElementById("ai-apply-btn");
 const aiCloseBtn = document.getElementById("ai-close-btn");
+
+// AI Agent 聊天室
+const chatFab = document.getElementById("chat-fab");
+const chatPanel = document.getElementById("chat-panel");
+const chatMessages = document.getElementById("chat-messages");
+const chatError = document.getElementById("chat-error");
+const chatInput = document.getElementById("chat-input");
+const chatSendBtn = document.getElementById("chat-send-btn");
+const chatClearBtn = document.getElementById("chat-clear-btn");
+const chatCloseBtn = document.getElementById("chat-close-btn");
 
 let allEntries = [];
 let unsubscribeEntries = null;
@@ -81,10 +92,13 @@ onAuthStateChanged(auth, (user) => {
     loginView.classList.add("hidden");
     appView.classList.remove("hidden");
     currentUserLabel.textContent = user.email;
+    chatFab.classList.remove("hidden");
     subscribeEntries();
   } else {
     appView.classList.add("hidden");
     loginView.classList.remove("hidden");
+    chatFab.classList.add("hidden");
+    chatPanel.classList.add("hidden");
     if (unsubscribeEntries) {
       unsubscribeEntries();
       unsubscribeEntries = null;
@@ -195,6 +209,36 @@ function deidentifyName(name) {
   if (chars.length === 1) return trimmed;
   if (chars.length === 2) return chars[0] + "○";
   return chars[0] + "○".repeat(chars.length - 2) + chars[chars.length - 1];
+}
+
+// 把一段文字中出現的名單姓名/聯絡人全部換成遮罩版（用於聊天訊息送出前）
+function maskNamesInText(text) {
+  if (!text) return text;
+  let result = text;
+  allEntries.forEach((entry) => {
+    [entry.name, entry.contact].forEach((n) => {
+      const full = (n || "").trim();
+      if (full.length >= 2 && !full.includes("○")) {
+        result = result.split(full).join(deidentifyName(full));
+      }
+    });
+  });
+  return result;
+}
+
+// 整份名單去識別化後的版本（給 AI Agent 聊天室看）
+function buildMaskedRoster() {
+  return allEntries.map((entry) => ({
+    name: deidentifyName(entry.name),
+    department: entry.department,
+    background: getBackground(entry),
+    notes: entry.notes,
+    contact: deidentifyName(entry.contact),
+    status: entry.status,
+    strategy: entry.strategy,
+    method: entry.method,
+    activities: entry.activities,
+  }));
 }
 
 // 表格內顯示活動紀錄：每筆一行，「活動：反應」
@@ -423,10 +467,24 @@ entriesTbody.addEventListener("click", async (e) => {
 let aiModalEntryId = null;
 let aiLastSuggestion = null;
 
+function aiErrorMessage(err, prefix) {
+  if (err?.status === 401) {
+    return "共用 API Key 無效或已過期，請管理員到 Firestore 的 config/ai 文件更新 deepseekApiKey。";
+  }
+  if (err?.status === 402) {
+    return "DeepSeek 帳戶餘額不足，請管理員到 platform.deepseek.com 儲值。";
+  }
+  if (err?.status === 429) {
+    return "請求太頻繁，請稍後再試。";
+  }
+  return `${prefix}：` + (err?.message || err);
+}
+
 function openAiModal(entry) {
   aiModalEntryId = entry.id;
   aiLastSuggestion = null;
   aiModalName.textContent = entry.name || "";
+  aiGuidance.value = entry.strategy || ""; // 預設帶入目前的一句話策略方向，可自行修改
   aiError.textContent = "";
   aiResult.classList.add("hidden");
   aiLoading.classList.add("hidden");
@@ -453,33 +511,31 @@ aiGenerateBtn.addEventListener("click", async () => {
     const apiKey = await getSharedApiKey();
     if (!apiKey) {
       throw new Error(
-        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
+        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 deepseekApiKey 填入 Key（詳見 README）。"
       );
     }
     // 姓名、聯絡人只在送給 AI 分析時才去識別化；其餘欄位照常送出
-    const suggestion = await generateSuggestion(apiKey, {
-      name: deidentifyName(entry.name),
-      department: entry.department,
-      background: getBackground(entry),
-      notes: entry.notes,
-      contact: deidentifyName(entry.contact),
-      status: entry.status,
-      strategy: entry.strategy,
-      method: entry.method,
-      activities: entry.activities,
-    });
+    const suggestion = await generateSuggestion(
+      apiKey,
+      {
+        name: deidentifyName(entry.name),
+        department: entry.department,
+        background: getBackground(entry),
+        notes: entry.notes,
+        contact: deidentifyName(entry.contact),
+        status: entry.status,
+        strategy: entry.strategy,
+        method: entry.method,
+        activities: entry.activities,
+      },
+      maskNamesInText(aiGuidance.value.trim())
+    );
     aiLastSuggestion = suggestion;
     aiResultStrategy.textContent = suggestion.strategy;
     aiResultMethod.textContent = suggestion.method;
     aiResult.classList.remove("hidden");
   } catch (err) {
-    if (err?.status === 401) {
-      aiError.textContent = "共用 API Key 無效或已過期，請管理員到 Firestore 的 config/ai 文件更新。";
-    } else if (err?.status === 429) {
-      aiError.textContent = "請求太頻繁或額度不足，請稍後再試。";
-    } else {
-      aiError.textContent = "產生建議失敗：" + (err?.message || err);
-    }
+    aiError.textContent = aiErrorMessage(err, "產生建議失敗");
   } finally {
     aiLoading.classList.add("hidden");
     aiGenerateBtn.disabled = false;
@@ -504,4 +560,75 @@ aiApplyBtn.addEventListener("click", async () => {
 aiCloseBtn.addEventListener("click", closeAiModal);
 aiModal.addEventListener("click", (e) => {
   if (e.target === aiModal) closeAiModal();
+});
+
+// ---------- AI Agent 聊天室（可看到整份去識別化名單） ----------
+let chatHistory = [];
+let chatBusy = false;
+
+function renderChat() {
+  chatMessages.innerHTML =
+    '<div class="chat-msg chat-msg-assistant">你好！我能看到整份成全名單，可以問我：誰適合邀約參加法會、某位對象下一步怎麼做、整體的優先順序建議等等。</div>';
+  chatHistory.forEach((m) => {
+    const div = document.createElement("div");
+    div.className = m.role === "user" ? "chat-msg chat-msg-user" : "chat-msg chat-msg-assistant";
+    div.textContent = m.content;
+    chatMessages.appendChild(div);
+  });
+  if (chatBusy) {
+    const typing = document.createElement("div");
+    typing.className = "chat-msg chat-msg-assistant chat-typing";
+    typing.textContent = "思考中...";
+    chatMessages.appendChild(typing);
+  }
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const raw = chatInput.value.trim();
+  if (!raw || chatBusy) return;
+
+  chatError.textContent = "";
+  // 訊息中出現名單上的姓名/聯絡人時，送出前自動遮罩（畫面上也顯示遮罩後的版本）
+  const masked = maskNamesInText(raw);
+  chatHistory.push({ role: "user", content: masked });
+  chatInput.value = "";
+  chatBusy = true;
+  chatSendBtn.disabled = true;
+  renderChat();
+
+  try {
+    const apiKey = await getSharedApiKey();
+    if (!apiKey) {
+      throw new Error(
+        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 deepseekApiKey 填入 Key（詳見 README）。"
+      );
+    }
+    const reply = await chatWithAgent(apiKey, buildMaskedRoster(), chatHistory);
+    chatHistory.push({ role: "assistant", content: reply });
+  } catch (err) {
+    chatHistory.pop(); // 失敗時移除剛送出的訊息，讓使用者修正後重送
+    chatInput.value = raw;
+    chatError.textContent = aiErrorMessage(err, "傳送失敗");
+  } finally {
+    chatBusy = false;
+    chatSendBtn.disabled = false;
+    renderChat();
+    chatInput.focus();
+  }
+}
+
+chatFab.addEventListener("click", () => {
+  chatPanel.classList.toggle("hidden");
+  if (!chatPanel.classList.contains("hidden")) chatInput.focus();
+});
+chatCloseBtn.addEventListener("click", () => chatPanel.classList.add("hidden"));
+chatClearBtn.addEventListener("click", () => {
+  chatHistory = [];
+  chatError.textContent = "";
+  renderChat();
+});
+chatSendBtn.addEventListener("click", sendChatMessage);
+chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing) sendChatMessage();
 });
