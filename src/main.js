@@ -200,45 +200,64 @@ function getBackground(entry) {
   return entry.background ?? entry.channel ?? "";
 }
 
-// 去識別化：只在把資料送給 AI 分析時遮罩姓名；系統顯示與資料庫儲存皆保留完整姓名。
-// 王小明 → 王○明；王明 → 王○；歐陽小明 → 歐○○明；已含 ○ 的視為已遮罩，不重複處理。
-function deidentifyName(name) {
-  const trimmed = (name || "").trim();
-  if (!trimmed || trimmed.includes("○")) return trimmed;
-  const chars = [...trimmed];
-  if (chars.length === 1) return trimmed;
-  if (chars.length === 2) return chars[0] + "○";
-  return chars[0] + "○".repeat(chars.length - 2) + chars[chars.length - 1];
+// ===== 去識別化：可還原的代號對應 =====
+// 送給 AI 前，把名單上出現的姓名/聯絡人換成中性代號（代號1、代號2…），完全看不出是誰；
+// AI 回覆後，再依同一份對照表把代號換回真名顯示。系統畫面與資料庫永遠保留真名。
+//
+// buildNameMap 依目前名單建立「真名 → 代號」的 Map；同一個真名字串永遠對到同一個代號。
+function buildNameMap() {
+  const forward = new Map();
+  let counter = 0;
+  const add = (raw) => {
+    const n = (raw || "").trim();
+    if (!n || forward.has(n)) return;
+    counter += 1;
+    forward.set(n, `代號${counter}`);
+  };
+  allEntries.forEach((entry) => {
+    add(entry.name);
+    add(entry.contact);
+  });
+  return forward;
 }
 
-// 把一段文字中出現的名單姓名/聯絡人全部換成遮罩版（用於聊天訊息送出前）
-function maskNamesInText(text) {
+// 真名 → 代號。先換較長的名字，避免「王」誤蓋到「王小明」的一部分。
+function maskNames(text, forward) {
   if (!text) return text;
+  const pairs = [...forward.entries()].sort((a, b) => b[0].length - a[0].length);
   let result = text;
-  allEntries.forEach((entry) => {
-    [entry.name, entry.contact].forEach((n) => {
-      const full = (n || "").trim();
-      if (full.length >= 2 && !full.includes("○")) {
-        result = result.split(full).join(deidentifyName(full));
-      }
-    });
-  });
+  for (const [real, pseudo] of pairs) result = result.split(real).join(pseudo);
   return result;
 }
 
-// 整份名單去識別化後的版本（給 AI Agent 聊天室看）
-function buildMaskedRoster() {
-  return allEntries.map((entry) => ({
-    name: deidentifyName(entry.name),
-    department: entry.department,
-    background: getBackground(entry),
-    notes: entry.notes,
-    contact: deidentifyName(entry.contact),
+// 代號 → 真名。先換較長的代號（代號12 先於 代號1），避免前綴誤蓋。
+function unmaskNames(text, forward) {
+  if (!text) return text;
+  const pairs = [...forward.entries()]
+    .map(([real, pseudo]) => [pseudo, real])
+    .sort((a, b) => b[0].length - a[0].length);
+  let result = text;
+  for (const [pseudo, real] of pairs) result = result.split(pseudo).join(real);
+  return result;
+}
+
+// 把單一對象的所有文字欄位做代號替換（送 AI 前用）
+function maskEntry(entry, forward) {
+  return {
+    name: maskNames(entry.name, forward),
+    department: maskNames(entry.department, forward),
+    background: maskNames(getBackground(entry), forward),
+    notes: maskNames(entry.notes, forward),
+    contact: maskNames(entry.contact, forward),
     status: entry.status,
-    strategy: entry.strategy,
-    method: entry.method,
-    activities: entry.activities,
-  }));
+    strategy: maskNames(entry.strategy, forward),
+    method: maskNames(entry.method, forward),
+    activities: (entry.activities || []).map((a) => ({
+      ...a,
+      activity: maskNames(a.activity, forward),
+      reaction: maskNames(a.reaction, forward),
+    })),
+  };
 }
 
 // 表格內顯示活動紀錄：每筆一行，「活動：反應」
@@ -469,13 +488,13 @@ let aiLastSuggestion = null;
 
 function aiErrorMessage(err, prefix) {
   if (err?.status === 401) {
-    return "共用 API Key 無效或已過期，請管理員到 Firestore 的 config/ai 文件更新 deepseekApiKey。";
+    return "共用 API Key 無效或已過期，請管理員到 Firestore 的 config/ai 文件更新 anthropicApiKey。";
   }
-  if (err?.status === 402) {
-    return "DeepSeek 帳戶餘額不足，請管理員到 platform.deepseek.com 儲值。";
+  if (err?.status === 400 && /credit|balance/i.test(err?.message || "")) {
+    return "Anthropic 帳戶額度不足，請管理員到 console.anthropic.com 儲值。";
   }
   if (err?.status === 429) {
-    return "請求太頻繁，請稍後再試。";
+    return "請求太頻繁或額度不足，請稍後再試。";
   }
   return `${prefix}：` + (err?.message || err);
 }
@@ -511,28 +530,22 @@ aiGenerateBtn.addEventListener("click", async () => {
     const apiKey = await getSharedApiKey();
     if (!apiKey) {
       throw new Error(
-        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 deepseekApiKey 填入 Key（詳見 README）。"
+        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
       );
     }
-    // 姓名、聯絡人只在送給 AI 分析時才去識別化；其餘欄位照常送出
+    // 送 AI 前把姓名/聯絡人（含各欄位裡出現的名單成員）換成代號；AI 回覆後再換回真名
+    const forward = buildNameMap();
     const suggestion = await generateSuggestion(
       apiKey,
-      {
-        name: deidentifyName(entry.name),
-        department: entry.department,
-        background: getBackground(entry),
-        notes: entry.notes,
-        contact: deidentifyName(entry.contact),
-        status: entry.status,
-        strategy: entry.strategy,
-        method: entry.method,
-        activities: entry.activities,
-      },
-      maskNamesInText(aiGuidance.value.trim())
+      maskEntry(entry, forward),
+      maskNames(aiGuidance.value.trim(), forward)
     );
-    aiLastSuggestion = suggestion;
-    aiResultStrategy.textContent = suggestion.strategy;
-    aiResultMethod.textContent = suggestion.method;
+    aiLastSuggestion = {
+      strategy: unmaskNames(suggestion.strategy, forward),
+      method: unmaskNames(suggestion.method, forward),
+    };
+    aiResultStrategy.textContent = aiLastSuggestion.strategy;
+    aiResultMethod.textContent = aiLastSuggestion.method;
     aiResult.classList.remove("hidden");
   } catch (err) {
     aiError.textContent = aiErrorMessage(err, "產生建議失敗");
@@ -589,9 +602,8 @@ async function sendChatMessage() {
   if (!raw || chatBusy) return;
 
   chatError.textContent = "";
-  // 訊息中出現名單上的姓名/聯絡人時，送出前自動遮罩（畫面上也顯示遮罩後的版本）
-  const masked = maskNamesInText(raw);
-  chatHistory.push({ role: "user", content: masked });
+  // 聊天紀錄以「真名」保存並顯示；送 API 時才整份換成代號，AI 回覆再換回真名。
+  chatHistory.push({ role: "user", content: raw });
   chatInput.value = "";
   chatBusy = true;
   chatSendBtn.disabled = true;
@@ -601,11 +613,17 @@ async function sendChatMessage() {
     const apiKey = await getSharedApiKey();
     if (!apiKey) {
       throw new Error(
-        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 deepseekApiKey 填入 Key（詳見 README）。"
+        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
       );
     }
-    const reply = await chatWithAgent(apiKey, buildMaskedRoster(), chatHistory);
-    chatHistory.push({ role: "assistant", content: reply });
+    const forward = buildNameMap();
+    const roster = allEntries.map((entry) => maskEntry(entry, forward));
+    const apiHistory = chatHistory.map((m) => ({
+      role: m.role,
+      content: maskNames(m.content, forward),
+    }));
+    const reply = await chatWithAgent(apiKey, roster, apiHistory);
+    chatHistory.push({ role: "assistant", content: unmaskNames(reply, forward) });
   } catch (err) {
     chatHistory.pop(); // 失敗時移除剛送出的訊息，讓使用者修正後重送
     chatInput.value = raw;

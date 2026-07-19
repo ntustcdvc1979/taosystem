@@ -87,7 +87,7 @@
             <label>
               姓名 <span class="required">*</span>
               <input type="text" id="field-name" required />
-              <span class="hint-text">系統內照常顯示完整姓名；只有送給 AI 分析時才會自動遮罩（例：王小明 → 王○明）。</span>
+              <span class="hint-text">系統內照常顯示完整姓名；只有送給 AI 分析時才會換成中性代號（例：王小明 → 代號3，看不出是誰），AI 回覆後再自動轉回真名。</span>
             </label>
             <label>
               系級
@@ -167,7 +167,7 @@
 
           <div id="ai-ready-section">
             <p class="hint-text">
-              會將此對象「去識別化後」（姓名、聯絡人遮罩）的背景、成全狀況與活動紀錄送給 AI 分析，產生建議的策略與具體做法。
+              會將此對象去識別化後（姓名、聯絡人換成代號）的背景、成全狀況與活動紀錄送給 AI 分析，產生建議的策略與具體做法；結果會自動把代號轉回真名。
             </p>
             <label>
               策略方向（選填）
@@ -203,7 +203,7 @@
             <button type="button" id="chat-close-btn" class="btn-link-light">✕</button>
           </div>
         </div>
-        <p class="chat-privacy-hint">AI 能看到全部名單（姓名、聯絡人已遮罩）。你訊息中出現名單上的名字時，送出前也會自動遮罩。</p>
+        <p class="chat-privacy-hint">AI 看到的名單裡，姓名、聯絡人都已換成代號；你打的名字送出前也會換成代號。這裡顯示的對話已自動轉回真名。</p>
         <div id="chat-messages" class="chat-messages">
           <div class="chat-msg chat-msg-assistant">你好！我能看到整份成全名單，可以問我：誰適合邀約參加法會、某位對象下一步怎麼做、整體的優先順序建議等等。</div>
         </div>
