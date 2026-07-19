@@ -26,11 +26,6 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // 送給 AI 前要遮罩的自訂詞彙（例：學校/單位簡稱）。白名單成員可自行新增/刪除。
-    match /deidentifyTerms/{termId} {
-      allow read, write: if isAllowed();
-    }
-
     // 其他所有路徑一律拒絕
     match /{document=**} {
       allow read, write: if false;

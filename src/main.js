@@ -71,24 +71,9 @@ const aiResultStrategy = document.getElementById("ai-result-strategy");
 const aiResultMethod = document.getElementById("ai-result-method");
 const aiApplyBtn = document.getElementById("ai-apply-btn");
 const aiCloseBtn = document.getElementById("ai-close-btn");
-const aiOpenDeidBtn = document.getElementById("ai-open-deid-btn");
-
-// 詞彙遮罩設定對話框
-const deidModal = document.getElementById("deid-modal");
-const deidSettingsBtn = document.getElementById("deid-settings-btn");
-const deidTermsList = document.getElementById("deid-terms-list");
-const deidEmptyHint = document.getElementById("deid-empty-hint");
-const newDeidTerm = document.getElementById("new-deid-term");
-const newDeidReplacement = document.getElementById("new-deid-replacement");
-const addDeidTermBtn = document.getElementById("add-deid-term-btn");
-const deidCloseBtn = document.getElementById("deid-close-btn");
-
-const DEID_TERMS_COLLECTION = "deidentifyTerms";
 
 let allEntries = [];
 let unsubscribeEntries = null;
-let allDeidTerms = [];
-let unsubscribeDeidTerms = null;
 
 // ---------- Auth ----------
 onAuthStateChanged(auth, (user) => {
@@ -97,7 +82,6 @@ onAuthStateChanged(auth, (user) => {
     appView.classList.remove("hidden");
     currentUserLabel.textContent = user.email;
     subscribeEntries();
-    subscribeDeidTerms();
   } else {
     appView.classList.add("hidden");
     loginView.classList.remove("hidden");
@@ -105,12 +89,7 @@ onAuthStateChanged(auth, (user) => {
       unsubscribeEntries();
       unsubscribeEntries = null;
     }
-    if (unsubscribeDeidTerms) {
-      unsubscribeDeidTerms();
-      unsubscribeDeidTerms = null;
-    }
     allEntries = [];
-    allDeidTerms = [];
   }
 });
 
@@ -151,20 +130,6 @@ function subscribeEntries() {
       } else {
         console.error(err);
       }
-    }
-  );
-}
-
-function subscribeDeidTerms() {
-  const q = query(collection(db, DEID_TERMS_COLLECTION), orderBy("term"));
-  unsubscribeDeidTerms = onSnapshot(
-    q,
-    (snapshot) => {
-      allDeidTerms = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      renderDeidTermsList();
-    },
-    (err) => {
-      if (err.code !== "permission-denied") console.error(err);
     }
   );
 }
@@ -230,19 +195,6 @@ function deidentifyName(name) {
   if (chars.length === 1) return trimmed;
   if (chars.length === 2) return chars[0] + "○";
   return chars[0] + "○".repeat(chars.length - 2) + chars[chars.length - 1];
-}
-
-// 詞彙遮罩：只在把資料送給 AI 分析時，把設定好的關鍵字（例：台科、術德）替換掉。
-// 沒有指定替換內容時，用相同字數的「○」取代。
-function maskKeywords(text) {
-  if (!text) return text;
-  let result = text;
-  allDeidTerms.forEach((t) => {
-    if (!t.term) return;
-    const replacement = t.replacement?.trim() || "○".repeat([...t.term].length);
-    result = result.split(t.term).join(replacement);
-  });
-  return result;
 }
 
 // 表格內顯示活動紀錄：每筆一行，「活動：反應」
@@ -467,68 +419,6 @@ entriesTbody.addEventListener("click", async (e) => {
   }
 });
 
-// ---------- 詞彙遮罩設定 ----------
-function renderDeidTermsList() {
-  deidTermsList.innerHTML = "";
-  deidEmptyHint.classList.toggle("hidden", allDeidTerms.length > 0);
-
-  allDeidTerms.forEach((t) => {
-    const row = document.createElement("div");
-    row.className = "deid-term-row";
-    row.innerHTML = `
-      <span>${escapeHtml(t.term)} → ${escapeHtml(t.replacement || "自動遮罩")}</span>
-      <button type="button" class="btn-danger btn-small deid-delete" data-id="${t.id}">刪除</button>
-    `;
-    deidTermsList.appendChild(row);
-  });
-}
-
-function openDeidModal() {
-  deidModal.classList.remove("hidden");
-}
-
-function closeDeidModal() {
-  deidModal.classList.add("hidden");
-}
-
-addDeidTermBtn.addEventListener("click", async () => {
-  const term = newDeidTerm.value.trim();
-  if (!term) {
-    newDeidTerm.focus();
-    return;
-  }
-  try {
-    await addDoc(collection(db, DEID_TERMS_COLLECTION), {
-      term,
-      replacement: newDeidReplacement.value.trim(),
-      createdAt: serverTimestamp(),
-      createdBy: auth.currentUser?.email || null,
-    });
-    newDeidTerm.value = "";
-    newDeidReplacement.value = "";
-    newDeidTerm.focus();
-  } catch (err) {
-    alert("新增失敗：" + err.message);
-  }
-});
-
-deidTermsList.addEventListener("click", async (e) => {
-  const btn = e.target.closest(".deid-delete");
-  if (!btn) return;
-  try {
-    await deleteDoc(doc(db, DEID_TERMS_COLLECTION, btn.dataset.id));
-  } catch (err) {
-    alert("刪除失敗：" + err.message);
-  }
-});
-
-deidSettingsBtn.addEventListener("click", openDeidModal);
-aiOpenDeidBtn.addEventListener("click", openDeidModal);
-deidCloseBtn.addEventListener("click", closeDeidModal);
-deidModal.addEventListener("click", (e) => {
-  if (e.target === deidModal) closeDeidModal();
-});
-
 // ---------- AI 成全建議 ----------
 let aiModalEntryId = null;
 let aiLastSuggestion = null;
@@ -566,21 +456,17 @@ aiGenerateBtn.addEventListener("click", async () => {
         "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
       );
     }
-    // 以下欄位只在送給 AI 分析時才去識別化：姓名/聯絡人遮罩姓名，其餘文字欄位套用自訂詞彙遮罩
+    // 姓名、聯絡人只在送給 AI 分析時才去識別化；其餘欄位照常送出
     const suggestion = await generateSuggestion(apiKey, {
       name: deidentifyName(entry.name),
-      department: maskKeywords(entry.department),
-      background: maskKeywords(getBackground(entry)),
-      notes: maskKeywords(entry.notes),
-      contact: deidentifyName(maskKeywords(entry.contact)),
+      department: entry.department,
+      background: getBackground(entry),
+      notes: entry.notes,
+      contact: deidentifyName(entry.contact),
       status: entry.status,
-      strategy: maskKeywords(entry.strategy),
-      method: maskKeywords(entry.method),
-      activities: (entry.activities || []).map((a) => ({
-        ...a,
-        activity: maskKeywords(a.activity),
-        reaction: maskKeywords(a.reaction),
-      })),
+      strategy: entry.strategy,
+      method: entry.method,
+      activities: entry.activities,
     });
     aiLastSuggestion = suggestion;
     aiResultStrategy.textContent = suggestion.strategy;
