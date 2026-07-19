@@ -318,23 +318,6 @@ tbody tr:hover {
   max-width: 560px;
 }
 
-.ai-key-section input {
-  width: 100%;
-  margin-top: 0.35rem;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid #d5d8dd;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  font-family: inherit;
-}
-
-.ai-key-section label {
-  display: block;
-  margin-bottom: 0.8rem;
-  font-size: 0.9rem;
-  color: #444;
-}
-
 .btn-link {
   background: none;
   border: none;
@@ -363,6 +346,40 @@ tbody tr:hover {
   margin: 0 0 0.9rem;
   font-size: 0.9rem;
   white-space: pre-wrap;
+}
+
+/* 詞彙遮罩設定對話框 */
+#deid-modal .modal-content {
+  max-width: 560px;
+}
+
+.deid-term-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #edeef0;
+  font-size: 0.9rem;
+}
+
+.deid-add-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.4rem;
+  margin: 1rem 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid #edeef0;
+}
+
+.deid-add-row input {
+  margin-top: 0 !important;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-family: inherit;
+  min-width: 0;
 }
 
 /* 表格內的活動紀錄 */

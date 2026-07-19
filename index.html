@@ -32,6 +32,7 @@
           <h1>成全名單管理</h1>
           <div class="topbar-right">
             <span id="current-user"></span>
+            <button id="deid-settings-btn" class="btn-secondary">詞彙遮罩設定</button>
             <button id="logout-btn" class="btn-secondary">登出</button>
           </div>
         </header>
@@ -167,7 +168,8 @@
 
           <div id="ai-ready-section">
             <p class="hint-text">
-              會將此對象「去識別化後」（姓名遮罩）的背景、成全狀況與活動紀錄送給 Claude 分析，產生建議的策略與具體做法。
+              會將此對象「去識別化後」（姓名、聯絡人遮罩，並套用你設定的詞彙遮罩）的背景、成全狀況與活動紀錄送給 Claude 分析，產生建議的策略與具體做法。
+              <button type="button" id="ai-open-deid-btn" class="btn-link">管理詞彙遮罩</button>
             </p>
             <button type="button" id="ai-generate-btn" class="btn-primary">產生建議</button>
             <p id="ai-loading" class="hint-text hidden">分析中，請稍候（約需 10～60 秒）...</p>
@@ -184,6 +186,30 @@
 
           <div class="modal-actions">
             <button type="button" id="ai-close-btn" class="btn-secondary">關閉</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 詞彙遮罩設定 對話框 -->
+      <div id="deid-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>詞彙遮罩設定</h2>
+          <p class="hint-text">
+            這裡設定的關鍵字，會在資料送給 AI 分析前自動被替換掉，避免洩漏學校、單位等可識別資訊。
+            例如：台科 → ○科大、術德 → ○○（班別代稱）。替換內容留空則自動用「○」遮罩。
+          </p>
+
+          <div id="deid-terms-list"></div>
+          <p id="deid-empty-hint" class="hint-text">尚未設定任何詞彙。</p>
+
+          <div class="deid-add-row">
+            <input type="text" id="new-deid-term" placeholder="要遮罩的關鍵字，例：台科" />
+            <input type="text" id="new-deid-replacement" placeholder="替換成什麼（留空=自動遮罩）" />
+            <button type="button" id="add-deid-term-btn" class="btn-primary btn-small">新增</button>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" id="deid-close-btn" class="btn-secondary">關閉</button>
           </div>
         </div>
       </div>
