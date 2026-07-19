@@ -201,13 +201,15 @@ tbody tr:hover {
 
 .row-actions {
   display: flex;
-  gap: 0.4rem;
-  white-space: nowrap;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  max-width: 160px;
 }
 
 .row-actions button {
-  padding: 0.35rem 0.6rem;
-  font-size: 0.82rem;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 .btn-danger {
