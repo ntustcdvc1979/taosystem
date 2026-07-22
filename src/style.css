@@ -199,9 +199,35 @@ button {
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
   font-size: 0.78rem;
+  border: 1px solid transparent;
+}
+
+.gender-qian {
   background: #eef4ff;
   color: #2f6fed;
-  border: 1px solid #d6e4ff;
+  border-color: #d6e4ff;
+}
+
+.gender-kun {
+  background: #fdecec;
+  color: #d6336c;
+  border-color: #f5c2c7;
+}
+
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tag-chip {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  background: #f0f2f5;
+  color: #555;
+  border: 1px solid #e2e5ea;
 }
 
 .person-meta {
@@ -230,11 +256,29 @@ button {
   font-size: 0.88rem;
 }
 
-.card-actions {
+.row-actions.card-actions {
   max-width: none;
   margin-top: auto;
-  padding-top: 0.6rem;
+  padding-top: 0.7rem;
   border-top: 1px solid #f0f2f5;
+  gap: 0.45rem;
+}
+
+/* 卡片內的操作按鈕：撐開占滿寬度，不再擠成兩欄 */
+.row-actions.card-actions button {
+  flex: 1 1 auto;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+/* 拖曳排序 */
+.person-card.draggable {
+  cursor: grab;
+}
+
+.person-card.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
 }
 
 /* 長文字欄位：預設收合為 3 行，點一下展開/收合 */

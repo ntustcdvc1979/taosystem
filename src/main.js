@@ -47,6 +47,7 @@ const fieldId = document.getElementById("entry-id");
 const fieldName = document.getElementById("field-name");
 const fieldGender = document.getElementById("field-gender");
 const fieldDepartment = document.getElementById("field-department");
+const fieldTags = document.getElementById("field-tags");
 const fieldBackground = document.getElementById("field-background");
 const fieldContact = document.getElementById("field-contact");
 const fieldStatus = document.getElementById("field-status");
@@ -167,7 +168,15 @@ function subscribeEntries() {
   unsubscribeEntries = onSnapshot(
     q,
     (snapshot) => {
+      // 預設依建立時間新到舊；一旦使用者手動排序過（有 order 欄位），改依 order。
       allEntries = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      allEntries.sort((a, b) => {
+        const ao = a.order, bo = b.order;
+        if (ao != null && bo != null) return ao - bo;
+        if (ao != null) return -1;
+        if (bo != null) return 1;
+        return 0; // 皆未排序：維持 Firestore 的 createdAt desc
+      });
       renderEntries();
       refreshOpenActivityModal();
       refreshOpenTalkModal();
@@ -209,11 +218,19 @@ function upcomingEvents() {
 function renderEntries() {
   const searchTerm = searchInput.value.trim().toLowerCase();
   const statusVal = filterStatus.value;
+  // 只有在沒有搜尋/篩選時才能拖曳排序（否則只看到部分卡片，排序會錯亂）
+  const canReorder = !searchTerm && !statusVal;
 
   const filtered = allEntries.filter((entry) => {
     if (statusVal && entry.status !== statusVal) return false;
     if (searchTerm) {
-      const haystack = [entry.name, entry.department, getBackground(entry), entry.contact]
+      const haystack = [
+        entry.name,
+        entry.department,
+        getBackground(entry),
+        entry.contact,
+        (entry.tags || []).join(" "),
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -235,16 +252,26 @@ function renderEntries() {
       ? `<div class="card-field"><span class="field-label">${label}</span><div class="cell-clamp" title="點一下展開／收合">${html}</div></div>`
       : "";
 
+  const tagsHtml = (tags) =>
+    Array.isArray(tags) && tags.length
+      ? `<div class="card-tags">${tags
+          .map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`)
+          .join("")}</div>`
+      : "";
+
   filtered.forEach((entry) => {
     const card = document.createElement("div");
-    card.className = "person-card";
+    card.className = "person-card" + (canReorder ? " draggable" : "");
+    card.dataset.id = entry.id;
+    if (canReorder) card.draggable = true;
     card.innerHTML = `
       <div class="person-card-header">
         <span class="person-name">${escapeHtml(entry.name)}</span>
-        ${entry.gender ? `<span class="gender-badge">${escapeHtml(entry.gender)}</span>` : ""}
+        ${entry.gender ? `<span class="gender-badge ${entry.gender === "坤" ? "gender-kun" : "gender-qian"}">${escapeHtml(entry.gender)}</span>` : ""}
         ${entry.department ? `<span class="person-meta">${escapeHtml(entry.department)}</span>` : ""}
         ${entry.status ? `<span class="status-badge">${escapeHtml(entry.status)}</span>` : ""}
       </div>
+      ${tagsHtml(entry.tags)}
       ${entry.contact ? `<div class="person-meta">聯絡人：${escapeHtml(entry.contact)}</div>` : ""}
       ${entry.recommendedActivity ? `<div class="card-recommend"><span class="field-label">推薦活動</span>${escapeHtml(entry.recommendedActivity)}</div>` : ""}
       ${field("背景", escapeHtml(getBackground(entry)))}
@@ -262,6 +289,56 @@ function renderEntries() {
     `;
     entriesList.appendChild(card);
   });
+}
+
+// ---------- 拖曳排序（僅在未搜尋/未篩選時可用） ----------
+let dragId = null;
+
+entriesList.addEventListener("dragstart", (e) => {
+  const card = e.target.closest(".person-card");
+  if (!card || !card.draggable) return;
+  dragId = card.dataset.id;
+  card.classList.add("dragging");
+});
+
+entriesList.addEventListener("dragend", async (e) => {
+  const card = e.target.closest(".person-card");
+  card?.classList.remove("dragging");
+  if (!dragId) return;
+  dragId = null;
+  await persistOrderFromDom();
+});
+
+entriesList.addEventListener("dragover", (e) => {
+  if (!dragId) return;
+  const target = e.target.closest(".person-card");
+  const dragging = entriesList.querySelector(".person-card.dragging");
+  if (!target || !dragging || target === dragging) return;
+  e.preventDefault();
+  const box = target.getBoundingClientRect();
+  // 同一列用左右中線判斷、跨列用上下中線
+  const sameRow = e.clientY >= box.top && e.clientY <= box.bottom;
+  const before = sameRow
+    ? e.clientX < box.left + box.width / 2
+    : e.clientY < box.top + box.height / 2;
+  entriesList.insertBefore(dragging, before ? target : target.nextSibling);
+});
+
+// 依目前 DOM 卡片順序，把 order 寫回有變動的名單
+async function persistOrderFromDom() {
+  const ids = [...entriesList.querySelectorAll(".person-card")].map((c) => c.dataset.id);
+  const updates = [];
+  ids.forEach((id, index) => {
+    const entry = allEntries.find((en) => en.id === id);
+    if (entry && entry.order !== index) {
+      updates.push(updateDoc(doc(db, ENTRIES_COLLECTION, id), { order: index }));
+    }
+  });
+  try {
+    await Promise.all(updates);
+  } catch (err) {
+    alert("排序儲存失敗：" + err.message);
+  }
 }
 
 // 相容舊資料：以前欄位叫 channel，現在叫 background
@@ -345,6 +422,7 @@ function maskEntry(entry, forward) {
     name: maskNames(entry.name, forward),
     gender: entry.gender,
     department: maskNames(entry.department, forward),
+    tags: (entry.tags || []).map((t) => maskNames(t, forward)),
     background: maskNames(getBackground(entry), forward),
     contact: maskNames(entry.contact, forward),
     status: entry.status,
@@ -447,7 +525,7 @@ function renderActivityModalList() {
     row.dataset.index = String(index);
     row.innerHTML = `
       <input type="text" class="act-field-name" placeholder="活動名稱" />
-      <input type="text" class="act-field-date" placeholder="日期(選填)" />
+      <input type="date" class="act-field-date" />
       <input type="text" class="act-field-reaction" placeholder="反應 / 回饋" />
       <button type="button" class="btn-secondary btn-small act-save">儲存</button>
       <button type="button" class="btn-danger btn-small act-delete">刪除</button>
@@ -479,7 +557,7 @@ activitiesList.addEventListener("click", async (e) => {
   if (e.target.closest(".act-save")) {
     activityModalActivities[index] = {
       activity: row.querySelector(".act-field-name").value.trim(),
-      date: row.querySelector(".act-field-date").value.trim(),
+      date: row.querySelector(".act-field-date").value,
       reaction: row.querySelector(".act-field-reaction").value.trim(),
     };
     await persistActivities();
@@ -550,7 +628,7 @@ function renderTalkModalList() {
     row.className = "talk-row";
     row.dataset.index = String(index);
     row.innerHTML = `
-      <input type="text" class="talk-field-date" placeholder="日期" />
+      <input type="date" class="talk-field-date" />
       <input type="text" class="talk-field-content" placeholder="聊了什麼、對方的反應" />
       <button type="button" class="btn-secondary btn-small talk-save">儲存</button>
       <button type="button" class="btn-danger btn-small talk-delete">刪除</button>
@@ -580,7 +658,7 @@ talksList.addEventListener("click", async (e) => {
 
   if (e.target.closest(".talk-save")) {
     talkModalTalks[index] = {
-      date: row.querySelector(".talk-field-date").value.trim(),
+      date: row.querySelector(".talk-field-date").value,
       content: row.querySelector(".talk-field-content").value.trim(),
     };
     await persistTalks();
@@ -618,6 +696,7 @@ function openModal(entry = null) {
     fieldName.value = entry.name || "";
     fieldGender.value = entry.gender || "";
     fieldDepartment.value = entry.department || "";
+    fieldTags.value = (entry.tags || []).join(", ");
     fieldBackground.value = getBackground(entry);
     fieldContact.value = entry.contact || "";
     fieldStatus.value = entry.status || "";
@@ -650,6 +729,10 @@ entryForm.addEventListener("submit", async (e) => {
     name: fieldName.value.trim(),
     gender: fieldGender.value,
     department: fieldDepartment.value.trim(),
+    tags: fieldTags.value
+      .split(/[,，、]/)
+      .map((t) => t.trim())
+      .filter(Boolean),
     background: fieldBackground.value.trim(),
     contact: fieldContact.value.trim(),
     status: fieldStatus.value,
@@ -711,7 +794,7 @@ entriesList.addEventListener("click", async (e) => {
 });
 
 // ---------- 活動管理（近期活動：名稱、日期、類型） ----------
-const EVENT_TYPES = ["廣結善緣", "成全求道", "法會"];
+const EVENT_TYPES = ["廣結善緣", "求道", "成全求道", "法會", "幹訓"];
 
 function renderEventsList() {
   eventsList.innerHTML = "";
