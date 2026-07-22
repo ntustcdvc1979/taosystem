@@ -470,7 +470,7 @@ button {
 
 .calendar {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 1px;
   background: #e5e7eb;
   border: 1px solid #e5e7eb;
@@ -497,8 +497,16 @@ button {
   cursor: pointer;
 }
 
-.cal-empty {
+.cal-other-month {
   background: #fafbfc;
+}
+
+.cal-other-month .cal-daynum {
+  color: #c4c8d0;
+}
+
+.cal-other-month .cal-event {
+  opacity: 0.5;
 }
 
 .cal-today {
@@ -530,8 +538,9 @@ button {
 
 .cal-event.type-法會 { background: #fdecec; color: #c0392b; }
 .cal-event.type-求道 { background: #eafaf0; color: #1e8a4c; }
-.cal-event.type-成全求道 { background: #fff4e5; color: #b45309; }
+.cal-event.type-成全 { background: #fff4e5; color: #b45309; }
 .cal-event.type-幹訓 { background: #f3ecfb; color: #7c3aed; }
+.cal-event.type-獻供 { background: #fef9c3; color: #a16207; }
 
 .event-form {
   margin-top: 1rem;

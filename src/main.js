@@ -820,7 +820,7 @@ entriesList.addEventListener("click", async (e) => {
 });
 
 // ---------- 活動管理（月曆檢視） ----------
-const EVENT_TYPES = ["廣結善緣", "求道", "成全求道", "法會", "幹訓"];
+const EVENT_TYPES = ["廣結善緣", "獻供", "求道", "成全", "法會", "幹訓"];
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
 let calCursor = firstOfMonth(new Date()); // 目前顯示的月份（該月 1 號）
@@ -855,22 +855,29 @@ function renderCalendar() {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const todayStr = ymd(new Date());
 
+  // 補滿完整週：第一格從當月 1 號往前推到週日，總格數湊成 7 的倍數
+  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  const gridStart = new Date(year, month, 1 - firstWeekday);
+
   let html = WEEKDAYS.map((w) => `<div class="cal-weekday">${w}</div>`).join("");
 
-  // 月初空白格
-  for (let i = 0; i < firstWeekday; i++) html += `<div class="cal-cell cal-empty"></div>`;
-
-  for (let day = 1; day <= daysInMonth; day++) {
-    const dayStr = ymd(new Date(year, month, day));
+  for (let i = 0; i < totalCells; i++) {
+    const cellDate = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+    const dayStr = ymd(cellDate);
+    const inMonth = cellDate.getMonth() === month;
     const chips = eventsOnDay(dayStr)
       .map(
         (ev) =>
           `<div class="cal-event type-${escapeHtml(ev.type)}" data-id="${ev.id}" title="${escapeHtml(ev.name)}（${escapeHtml(ev.type)}）">${escapeHtml(ev.name)}</div>`
       )
       .join("");
+    const cls =
+      "cal-cell" +
+      (inMonth ? "" : " cal-other-month") +
+      (dayStr === todayStr ? " cal-today" : "");
     html += `
-      <div class="cal-cell${dayStr === todayStr ? " cal-today" : ""}" data-day="${dayStr}">
-        <div class="cal-daynum">${day}</div>
+      <div class="${cls}" data-day="${dayStr}">
+        <div class="cal-daynum">${cellDate.getDate()}</div>
         ${chips}
       </div>`;
   }
