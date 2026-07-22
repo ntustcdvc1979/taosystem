@@ -52,6 +52,7 @@
             <option value="講師">講師</option>
             <option value="未確定">未確定</option>
           </select>
+          <button id="toggle-hidden-tags-btn" class="btn-secondary">顯示內部標籤</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
@@ -151,14 +152,14 @@
         </div>
       </div>
 
-      <!-- 聊天成全紀錄 對話框（每個人獨立管理） -->
+      <!-- 聯絡紀錄 對話框（每個人獨立管理） -->
       <div id="talk-modal" class="modal hidden">
         <div class="modal-content">
-          <h2>聊天成全紀錄 - <span id="talk-modal-name"></span></h2>
-          <p class="hint-text">記錄每次跟這個人聊天成全的日期與內容，AI 產生建議時會一併參考。</p>
+          <h2>聯絡紀錄 - <span id="talk-modal-name"></span></h2>
+          <p class="hint-text">記錄每次跟這個人聯絡（聊天、通話、見面等）的日期與內容，AI 產生建議時會一併參考。</p>
 
           <div id="talks-list"></div>
-          <p id="talks-empty-hint" class="hint-text">尚無聊天紀錄。</p>
+          <p id="talks-empty-hint" class="hint-text">尚無聯絡紀錄。</p>
 
           <div class="talk-add-row">
             <input type="date" id="new-talk-date" />
@@ -210,13 +211,14 @@
       <div id="events-modal" class="modal hidden">
         <div class="modal-content">
           <h2>活動管理</h2>
-          <p class="hint-text">登錄近期活動與類型（廣結善緣／求道／成全求道／法會／幹訓），AI 產生建議時會參照，推薦對象適合參加的活動。</p>
+          <p class="hint-text">登錄近期活動與類型（廣結善緣／求道／成全求道／法會／幹訓），AI 產生建議時會參照，推薦對象適合參加的活動。結束日期留空表示單日活動。</p>
 
           <div id="events-list"></div>
           <p id="events-empty-hint" class="hint-text">尚無活動。</p>
 
           <div class="event-add-row">
-            <input type="date" id="new-event-date" />
+            <input type="date" id="new-event-date" title="開始日期" />
+            <input type="date" id="new-event-end-date" title="結束日期（選填，單日活動可留空）" />
             <input type="text" id="new-event-name" placeholder="活動名稱" />
             <select id="new-event-type">
               <option value="廣結善緣">廣結善緣</option>

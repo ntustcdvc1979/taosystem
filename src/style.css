@@ -412,7 +412,7 @@ button {
   align-self: stretch;
 }
 
-/* 聊天成全紀錄對話框 */
+/* 聯絡紀錄對話框 */
 #talk-modal .modal-content {
   max-width: 640px;
 }
@@ -451,19 +451,19 @@ button {
 
 /* 活動管理對話框 */
 #events-modal .modal-content {
-  max-width: 640px;
+  max-width: 760px;
 }
 
 .event-row {
   display: grid;
-  grid-template-columns: auto 1fr auto auto auto;
+  grid-template-columns: auto auto 1fr auto auto auto;
   gap: 0.4rem;
   margin-bottom: 0.5rem;
 }
 
 .event-add-row {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto auto 1fr auto auto;
   gap: 0.4rem;
   margin: 1rem 0;
   padding-top: 0.8rem;

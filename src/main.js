@@ -35,8 +35,13 @@ const logoutBtn = document.getElementById("logout-btn");
 
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
+const toggleHiddenTagsBtn = document.getElementById("toggle-hidden-tags-btn");
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
+
+// 預設隱藏的標籤（例：內部幹部身分不宜隨手就看到）。如需增減，直接編輯這個陣列。
+const HIDDEN_TAGS = ["團內幹部"];
+let showHiddenTags = false;
 
 const entryModal = document.getElementById("entry-modal");
 const entryForm = document.getElementById("entry-form");
@@ -65,7 +70,7 @@ const newActReaction = document.getElementById("new-act-reaction");
 const addActivityBtn = document.getElementById("add-activity-btn");
 const activityCloseBtn = document.getElementById("activity-close-btn");
 
-// 聊天成全紀錄對話框（每個人獨立管理）
+// 聯絡紀錄對話框（每個人獨立管理）
 const talkModal = document.getElementById("talk-modal");
 const talkModalName = document.getElementById("talk-modal-name");
 const talksList = document.getElementById("talks-list");
@@ -81,6 +86,7 @@ const eventsManageBtn = document.getElementById("events-manage-btn");
 const eventsList = document.getElementById("events-list");
 const eventsEmptyHint = document.getElementById("events-empty-hint");
 const newEventDate = document.getElementById("new-event-date");
+const newEventEndDate = document.getElementById("new-event-end-date");
 const newEventName = document.getElementById("new-event-name");
 const newEventType = document.getElementById("new-event-type");
 const addEventBtn = document.getElementById("add-event-btn");
@@ -211,7 +217,13 @@ function subscribeEvents() {
 // 今天（含）以後的活動，依日期排序（date 為 YYYY-MM-DD，字串比較即可）
 function upcomingEvents() {
   const today = new Date().toISOString().slice(0, 10);
-  return allEvents.filter((ev) => (ev.date || "") >= today);
+  return allEvents.filter((ev) => (ev.endDate || ev.date || "") >= today);
+}
+
+// 依開關過濾預設隱藏的標籤（例：團內幹部）
+function visibleTags(tags) {
+  const list = tags || [];
+  return showHiddenTags ? list : list.filter((t) => !HIDDEN_TAGS.includes(t));
 }
 
 // ---------- Render（卡片式名單） ----------
@@ -229,7 +241,7 @@ function renderEntries() {
         entry.department,
         getBackground(entry),
         entry.contact,
-        (entry.tags || []).join(" "),
+        visibleTags(entry.tags).join(" "),
       ]
         .filter(Boolean)
         .join(" ")
@@ -271,18 +283,18 @@ function renderEntries() {
         ${entry.department ? `<span class="person-meta">${escapeHtml(entry.department)}</span>` : ""}
         ${entry.status ? `<span class="status-badge">${escapeHtml(entry.status)}</span>` : ""}
       </div>
-      ${tagsHtml(entry.tags)}
+      ${tagsHtml(visibleTags(entry.tags))}
       ${entry.contact ? `<div class="person-meta">聯絡人：${escapeHtml(entry.contact)}</div>` : ""}
       ${entry.recommendedActivity ? `<div class="card-recommend"><span class="field-label">推薦活動</span>${escapeHtml(entry.recommendedActivity)}</div>` : ""}
       ${field("背景", escapeHtml(getBackground(entry)))}
       ${field("策略", escapeHtml(entry.strategy))}
       ${field("做法", escapeHtml(entry.method))}
       ${field("活動紀錄", renderActivitiesCell(entry.activities))}
-      ${field("聊天成全紀錄", renderTalksCell(entry.talks))}
+      ${field("聯絡紀錄", renderTalksCell(entry.talks))}
       <div class="row-actions card-actions">
         <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
         <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
-        <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聊天紀錄</button>
+        <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聯絡紀錄</button>
         <button data-action="ai" data-id="${entry.id}" class="btn-secondary">AI 建議</button>
         <button data-action="delete" data-id="${entry.id}" class="btn-danger">刪除</button>
       </div>
@@ -445,6 +457,7 @@ function maskedUpcomingEvents(forward) {
   return upcomingEvents().map((ev) => ({
     name: maskNames(ev.name, forward),
     date: ev.date,
+    endDate: ev.endDate,
     type: ev.type,
   }));
 }
@@ -463,7 +476,7 @@ function renderActivitiesCell(activities) {
     .join("");
 }
 
-// 表格內顯示聊天成全紀錄：每筆一行，「日期 內容」
+// 表格內顯示聯絡紀錄：每筆一行，「日期 內容」
 function renderTalksCell(talks) {
   if (!Array.isArray(talks) || talks.length === 0) return "";
   return talks
@@ -485,6 +498,12 @@ function escapeHtml(value) {
 
 searchInput.addEventListener("input", renderEntries);
 filterStatus.addEventListener("change", renderEntries);
+
+toggleHiddenTagsBtn.addEventListener("click", () => {
+  showHiddenTags = !showHiddenTags;
+  toggleHiddenTagsBtn.textContent = showHiddenTags ? "隱藏內部標籤" : "顯示內部標籤";
+  renderEntries();
+});
 
 // ---------- 活動紀錄對話框（每個人獨立新增/編輯，與新增名單表單分開） ----------
 let activityModalEntryId = null;
@@ -591,7 +610,7 @@ activityModal.addEventListener("click", (e) => {
   if (e.target === activityModal) closeActivityModal();
 });
 
-// ---------- 聊天成全紀錄對話框（每個人獨立新增/編輯） ----------
+// ---------- 聯絡紀錄對話框（每個人獨立新增/編輯） ----------
 let talkModalEntryId = null;
 let talkModalTalks = [];
 
@@ -647,7 +666,7 @@ async function persistTalks() {
       updatedBy: auth.currentUser?.email || null,
     });
   } catch (err) {
-    alert("儲存聊天紀錄失敗：" + err.message);
+    alert("儲存聯絡紀錄失敗：" + err.message);
   }
 }
 
@@ -808,13 +827,15 @@ function renderEventsList() {
       (t) => `<option value="${t}"${t === ev.type ? " selected" : ""}>${t}</option>`
     ).join("");
     row.innerHTML = `
-      <input type="date" class="event-field-date" />
+      <input type="date" class="event-field-date" title="開始日期" />
+      <input type="date" class="event-field-end-date" title="結束日期（選填）" />
       <input type="text" class="event-field-name" placeholder="活動名稱" />
       <select class="event-field-type">${typeOptions}</select>
       <button type="button" class="btn-secondary btn-small event-save">儲存</button>
       <button type="button" class="btn-danger btn-small event-delete">刪除</button>
     `;
     row.querySelector(".event-field-date").value = ev.date || "";
+    row.querySelector(".event-field-end-date").value = ev.endDate || "";
     row.querySelector(".event-field-name").value = ev.name || "";
     eventsList.appendChild(row);
   });
@@ -828,6 +849,7 @@ eventsList.addEventListener("click", async (e) => {
     try {
       await updateDoc(doc(db, EVENTS_COLLECTION, row.dataset.id), {
         date: row.querySelector(".event-field-date").value,
+        endDate: row.querySelector(".event-field-end-date").value,
         name: row.querySelector(".event-field-name").value.trim(),
         type: row.querySelector(".event-field-type").value,
         updatedAt: serverTimestamp(),
@@ -848,20 +870,28 @@ eventsList.addEventListener("click", async (e) => {
 addEventBtn.addEventListener("click", async () => {
   const name = newEventName.value.trim();
   const date = newEventDate.value;
+  const endDate = newEventEndDate.value;
   if (!name || !date) {
     (!date ? newEventDate : newEventName).focus();
+    return;
+  }
+  if (endDate && endDate < date) {
+    alert("結束日期不能早於開始日期。");
+    newEventEndDate.focus();
     return;
   }
   try {
     await addDoc(collection(db, EVENTS_COLLECTION), {
       name,
       date,
+      endDate,
       type: newEventType.value,
       createdAt: serverTimestamp(),
       createdBy: auth.currentUser?.email || null,
     });
     newEventName.value = "";
     newEventDate.value = "";
+    newEventEndDate.value = "";
   } catch (err) {
     alert("新增活動失敗：" + err.message);
   }
