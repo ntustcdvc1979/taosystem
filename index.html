@@ -52,8 +52,7 @@
             <option value="講師">講師</option>
             <option value="未確定">未確定</option>
           </select>
-          <button id="toggle-hidden-tags-btn" class="btn-secondary">顯示內部標籤</button>
-          <span id="hidden-tags-count" class="hint-text"></span>
+          <button id="toggle-hidden-tags-btn" class="btn-secondary">顯示團內幹部</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
@@ -208,27 +207,38 @@
         </div>
       </div>
 
-      <!-- 活動管理 對話框（近期活動：名稱、日期、類型） -->
+      <!-- 活動管理 對話框（月曆檢視） -->
       <div id="events-modal" class="modal hidden">
-        <div class="modal-content">
+        <div class="modal-content events-modal-content">
           <h2>活動管理</h2>
-          <p class="hint-text">登錄近期活動與類型（廣結善緣／求道／成全求道／法會／幹訓），AI 產生建議時會參照，推薦對象適合參加的活動。結束日期留空表示單日活動。</p>
+          <p class="hint-text">活動類型：廣結善緣／求道／成全求道／法會／幹訓，AI 產生建議時會參照。點日期格可帶入該天新增活動，點活動可編輯。結束日期留空表示單日活動。</p>
 
-          <div id="events-list"></div>
-          <p id="events-empty-hint" class="hint-text">尚無活動。</p>
+          <div class="cal-header">
+            <button type="button" id="cal-prev" class="btn-secondary btn-small">‹</button>
+            <span id="cal-title"></span>
+            <button type="button" id="cal-next" class="btn-secondary btn-small">›</button>
+            <button type="button" id="cal-today" class="btn-secondary btn-small">今天</button>
+          </div>
+          <div id="calendar" class="calendar"></div>
 
-          <div class="event-add-row">
-            <input type="date" id="new-event-date" title="開始日期" />
-            <input type="date" id="new-event-end-date" title="結束日期（選填，單日活動可留空）" />
-            <input type="text" id="new-event-name" placeholder="活動名稱" />
-            <select id="new-event-type">
-              <option value="廣結善緣">廣結善緣</option>
-              <option value="求道">求道</option>
-              <option value="成全求道">成全求道</option>
-              <option value="法會">法會</option>
-              <option value="幹訓">幹訓</option>
-            </select>
-            <button type="button" id="add-event-btn" class="btn-primary btn-small">新增</button>
+          <div class="event-form">
+            <span id="event-form-mode" class="field-label">新增活動</span>
+            <div class="event-add-row">
+              <input type="date" id="new-event-date" title="開始日期" />
+              <input type="date" id="new-event-end-date" title="結束日期（選填，單日活動可留空）" />
+              <input type="text" id="new-event-name" placeholder="活動名稱" />
+              <select id="new-event-type">
+                <option value="廣結善緣">廣結善緣</option>
+                <option value="求道">求道</option>
+                <option value="成全求道">成全求道</option>
+                <option value="法會">法會</option>
+                <option value="幹訓">幹訓</option>
+              </select>
+              <button type="button" id="add-event-btn" class="btn-primary btn-small">新增</button>
+              <button type="button" id="save-event-btn" class="btn-primary btn-small hidden">儲存</button>
+              <button type="button" id="delete-event-btn" class="btn-danger btn-small hidden">刪除</button>
+              <button type="button" id="cancel-edit-btn" class="btn-secondary btn-small hidden">取消</button>
+            </div>
           </div>
 
           <div class="modal-actions">

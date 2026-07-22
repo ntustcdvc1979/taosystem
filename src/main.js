@@ -36,7 +36,6 @@ const logoutBtn = document.getElementById("logout-btn");
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
 const toggleHiddenTagsBtn = document.getElementById("toggle-hidden-tags-btn");
-const hiddenTagsCount = document.getElementById("hidden-tags-count");
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
 
@@ -81,16 +80,23 @@ const newTalkContent = document.getElementById("new-talk-content");
 const addTalkBtn = document.getElementById("add-talk-btn");
 const talkCloseBtn = document.getElementById("talk-close-btn");
 
-// 活動管理對話框
+// 活動管理對話框（月曆檢視）
 const eventsModal = document.getElementById("events-modal");
 const eventsManageBtn = document.getElementById("events-manage-btn");
-const eventsList = document.getElementById("events-list");
-const eventsEmptyHint = document.getElementById("events-empty-hint");
+const calendarEl = document.getElementById("calendar");
+const calTitle = document.getElementById("cal-title");
+const calPrevBtn = document.getElementById("cal-prev");
+const calNextBtn = document.getElementById("cal-next");
+const calTodayBtn = document.getElementById("cal-today");
+const eventFormMode = document.getElementById("event-form-mode");
 const newEventDate = document.getElementById("new-event-date");
 const newEventEndDate = document.getElementById("new-event-end-date");
 const newEventName = document.getElementById("new-event-name");
 const newEventType = document.getElementById("new-event-type");
 const addEventBtn = document.getElementById("add-event-btn");
+const saveEventBtn = document.getElementById("save-event-btn");
+const deleteEventBtn = document.getElementById("delete-event-btn");
+const cancelEditBtn = document.getElementById("cancel-edit-btn");
 const eventsCloseBtn = document.getElementById("events-close-btn");
 
 // AI 成全建議對話框
@@ -207,7 +213,7 @@ function subscribeEvents() {
     q,
     (snapshot) => {
       allEvents = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      renderEventsList();
+      renderCalendar();
     },
     (err) => {
       if (err.code !== "permission-denied") console.error(err);
@@ -232,10 +238,6 @@ function renderEntries() {
   const statusVal = filterStatus.value;
   // 只有在沒有搜尋/篩選時才能拖曳排序（否則只看到部分卡片，排序會錯亂）
   const canReorder = !searchTerm && !statusVal;
-
-  const hiddenCount = allEntries.filter(hasHiddenTag).length;
-  hiddenTagsCount.textContent =
-    !showHiddenTags && hiddenCount > 0 ? `（${hiddenCount} 筆含內部標籤已隱藏）` : "";
 
   const filtered = allEntries.filter((entry) => {
     if (!showHiddenTags && hasHiddenTag(entry)) return false;
@@ -506,7 +508,7 @@ filterStatus.addEventListener("change", renderEntries);
 
 toggleHiddenTagsBtn.addEventListener("click", () => {
   showHiddenTags = !showHiddenTags;
-  toggleHiddenTagsBtn.textContent = showHiddenTags ? "隱藏內部標籤" : "顯示內部標籤";
+  toggleHiddenTagsBtn.textContent = showHiddenTags ? "隱藏團內幹部" : "顯示團內幹部";
   renderEntries();
 });
 
@@ -817,92 +819,188 @@ entriesList.addEventListener("click", async (e) => {
   }
 });
 
-// ---------- 活動管理（近期活動：名稱、日期、類型） ----------
+// ---------- 活動管理（月曆檢視） ----------
 const EVENT_TYPES = ["廣結善緣", "求道", "成全求道", "法會", "幹訓"];
+const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
-function renderEventsList() {
-  eventsList.innerHTML = "";
-  eventsEmptyHint.classList.toggle("hidden", allEvents.length > 0);
+let calCursor = firstOfMonth(new Date()); // 目前顯示的月份（該月 1 號）
+let editingEventId = null;
 
-  allEvents.forEach((ev) => {
-    const row = document.createElement("div");
-    row.className = "event-row";
-    row.dataset.id = ev.id;
-    const typeOptions = EVENT_TYPES.map(
-      (t) => `<option value="${t}"${t === ev.type ? " selected" : ""}>${t}</option>`
-    ).join("");
-    row.innerHTML = `
-      <input type="date" class="event-field-date" title="開始日期" />
-      <input type="date" class="event-field-end-date" title="結束日期（選填）" />
-      <input type="text" class="event-field-name" placeholder="活動名稱" />
-      <select class="event-field-type">${typeOptions}</select>
-      <button type="button" class="btn-secondary btn-small event-save">儲存</button>
-      <button type="button" class="btn-danger btn-small event-delete">刪除</button>
-    `;
-    row.querySelector(".event-field-date").value = ev.date || "";
-    row.querySelector(".event-field-end-date").value = ev.endDate || "";
-    row.querySelector(".event-field-name").value = ev.name || "";
-    eventsList.appendChild(row);
+function firstOfMonth(d) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+// 本機日期 → YYYY-MM-DD（避免 toISOString 的時區位移）
+function ymd(d) {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+// 該日期字串當天有哪些活動（涵蓋多日活動的每一天）
+function eventsOnDay(dayStr) {
+  return allEvents.filter((ev) => {
+    const start = ev.date || "";
+    const end = ev.endDate || ev.date || "";
+    return start && dayStr >= start && dayStr <= end;
   });
 }
 
-eventsList.addEventListener("click", async (e) => {
-  const row = e.target.closest(".event-row");
-  if (!row) return;
+function renderCalendar() {
+  const year = calCursor.getFullYear();
+  const month = calCursor.getMonth();
+  calTitle.textContent = `${year} 年 ${month + 1} 月`;
 
-  if (e.target.closest(".event-save")) {
-    try {
-      await updateDoc(doc(db, EVENTS_COLLECTION, row.dataset.id), {
-        date: row.querySelector(".event-field-date").value,
-        endDate: row.querySelector(".event-field-end-date").value,
-        name: row.querySelector(".event-field-name").value.trim(),
-        type: row.querySelector(".event-field-type").value,
-        updatedAt: serverTimestamp(),
-        updatedBy: auth.currentUser?.email || null,
-      });
-    } catch (err) {
-      alert("儲存活動失敗：" + err.message);
-    }
-  } else if (e.target.closest(".event-delete")) {
-    try {
-      await deleteDoc(doc(db, EVENTS_COLLECTION, row.dataset.id));
-    } catch (err) {
-      alert("刪除活動失敗：" + err.message);
-    }
+  const firstWeekday = new Date(year, month, 1).getDay(); // 0=日
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayStr = ymd(new Date());
+
+  let html = WEEKDAYS.map((w) => `<div class="cal-weekday">${w}</div>`).join("");
+
+  // 月初空白格
+  for (let i = 0; i < firstWeekday; i++) html += `<div class="cal-cell cal-empty"></div>`;
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayStr = ymd(new Date(year, month, day));
+    const chips = eventsOnDay(dayStr)
+      .map(
+        (ev) =>
+          `<div class="cal-event type-${escapeHtml(ev.type)}" data-id="${ev.id}" title="${escapeHtml(ev.name)}（${escapeHtml(ev.type)}）">${escapeHtml(ev.name)}</div>`
+      )
+      .join("");
+    html += `
+      <div class="cal-cell${dayStr === todayStr ? " cal-today" : ""}" data-day="${dayStr}">
+        <div class="cal-daynum">${day}</div>
+        ${chips}
+      </div>`;
+  }
+
+  calendarEl.innerHTML = html;
+}
+
+// 進入編輯模式：把某活動載入表單
+function startEditEvent(ev) {
+  editingEventId = ev.id;
+  newEventDate.value = ev.date || "";
+  newEventEndDate.value = ev.endDate || "";
+  newEventName.value = ev.name || "";
+  newEventType.value = ev.type || EVENT_TYPES[0];
+  eventFormMode.textContent = "編輯活動";
+  addEventBtn.classList.add("hidden");
+  saveEventBtn.classList.remove("hidden");
+  deleteEventBtn.classList.remove("hidden");
+  cancelEditBtn.classList.remove("hidden");
+  newEventName.focus();
+}
+
+// 回到新增模式
+function resetEventForm() {
+  editingEventId = null;
+  newEventDate.value = "";
+  newEventEndDate.value = "";
+  newEventName.value = "";
+  newEventType.value = EVENT_TYPES[0];
+  eventFormMode.textContent = "新增活動";
+  addEventBtn.classList.remove("hidden");
+  saveEventBtn.classList.add("hidden");
+  deleteEventBtn.classList.add("hidden");
+  cancelEditBtn.classList.add("hidden");
+}
+
+// 點月曆：點活動→編輯；點空白日期格→帶入該天為開始日期，方便新增
+calendarEl.addEventListener("click", (e) => {
+  const chip = e.target.closest(".cal-event");
+  if (chip) {
+    const ev = allEvents.find((x) => x.id === chip.dataset.id);
+    if (ev) startEditEvent(ev);
+    return;
+  }
+  const cell = e.target.closest(".cal-cell[data-day]");
+  if (cell && !editingEventId) {
+    newEventDate.value = cell.dataset.day;
+    newEventName.focus();
   }
 });
 
-addEventBtn.addEventListener("click", async () => {
+function validEventInput() {
   const name = newEventName.value.trim();
   const date = newEventDate.value;
   const endDate = newEventEndDate.value;
   if (!name || !date) {
     (!date ? newEventDate : newEventName).focus();
-    return;
+    return null;
   }
   if (endDate && endDate < date) {
     alert("結束日期不能早於開始日期。");
     newEventEndDate.focus();
-    return;
+    return null;
   }
+  return { name, date, endDate, type: newEventType.value };
+}
+
+addEventBtn.addEventListener("click", async () => {
+  const data = validEventInput();
+  if (!data) return;
   try {
     await addDoc(collection(db, EVENTS_COLLECTION), {
-      name,
-      date,
-      endDate,
-      type: newEventType.value,
+      ...data,
       createdAt: serverTimestamp(),
       createdBy: auth.currentUser?.email || null,
     });
-    newEventName.value = "";
-    newEventDate.value = "";
-    newEventEndDate.value = "";
+    resetEventForm();
   } catch (err) {
     alert("新增活動失敗：" + err.message);
   }
 });
 
-eventsManageBtn.addEventListener("click", () => eventsModal.classList.remove("hidden"));
+saveEventBtn.addEventListener("click", async () => {
+  if (!editingEventId) return;
+  const data = validEventInput();
+  if (!data) return;
+  try {
+    await updateDoc(doc(db, EVENTS_COLLECTION, editingEventId), {
+      ...data,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+    resetEventForm();
+  } catch (err) {
+    alert("儲存活動失敗：" + err.message);
+  }
+});
+
+deleteEventBtn.addEventListener("click", async () => {
+  if (!editingEventId) return;
+  if (!confirm(`確定刪除活動「${newEventName.value.trim()}」？`)) return;
+  try {
+    await deleteDoc(doc(db, EVENTS_COLLECTION, editingEventId));
+    resetEventForm();
+  } catch (err) {
+    alert("刪除活動失敗：" + err.message);
+  }
+});
+
+cancelEditBtn.addEventListener("click", resetEventForm);
+
+calPrevBtn.addEventListener("click", () => {
+  calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth() - 1, 1);
+  renderCalendar();
+});
+calNextBtn.addEventListener("click", () => {
+  calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth() + 1, 1);
+  renderCalendar();
+});
+calTodayBtn.addEventListener("click", () => {
+  calCursor = firstOfMonth(new Date());
+  renderCalendar();
+});
+
+eventsManageBtn.addEventListener("click", () => {
+  resetEventForm();
+  calCursor = firstOfMonth(new Date());
+  renderCalendar();
+  eventsModal.classList.remove("hidden");
+});
 eventsCloseBtn.addEventListener("click", () => eventsModal.classList.add("hidden"));
 eventsModal.addEventListener("click", (e) => {
   if (e.target === eventsModal) eventsModal.classList.add("hidden");
