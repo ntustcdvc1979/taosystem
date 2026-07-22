@@ -36,6 +36,7 @@ const logoutBtn = document.getElementById("logout-btn");
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
 const toggleHiddenTagsBtn = document.getElementById("toggle-hidden-tags-btn");
+const hiddenTagsCount = document.getElementById("hidden-tags-count");
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
 
@@ -220,10 +221,9 @@ function upcomingEvents() {
   return allEvents.filter((ev) => (ev.endDate || ev.date || "") >= today);
 }
 
-// 依開關過濾預設隱藏的標籤（例：團內幹部）
-function visibleTags(tags) {
-  const list = tags || [];
-  return showHiddenTags ? list : list.filter((t) => !HIDDEN_TAGS.includes(t));
+// 對象只要有任何一個預設隱藏的標籤（例：團內幹部），整張卡片就不顯示（除非開關開啟）
+function hasHiddenTag(entry) {
+  return (entry.tags || []).some((t) => HIDDEN_TAGS.includes(t));
 }
 
 // ---------- Render（卡片式名單） ----------
@@ -233,7 +233,12 @@ function renderEntries() {
   // 只有在沒有搜尋/篩選時才能拖曳排序（否則只看到部分卡片，排序會錯亂）
   const canReorder = !searchTerm && !statusVal;
 
+  const hiddenCount = allEntries.filter(hasHiddenTag).length;
+  hiddenTagsCount.textContent =
+    !showHiddenTags && hiddenCount > 0 ? `（${hiddenCount} 筆含內部標籤已隱藏）` : "";
+
   const filtered = allEntries.filter((entry) => {
+    if (!showHiddenTags && hasHiddenTag(entry)) return false;
     if (statusVal && entry.status !== statusVal) return false;
     if (searchTerm) {
       const haystack = [
@@ -241,7 +246,7 @@ function renderEntries() {
         entry.department,
         getBackground(entry),
         entry.contact,
-        visibleTags(entry.tags).join(" "),
+        (entry.tags || []).join(" "),
       ]
         .filter(Boolean)
         .join(" ")
@@ -283,7 +288,7 @@ function renderEntries() {
         ${entry.department ? `<span class="person-meta">${escapeHtml(entry.department)}</span>` : ""}
         ${entry.status ? `<span class="status-badge">${escapeHtml(entry.status)}</span>` : ""}
       </div>
-      ${tagsHtml(visibleTags(entry.tags))}
+      ${tagsHtml(entry.tags)}
       ${entry.contact ? `<div class="person-meta">聯絡人：${escapeHtml(entry.contact)}</div>` : ""}
       ${entry.recommendedActivity ? `<div class="card-recommend"><span class="field-label">推薦活動</span>${escapeHtml(entry.recommendedActivity)}</div>` : ""}
       ${field("背景", escapeHtml(getBackground(entry)))}
