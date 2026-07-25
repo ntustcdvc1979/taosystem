@@ -566,6 +566,54 @@ button {
   border-top: 1px solid #edeef0;
 }
 
+/* 活動邀約名單 */
+.invite-section {
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid #edeef0;
+}
+
+.invite-summary {
+  color: #999;
+  font-weight: 400;
+}
+
+.invite-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid #f2f4f7;
+}
+
+.invite-name {
+  font-size: 0.9rem;
+}
+
+.invite-missing {
+  color: #aaa;
+  font-style: italic;
+}
+
+.invite-add-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.invite-row select,
+.invite-add-row select {
+  margin-top: 0 !important;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  min-width: 0;
+}
+
 .event-add-row {
   display: flex;
   flex-wrap: wrap;

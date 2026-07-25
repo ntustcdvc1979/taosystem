@@ -102,6 +102,15 @@ const deleteEventBtn = document.getElementById("delete-event-btn");
 const cancelEditBtn = document.getElementById("cancel-edit-btn");
 const eventsCloseBtn = document.getElementById("events-close-btn");
 
+// 活動邀約名單
+const inviteSection = document.getElementById("invite-section");
+const inviteSummary = document.getElementById("invite-summary");
+const inviteList = document.getElementById("invite-list");
+const inviteEmptyHint = document.getElementById("invite-empty-hint");
+const newInvitePerson = document.getElementById("new-invite-person");
+const newInviteStatus = document.getElementById("new-invite-status");
+const addInviteBtn = document.getElementById("add-invite-btn");
+
 // AI 成全建議對話框
 const aiModal = document.getElementById("ai-modal");
 const aiModalName = document.getElementById("ai-modal-name");
@@ -217,6 +226,7 @@ function subscribeEvents() {
     (snapshot) => {
       allEvents = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderCalendar();
+      refreshOpenInviteList();
     },
     (err) => {
       if (err.code !== "permission-denied") console.error(err);
@@ -480,6 +490,10 @@ function maskedUpcomingEvents(forward) {
     date: ev.date,
     endDate: ev.endDate,
     type: ev.type,
+    // 邀約名單也用代號，AI 才知道誰已答應/婉拒，不會重複推薦
+    invites: (ev.invites || [])
+      .map((inv) => ({ name: maskNames(entryName(inv.entryId), forward), status: inv.status }))
+      .filter((inv) => inv.name),
   }));
 }
 
@@ -839,9 +853,11 @@ entriesList.addEventListener("click", async (e) => {
 // ---------- 活動管理（月曆檢視） ----------
 const EVENT_TYPES = ["廣結善緣", "獻供", "求道", "成全", "法會", "幹訓"];
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+const INVITE_STATUSES = ["預定邀約", "已邀約待回覆", "已回覆可以", "已回覆不行"];
 
 let calCursor = firstOfMonth(new Date()); // 目前顯示的月份（該月 1 號）
 let editingEventId = null;
+let editingEventInvites = []; // [{ entryId, status }]
 
 function firstOfMonth(d) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -902,9 +918,10 @@ function renderCalendar() {
   calendarEl.innerHTML = html;
 }
 
-// 進入編輯模式：把某活動載入表單
+// 進入編輯模式：把某活動載入表單（含邀約名單）
 function startEditEvent(ev) {
   editingEventId = ev.id;
+  editingEventInvites = (ev.invites || []).map((i) => ({ ...i }));
   newEventDate.value = ev.date || "";
   newEventEndDate.value = ev.endDate || "";
   newEventName.value = ev.name || "";
@@ -914,12 +931,15 @@ function startEditEvent(ev) {
   saveEventBtn.classList.remove("hidden");
   deleteEventBtn.classList.remove("hidden");
   cancelEditBtn.classList.remove("hidden");
+  inviteSection.classList.remove("hidden"); // 邀約名單只在編輯既有活動時有意義
+  renderInviteList();
   newEventName.focus();
 }
 
 // 回到新增模式
 function resetEventForm() {
   editingEventId = null;
+  editingEventInvites = [];
   newEventDate.value = "";
   newEventEndDate.value = "";
   newEventName.value = "";
@@ -929,7 +949,93 @@ function resetEventForm() {
   saveEventBtn.classList.add("hidden");
   deleteEventBtn.classList.add("hidden");
   cancelEditBtn.classList.add("hidden");
+  inviteSection.classList.add("hidden");
 }
+
+// ---------- 活動邀約名單 ----------
+function entryName(entryId) {
+  return allEntries.find((en) => en.id === entryId)?.name || "";
+}
+
+// 其他人（或自己另一分頁）改了同一個活動時，同步刷新開著的邀約名單
+function refreshOpenInviteList() {
+  if (!editingEventId) return;
+  const ev = allEvents.find((x) => x.id === editingEventId);
+  if (!ev) return;
+  editingEventInvites = (ev.invites || []).map((i) => ({ ...i }));
+  renderInviteList();
+}
+
+function renderInviteList() {
+  // 摘要：各狀態各幾人
+  const counts = INVITE_STATUSES.map(
+    (s) => `${s} ${editingEventInvites.filter((i) => i.status === s).length}`
+  ).join("／");
+  inviteSummary.textContent = editingEventInvites.length ? `（${counts}）` : "";
+
+  inviteEmptyHint.classList.toggle("hidden", editingEventInvites.length > 0);
+  inviteList.innerHTML = editingEventInvites
+    .map((inv) => {
+      const name = entryName(inv.entryId);
+      const options = INVITE_STATUSES.map(
+        (s) => `<option value="${s}"${s === inv.status ? " selected" : ""}>${s}</option>`
+      ).join("");
+      return `
+        <div class="invite-row" data-entry-id="${inv.entryId}">
+          <span class="invite-name${name ? "" : " invite-missing"}">${escapeHtml(name || "（對象已刪除）")}</span>
+          <select class="invite-status">${options}</select>
+          <button type="button" class="btn-danger btn-small invite-remove">移除</button>
+        </div>`;
+    })
+    .join("");
+
+  // 下拉只列出還沒加進來的人
+  const invited = new Set(editingEventInvites.map((i) => i.entryId));
+  const candidates = allEntries.filter((en) => !invited.has(en.id));
+  newInvitePerson.innerHTML = candidates.length
+    ? candidates.map((en) => `<option value="${en.id}">${escapeHtml(en.name)}</option>`).join("")
+    : `<option value="">（名單上的人都已加入）</option>`;
+  addInviteBtn.disabled = candidates.length === 0;
+}
+
+async function persistInvites() {
+  if (!editingEventId) return;
+  try {
+    await updateDoc(doc(db, EVENTS_COLLECTION, editingEventId), {
+      invites: editingEventInvites,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+  } catch (err) {
+    alert("儲存邀約名單失敗：" + err.message);
+  }
+}
+
+addInviteBtn.addEventListener("click", async () => {
+  const entryId = newInvitePerson.value;
+  if (!entryId) return;
+  editingEventInvites.push({ entryId, status: newInviteStatus.value });
+  renderInviteList();
+  await persistInvites();
+});
+
+inviteList.addEventListener("change", async (e) => {
+  const row = e.target.closest(".invite-row");
+  if (!row || !e.target.classList.contains("invite-status")) return;
+  const inv = editingEventInvites.find((i) => i.entryId === row.dataset.entryId);
+  if (!inv) return;
+  inv.status = e.target.value;
+  renderInviteList();
+  await persistInvites();
+});
+
+inviteList.addEventListener("click", async (e) => {
+  if (!e.target.closest(".invite-remove")) return;
+  const row = e.target.closest(".invite-row");
+  editingEventInvites = editingEventInvites.filter((i) => i.entryId !== row.dataset.entryId);
+  renderInviteList();
+  await persistInvites();
+});
 
 // 點月曆：點活動→編輯；點空白日期格→帶入該天為開始日期，方便新增
 calendarEl.addEventListener("click", (e) => {
@@ -968,6 +1074,7 @@ addEventBtn.addEventListener("click", async () => {
   try {
     await addDoc(collection(db, EVENTS_COLLECTION), {
       ...data,
+      invites: [],
       createdAt: serverTimestamp(),
       createdBy: auth.currentUser?.email || null,
     });
