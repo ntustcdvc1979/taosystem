@@ -578,17 +578,11 @@ button {
   font-weight: 400;
 }
 
-.invite-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 0.4rem;
+.invite-header {
+  display: flex;
   align-items: center;
-  padding: 0.3rem 0;
-  border-bottom: 1px solid #f2f4f7;
-}
-
-.invite-name {
-  font-size: 0.9rem;
+  justify-content: space-between;
+  gap: 0.6rem;
 }
 
 .invite-missing {
@@ -600,10 +594,10 @@ button {
   display: grid;
   grid-template-columns: 1fr auto auto;
   gap: 0.4rem;
-  margin-top: 0.6rem;
+  margin: 0.6rem 0;
 }
 
-.invite-row select,
+.invite-add-row input,
 .invite-add-row select {
   margin-top: 0 !important;
   padding: 0.35rem 0.5rem;
@@ -612,6 +606,104 @@ button {
   font-size: 0.85rem;
   font-family: inherit;
   min-width: 0;
+}
+
+/* 邀約名單看板：四個狀態各一框，可互相拖曳 */
+.invite-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.invite-col {
+  background: #f7f8fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.4rem;
+  min-height: 90px;
+}
+
+.invite-col.drop-target {
+  background: #eef4ff;
+  border-color: #93b4f5;
+}
+
+.invite-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  color: #666;
+  padding-bottom: 0.3rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.invite-col-count {
+  background: #e5e7eb;
+  color: #555;
+  border-radius: 999px;
+  padding: 0 0.35rem;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.invite-col-empty {
+  color: #bbb;
+  font-size: 0.72rem;
+  text-align: center;
+  padding: 0.5rem 0;
+}
+
+.invite-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  background: #fff;
+  border: 1px solid #dfe3e8;
+  border-radius: 6px;
+  padding: 0.25rem 0.4rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.82rem;
+  cursor: grab;
+}
+
+/* 名字過長時截斷，不要把框撐開或折成多行 */
+.invite-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.invite-chip.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+/* 視窗較窄時改成兩欄，四欄會擠到看不清楚 */
+@media (max-width: 720px) {
+  .invite-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.invite-remove {
+  background: none;
+  border: none;
+  color: #bbb;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+  cursor: pointer;
+}
+
+.invite-remove:hover {
+  color: #c0392b;
 }
 
 .event-add-row {

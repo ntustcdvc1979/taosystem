@@ -174,3 +174,77 @@ ${formatEvents(events)}
 
   return response.content.find((b) => b.type === "text")?.text ?? "";
 }
+
+/**
+ * 為某個活動挑選適合邀約的對象。回傳 { invitees: [{ ref, reason }] }。
+ * ref 對應呼叫端傳入的 roster 編號，呼叫端再對回實際對象（避免同名混淆）。
+ * @param {string} apiKey - 共用 Anthropic API Key
+ * @param {object} event - 活動 { name, date, endDate, type }（名稱已做代號替換）
+ * @param {object[]} roster - 尚未加入邀約名單的對象，每筆含 ref 編號（已做代號替換）
+ */
+export async function suggestInvitees(apiKey, event, roster) {
+  const client = makeClient(apiKey);
+
+  const rosterText = roster.map((p) => `【編號 ${p.ref}】\n${formatPerson(p)}`).join("\n\n");
+  const dateStr =
+    event.endDate && event.endDate !== event.date
+      ? `${event.date}～${event.endDate}`
+      : event.date || "日期未定";
+
+  const system = `${DOMAIN_CONTEXT}
+
+以下是還沒加入這個活動邀約名單的成全對象（共 ${roster.length} 位）：
+
+${rosterText || "（沒有可推薦的對象）"}
+
+使用者要為一個活動挑選適合邀約的對象。請挑出適合參加這個活動的人，回傳他們的「編號」與一句話理由（reason 20 字以內，說明為什麼適合）。
+
+挑選原則：
+- 活動類型要與對方目前的成全狀況相稱：廣結善緣＝接觸初期、未求道或反應冷淡者；獻供＝氣氛輕鬆，適合帶新朋友或維繫關係；求道＝已建立關係、時機成熟的未求道者；成全＝已求道者的研究班；法會＝已求道、關係穩定者；幹訓＝較資深、班程有基礎、有心承擔者。
+- 參考對方的背景、活動紀錄與聯絡紀錄，判斷這個時間點邀約是否恰當。
+- **寧缺勿濫**：只挑真正合適的，不要為了湊人數而勉強推薦；若沒有合適的人就回傳空陣列。`;
+
+  const user = `活動：${dateStr}【${event.type || "未分類"}】${event.name}
+
+請挑出適合邀約參加這個活動的對象。`;
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4096,
+    thinking: { type: "adaptive" },
+    system,
+    messages: [{ role: "user", content: user }],
+    output_config: {
+      format: {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: {
+            invitees: {
+              type: "array",
+              description: "適合邀約的對象；沒有合適的人就給空陣列",
+              items: {
+                type: "object",
+                properties: {
+                  ref: { type: "integer", description: "對象的編號" },
+                  reason: { type: "string", description: "一句話理由，20 字以內" },
+                },
+                required: ["ref", "reason"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["invitees"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  if (response.stop_reason === "refusal") {
+    throw new Error("AI 拒絕了這個請求，請調整資料內容後再試。");
+  }
+
+  const text = response.content.find((b) => b.type === "text")?.text ?? "";
+  return JSON.parse(text);
+}

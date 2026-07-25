@@ -245,11 +245,14 @@
 
           <!-- 邀約名單：只在編輯既有活動時顯示 -->
           <div id="invite-section" class="invite-section hidden">
-            <span class="field-label">邀約名單 <span id="invite-summary" class="invite-summary"></span></span>
-            <div id="invite-list"></div>
-            <p id="invite-empty-hint" class="hint-text">尚未加入邀約對象。</p>
+            <div class="invite-header">
+              <span class="field-label">邀約名單 <span id="invite-summary" class="invite-summary"></span></span>
+              <button type="button" id="ai-invite-btn" class="btn-secondary btn-small">AI 建議邀約</button>
+            </div>
+
             <div class="invite-add-row">
-              <select id="new-invite-person"></select>
+              <input type="text" id="new-invite-person" list="invite-person-options" placeholder="輸入姓名（可打字搜尋）" autocomplete="off" />
+              <datalist id="invite-person-options"></datalist>
               <select id="new-invite-status">
                 <option value="預定邀約">預定邀約</option>
                 <option value="已邀約待回覆">已邀約待回覆</option>
@@ -258,7 +261,10 @@
               </select>
               <button type="button" id="add-invite-btn" class="btn-primary btn-small">加入</button>
             </div>
-            <p class="hint-text">邀約狀況會即時儲存，AI 產生建議時也會參照（例如已回覆不行的就不會再推薦同一個活動）。</p>
+
+            <p id="invite-ai-status" class="hint-text"></p>
+            <div id="invite-board" class="invite-board"></div>
+            <p class="hint-text">把名字拖到其他框即可改變狀態。邀約狀況會即時儲存，AI 產生建議時也會參照（例如已回覆不行的就不會再推薦同一個活動）。</p>
           </div>
 
           <div class="modal-actions">

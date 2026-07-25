@@ -1,6 +1,11 @@
 import "./style.css";
 import { auth, db } from "./firebase.js";
-import { getSharedApiKey, generateSuggestion, chatWithAgent } from "./ai.js";
+import {
+  getSharedApiKey,
+  generateSuggestion,
+  chatWithAgent,
+  suggestInvitees,
+} from "./ai.js";
 import {
   onAuthStateChanged,
   GoogleAuthProvider,
@@ -105,11 +110,13 @@ const eventsCloseBtn = document.getElementById("events-close-btn");
 // 活動邀約名單
 const inviteSection = document.getElementById("invite-section");
 const inviteSummary = document.getElementById("invite-summary");
-const inviteList = document.getElementById("invite-list");
-const inviteEmptyHint = document.getElementById("invite-empty-hint");
+const inviteBoard = document.getElementById("invite-board");
+const invitePersonOptions = document.getElementById("invite-person-options");
 const newInvitePerson = document.getElementById("new-invite-person");
 const newInviteStatus = document.getElementById("new-invite-status");
 const addInviteBtn = document.getElementById("add-invite-btn");
+const aiInviteBtn = document.getElementById("ai-invite-btn");
+const inviteAiStatus = document.getElementById("invite-ai-status");
 
 // AI 成全建議對話框
 const aiModal = document.getElementById("ai-modal");
@@ -932,6 +939,8 @@ function startEditEvent(ev) {
   deleteEventBtn.classList.remove("hidden");
   cancelEditBtn.classList.remove("hidden");
   inviteSection.classList.remove("hidden"); // 邀約名單只在編輯既有活動時有意義
+  newInvitePerson.value = "";
+  inviteAiStatus.textContent = "";
   renderInviteList();
   newEventName.focus();
 }
@@ -950,6 +959,8 @@ function resetEventForm() {
   deleteEventBtn.classList.add("hidden");
   cancelEditBtn.classList.add("hidden");
   inviteSection.classList.add("hidden");
+  newInvitePerson.value = "";
+  inviteAiStatus.textContent = "";
 }
 
 // ---------- 活動邀約名單 ----------
@@ -973,29 +984,32 @@ function renderInviteList() {
   ).join("／");
   inviteSummary.textContent = editingEventInvites.length ? `（${counts}）` : "";
 
-  inviteEmptyHint.classList.toggle("hidden", editingEventInvites.length > 0);
-  inviteList.innerHTML = editingEventInvites
-    .map((inv) => {
-      const name = entryName(inv.entryId);
-      const options = INVITE_STATUSES.map(
-        (s) => `<option value="${s}"${s === inv.status ? " selected" : ""}>${s}</option>`
-      ).join("");
-      return `
-        <div class="invite-row" data-entry-id="${inv.entryId}">
-          <span class="invite-name${name ? "" : " invite-missing"}">${escapeHtml(name || "（對象已刪除）")}</span>
-          <select class="invite-status">${options}</select>
-          <button type="button" class="btn-danger btn-small invite-remove">移除</button>
-        </div>`;
-    })
-    .join("");
+  // 四個狀態各一框，可把人拖到別框改狀態
+  inviteBoard.innerHTML = INVITE_STATUSES.map((status) => {
+    const members = editingEventInvites.filter((i) => i.status === status);
+    const chips = members
+      .map((inv) => {
+        const name = entryName(inv.entryId);
+        return `
+          <div class="invite-chip" draggable="true" data-entry-id="${inv.entryId}">
+            <span class="${name ? "" : "invite-missing"}">${escapeHtml(name || "（對象已刪除）")}</span>
+            <button type="button" class="invite-remove" title="移除">×</button>
+          </div>`;
+      })
+      .join("");
+    return `
+      <div class="invite-col" data-status="${status}">
+        <div class="invite-col-head">${status}<span class="invite-col-count">${members.length}</span></div>
+        <div class="invite-col-body">${chips || '<div class="invite-col-empty">拖曳名字到這裡</div>'}</div>
+      </div>`;
+  }).join("");
 
-  // 下拉只列出還沒加進來的人
+  // 打字用的候選清單：只列出還沒加進來的人
   const invited = new Set(editingEventInvites.map((i) => i.entryId));
-  const candidates = allEntries.filter((en) => !invited.has(en.id));
-  newInvitePerson.innerHTML = candidates.length
-    ? candidates.map((en) => `<option value="${en.id}">${escapeHtml(en.name)}</option>`).join("")
-    : `<option value="">（名單上的人都已加入）</option>`;
-  addInviteBtn.disabled = candidates.length === 0;
+  invitePersonOptions.innerHTML = allEntries
+    .filter((en) => !invited.has(en.id))
+    .map((en) => `<option value="${escapeHtml(en.name)}"></option>`)
+    .join("");
 }
 
 async function persistInvites() {
@@ -1012,29 +1026,137 @@ async function persistInvites() {
 }
 
 addInviteBtn.addEventListener("click", async () => {
-  const entryId = newInvitePerson.value;
-  if (!entryId) return;
-  editingEventInvites.push({ entryId, status: newInviteStatus.value });
+  const typed = newInvitePerson.value.trim();
+  if (!typed) {
+    newInvitePerson.focus();
+    return;
+  }
+  const match = allEntries.find((en) => (en.name || "").trim() === typed);
+  if (!match) {
+    inviteAiStatus.textContent = `名單上找不到「${typed}」，請確認姓名或先新增這位對象。`;
+    newInvitePerson.focus();
+    return;
+  }
+  if (editingEventInvites.some((i) => i.entryId === match.id)) {
+    inviteAiStatus.textContent = `「${typed}」已經在邀約名單裡了。`;
+    return;
+  }
+  editingEventInvites.push({ entryId: match.id, status: newInviteStatus.value });
+  newInvitePerson.value = "";
+  inviteAiStatus.textContent = "";
   renderInviteList();
   await persistInvites();
 });
 
-inviteList.addEventListener("change", async (e) => {
-  const row = e.target.closest(".invite-row");
-  if (!row || !e.target.classList.contains("invite-status")) return;
-  const inv = editingEventInvites.find((i) => i.entryId === row.dataset.entryId);
-  if (!inv) return;
-  inv.status = e.target.value;
-  renderInviteList();
-  await persistInvites();
+// Enter 直接加入，不用移到按鈕
+newInvitePerson.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing) {
+    e.preventDefault();
+    addInviteBtn.click();
+  }
 });
 
-inviteList.addEventListener("click", async (e) => {
+inviteBoard.addEventListener("click", async (e) => {
   if (!e.target.closest(".invite-remove")) return;
-  const row = e.target.closest(".invite-row");
-  editingEventInvites = editingEventInvites.filter((i) => i.entryId !== row.dataset.entryId);
+  const chip = e.target.closest(".invite-chip");
+  editingEventInvites = editingEventInvites.filter((i) => i.entryId !== chip.dataset.entryId);
   renderInviteList();
   await persistInvites();
+});
+
+// ---------- 邀約名單：拖到別框改變狀態 ----------
+let dragInviteEntryId = null;
+
+inviteBoard.addEventListener("dragstart", (e) => {
+  const chip = e.target.closest(".invite-chip");
+  if (!chip) return;
+  dragInviteEntryId = chip.dataset.entryId;
+  chip.classList.add("dragging");
+});
+
+inviteBoard.addEventListener("dragend", (e) => {
+  e.target.closest(".invite-chip")?.classList.remove("dragging");
+  inviteBoard.querySelectorAll(".invite-col").forEach((c) => c.classList.remove("drop-target"));
+  dragInviteEntryId = null;
+});
+
+inviteBoard.addEventListener("dragover", (e) => {
+  if (!dragInviteEntryId) return;
+  const col = e.target.closest(".invite-col");
+  if (!col) return;
+  e.preventDefault(); // 允許放下
+  inviteBoard.querySelectorAll(".invite-col").forEach((c) => c.classList.toggle("drop-target", c === col));
+});
+
+inviteBoard.addEventListener("drop", async (e) => {
+  const col = e.target.closest(".invite-col");
+  if (!col || !dragInviteEntryId) return;
+  e.preventDefault();
+  const inv = editingEventInvites.find((i) => i.entryId === dragInviteEntryId);
+  dragInviteEntryId = null;
+  if (!inv || inv.status === col.dataset.status) {
+    renderInviteList();
+    return;
+  }
+  inv.status = col.dataset.status;
+  renderInviteList();
+  await persistInvites();
+});
+
+// ---------- AI 建議邀約：挑出適合這個活動的對象，加進「預定邀約」 ----------
+aiInviteBtn.addEventListener("click", async () => {
+  const ev = allEvents.find((x) => x.id === editingEventId);
+  if (!ev) return;
+
+  inviteAiStatus.textContent = "AI 分析中，請稍候...";
+  aiInviteBtn.disabled = true;
+  try {
+    const apiKey = await getSharedApiKey();
+    if (!apiKey) {
+      throw new Error(
+        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
+      );
+    }
+    // 只把「還沒加進邀約名單」的人送給 AI；用 ref 對應回來，避免同名混淆
+    const invited = new Set(editingEventInvites.map((i) => i.entryId));
+    const candidates = allEntries.filter((en) => !invited.has(en.id));
+    if (candidates.length === 0) {
+      inviteAiStatus.textContent = "名單上的人都已經在邀約名單裡了。";
+      return;
+    }
+    const { forward } = buildNameMap();
+    const roster = candidates.map((en, i) => ({ ref: i + 1, ...maskEntry(en, forward) }));
+    const result = await suggestInvitees(
+      apiKey,
+      {
+        name: maskNames(ev.name, forward),
+        date: ev.date,
+        endDate: ev.endDate,
+        type: ev.type,
+      },
+      roster
+    );
+
+    const added = [];
+    (result.invitees || []).forEach((s) => {
+      const cand = candidates[s.ref - 1];
+      if (!cand || editingEventInvites.some((i) => i.entryId === cand.id)) return;
+      editingEventInvites.push({ entryId: cand.id, status: "預定邀約" });
+      added.push(`${cand.name}（${s.reason}）`);
+    });
+
+    if (added.length === 0) {
+      inviteAiStatus.textContent = "AI 認為目前名單中沒有特別適合這個活動的對象。";
+      return;
+    }
+    renderInviteList();
+    await persistInvites();
+    inviteAiStatus.textContent = `已加入預定邀約：${added.join("、")}`;
+  } catch (err) {
+    inviteAiStatus.textContent = aiErrorMessage(err, "AI 建議失敗");
+  } finally {
+    aiInviteBtn.disabled = false;
+  }
 });
 
 // 點月曆：點活動→編輯；點空白日期格→帶入該天為開始日期，方便新增
