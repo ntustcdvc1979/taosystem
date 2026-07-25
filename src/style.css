@@ -385,6 +385,7 @@ button {
   grid-template-columns: 1.2fr 0.8fr 1.5fr auto auto;
   gap: 0.4rem;
   margin-bottom: 0.5rem;
+  align-items: start;
 }
 
 .activity-add-row {
@@ -394,10 +395,13 @@ button {
   margin: 1rem 0;
   padding-top: 0.8rem;
   border-top: 1px solid #edeef0;
+  align-items: start;
 }
 
 .activity-row input,
-.activity-add-row input {
+.activity-row textarea,
+.activity-add-row input,
+.activity-add-row textarea {
   margin-top: 0 !important;
   padding: 0.45rem 0.55rem;
   border: 1px solid #d5d8dd;
@@ -405,6 +409,11 @@ button {
   font-size: 0.88rem;
   font-family: inherit;
   min-width: 0;
+}
+
+.activity-row textarea,
+.activity-add-row textarea {
+  resize: vertical;
 }
 
 .act-save,
@@ -422,6 +431,7 @@ button {
   grid-template-columns: 0.9fr 2fr auto auto;
   gap: 0.4rem;
   margin-bottom: 0.5rem;
+  align-items: start;
 }
 
 .talk-add-row {
@@ -431,10 +441,13 @@ button {
   margin: 1rem 0;
   padding-top: 0.8rem;
   border-top: 1px solid #edeef0;
+  align-items: start;
 }
 
 .talk-row input,
-.talk-add-row input {
+.talk-row textarea,
+.talk-add-row input,
+.talk-add-row textarea {
   margin-top: 0 !important;
   padding: 0.45rem 0.55rem;
   border: 1px solid #d5d8dd;
@@ -442,6 +455,11 @@ button {
   font-size: 0.88rem;
   font-family: inherit;
   min-width: 0;
+}
+
+.talk-row textarea,
+.talk-add-row textarea {
+  resize: vertical;
 }
 
 .talk-save,
@@ -732,9 +750,13 @@ button {
   min-width: 0;
 }
 
-/* 表格內的活動紀錄 */
+/* 卡片上的紀錄項目：單筆最多兩行，避免一筆長紀錄把卡片撐爆 */
 .act-item {
   margin-bottom: 0.25rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .act-item:last-child {
@@ -744,6 +766,12 @@ button {
 .act-date {
   color: #888;
   font-size: 0.78rem;
+}
+
+.record-more {
+  color: #999;
+  font-size: 0.78rem;
+  margin-top: 0.2rem;
 }
 
 @media (max-width: 640px) {

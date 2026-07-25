@@ -136,13 +136,14 @@
         <div class="modal-content">
           <h2>活動紀錄 - <span id="activity-modal-name"></span></h2>
 
+          <p class="hint-text">最新的紀錄排在最上面。</p>
           <div id="activities-list"></div>
           <p id="activities-empty-hint" class="hint-text">尚無活動紀錄。</p>
 
           <div class="activity-add-row">
             <input type="text" id="new-act-name" placeholder="活動名稱" />
             <input type="date" id="new-act-date" />
-            <input type="text" id="new-act-reaction" placeholder="反應 / 回饋" />
+            <textarea id="new-act-reaction" rows="2" placeholder="反應 / 回饋"></textarea>
             <button type="button" id="add-activity-btn" class="btn-primary btn-small">新增</button>
           </div>
 
@@ -156,14 +157,14 @@
       <div id="talk-modal" class="modal hidden">
         <div class="modal-content">
           <h2>聯絡紀錄 - <span id="talk-modal-name"></span></h2>
-          <p class="hint-text">記錄每次跟這個人聯絡（聊天、通話、見面等）的日期與內容，AI 產生建議時會一併參考。</p>
+          <p class="hint-text">記錄每次跟這個人聯絡（聊天、通話、見面等）的日期與內容，AI 產生建議時會一併參考。最新的紀錄排在最上面。</p>
 
           <div id="talks-list"></div>
           <p id="talks-empty-hint" class="hint-text">尚無聯絡紀錄。</p>
 
           <div class="talk-add-row">
             <input type="date" id="new-talk-date" />
-            <input type="text" id="new-talk-content" placeholder="聊了什麼、對方的反應" />
+            <textarea id="new-talk-content" rows="2" placeholder="聊了什麼、對方的反應"></textarea>
             <button type="button" id="add-talk-btn" class="btn-primary btn-small">新增</button>
           </div>
 

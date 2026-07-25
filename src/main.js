@@ -43,6 +43,9 @@ const entriesList = document.getElementById("entries-list");
 const HIDDEN_TAGS = ["團內幹部"];
 let showHiddenTags = false;
 
+// 卡片上每種紀錄顯示幾筆（其餘以「還有 N 筆」帶過）
+const RECORD_PREVIEW_COUNT = 2;
+
 const entryModal = document.getElementById("entry-modal");
 const entryForm = document.getElementById("entry-form");
 const modalTitle = document.getElementById("modal-title");
@@ -278,6 +281,17 @@ function renderEntries() {
           .join("")}</div>`
       : "";
 
+  // 紀錄類欄位：直接顯示最近幾筆（新到舊），其餘用「還有 N 筆」帶過。
+  // 比整段收合直觀——一眼就看到最新動態，完整歷程點按鈕開紀錄視窗看。
+  const recordField = (label, records, itemHtml) => {
+    const list = sortByDateDesc(records);
+    if (list.length === 0) return "";
+    const shown = list.slice(0, RECORD_PREVIEW_COUNT).map(itemHtml).join("");
+    const rest = list.length - RECORD_PREVIEW_COUNT;
+    const more = rest > 0 ? `<div class="record-more">還有 ${rest} 筆…</div>` : "";
+    return `<div class="card-field"><span class="field-label">${label}</span>${shown}${more}</div>`;
+  };
+
   filtered.forEach((entry) => {
     const card = document.createElement("div");
     card.className = "person-card" + (canReorder ? " draggable" : "");
@@ -296,8 +310,8 @@ function renderEntries() {
       ${field("背景", escapeHtml(getBackground(entry)))}
       ${field("策略", escapeHtml(entry.strategy))}
       ${field("做法", escapeHtml(entry.method))}
-      ${field("活動紀錄", renderActivitiesCell(entry.activities))}
-      ${field("聯絡紀錄", renderTalksCell(entry.talks))}
+      ${recordField("活動紀錄", entry.activities, activityItemHtml)}
+      ${recordField("聯絡紀錄", entry.talks, talkItemHtml)}
       <div class="row-actions card-actions">
         <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
         <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
@@ -469,29 +483,24 @@ function maskedUpcomingEvents(forward) {
   }));
 }
 
-// 表格內顯示活動紀錄：每筆一行，「活動：反應」
-function renderActivitiesCell(activities) {
-  if (!Array.isArray(activities) || activities.length === 0) return "";
-  return activities
-    .map((a) => {
-      const act = escapeHtml(a.activity);
-      const reaction = escapeHtml(a.reaction);
-      const date = a.date ? `<span class="act-date">${escapeHtml(a.date)}</span> ` : "";
-      const body = reaction ? `${act}：${reaction}` : act;
-      return `<div class="act-item">${date}${body}</div>`;
-    })
-    .join("");
+// 紀錄一律新到舊排序；沒填日期的排最後（無從判斷時間，放後面比較不會誤導）
+function sortByDateDesc(records) {
+  return [...(records || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 }
 
-// 表格內顯示聯絡紀錄：每筆一行，「日期 內容」
-function renderTalksCell(talks) {
-  if (!Array.isArray(talks) || talks.length === 0) return "";
-  return talks
-    .map((t) => {
-      const date = t.date ? `<span class="act-date">${escapeHtml(t.date)}</span> ` : "";
-      return `<div class="act-item">${date}${escapeHtml(t.content)}</div>`;
-    })
-    .join("");
+// 單筆活動紀錄：「日期 活動：反應」
+function activityItemHtml(a) {
+  const act = escapeHtml(a.activity);
+  const reaction = escapeHtml(a.reaction);
+  const date = a.date ? `<span class="act-date">${escapeHtml(a.date)}</span> ` : "";
+  const body = reaction ? `${act}：${reaction}` : act;
+  return `<div class="act-item">${date}${body}</div>`;
+}
+
+// 單筆聯絡紀錄：「日期 內容」
+function talkItemHtml(t) {
+  const date = t.date ? `<span class="act-date">${escapeHtml(t.date)}</span> ` : "";
+  return `<div class="act-item">${date}${escapeHtml(t.content)}</div>`;
 }
 
 function escapeHtml(value) {
@@ -518,10 +527,10 @@ let activityModalActivities = [];
 
 function openActivityModal(entry) {
   activityModalEntryId = entry.id;
-  activityModalActivities = (entry.activities || []).map((a) => ({ ...a }));
+  activityModalActivities = sortByDateDesc(entry.activities).map((a) => ({ ...a }));
   activityModalName.textContent = entry.name || "";
   newActName.value = "";
-  newActDate.value = "";
+  newActDate.value = ymd(new Date()); // 預設今天，避免沒填日期而排到最後
   newActReaction.value = "";
   renderActivityModalList();
   activityModal.classList.remove("hidden");
@@ -537,7 +546,7 @@ function refreshOpenActivityModal() {
   if (!activityModalEntryId) return;
   const entry = allEntries.find((en) => en.id === activityModalEntryId);
   if (!entry) return;
-  activityModalActivities = (entry.activities || []).map((a) => ({ ...a }));
+  activityModalActivities = sortByDateDesc(entry.activities).map((a) => ({ ...a }));
   renderActivityModalList();
 }
 
@@ -552,7 +561,7 @@ function renderActivityModalList() {
     row.innerHTML = `
       <input type="text" class="act-field-name" placeholder="活動名稱" />
       <input type="date" class="act-field-date" />
-      <input type="text" class="act-field-reaction" placeholder="反應 / 回饋" />
+      <textarea class="act-field-reaction" rows="2" placeholder="反應 / 回饋"></textarea>
       <button type="button" class="btn-secondary btn-small act-save">儲存</button>
       <button type="button" class="btn-danger btn-small act-delete">刪除</button>
     `;
@@ -586,6 +595,9 @@ activitiesList.addEventListener("click", async (e) => {
       date: row.querySelector(".act-field-date").value,
       reaction: row.querySelector(".act-field-reaction").value.trim(),
     };
+    // 日期可能被改過，重新排序讓它移到正確位置
+    activityModalActivities = sortByDateDesc(activityModalActivities);
+    renderActivityModalList();
     await persistActivities();
   } else if (e.target.closest(".act-delete")) {
     activityModalActivities.splice(index, 1);
@@ -602,11 +614,12 @@ addActivityBtn.addEventListener("click", async () => {
   }
   activityModalActivities.push({
     activity,
-    date: newActDate.value.trim(),
+    date: newActDate.value,
     reaction: newActReaction.value.trim(),
   });
+  activityModalActivities = sortByDateDesc(activityModalActivities);
   newActName.value = "";
-  newActDate.value = "";
+  newActDate.value = ymd(new Date());
   newActReaction.value = "";
   renderActivityModalList();
   await persistActivities();
@@ -623,9 +636,9 @@ let talkModalTalks = [];
 
 function openTalkModal(entry) {
   talkModalEntryId = entry.id;
-  talkModalTalks = (entry.talks || []).map((t) => ({ ...t }));
+  talkModalTalks = sortByDateDesc(entry.talks).map((t) => ({ ...t }));
   talkModalName.textContent = entry.name || "";
-  newTalkDate.value = "";
+  newTalkDate.value = ymd(new Date()); // 預設今天，避免沒填日期而排到最後
   newTalkContent.value = "";
   renderTalkModalList();
   talkModal.classList.remove("hidden");
@@ -641,7 +654,7 @@ function refreshOpenTalkModal() {
   if (!talkModalEntryId) return;
   const entry = allEntries.find((en) => en.id === talkModalEntryId);
   if (!entry) return;
-  talkModalTalks = (entry.talks || []).map((t) => ({ ...t }));
+  talkModalTalks = sortByDateDesc(entry.talks).map((t) => ({ ...t }));
   renderTalkModalList();
 }
 
@@ -655,7 +668,7 @@ function renderTalkModalList() {
     row.dataset.index = String(index);
     row.innerHTML = `
       <input type="date" class="talk-field-date" />
-      <input type="text" class="talk-field-content" placeholder="聊了什麼、對方的反應" />
+      <textarea class="talk-field-content" rows="2" placeholder="聊了什麼、對方的反應"></textarea>
       <button type="button" class="btn-secondary btn-small talk-save">儲存</button>
       <button type="button" class="btn-danger btn-small talk-delete">刪除</button>
     `;
@@ -687,6 +700,9 @@ talksList.addEventListener("click", async (e) => {
       date: row.querySelector(".talk-field-date").value,
       content: row.querySelector(".talk-field-content").value.trim(),
     };
+    // 日期可能被改過，重新排序讓它移到正確位置
+    talkModalTalks = sortByDateDesc(talkModalTalks);
+    renderTalkModalList();
     await persistTalks();
   } else if (e.target.closest(".talk-delete")) {
     talkModalTalks.splice(index, 1);
@@ -701,8 +717,9 @@ addTalkBtn.addEventListener("click", async () => {
     newTalkContent.focus();
     return;
   }
-  talkModalTalks.push({ date: newTalkDate.value.trim(), content });
-  newTalkDate.value = "";
+  talkModalTalks.push({ date: newTalkDate.value, content });
+  talkModalTalks = sortByDateDesc(talkModalTalks);
+  newTalkDate.value = ymd(new Date());
   newTalkContent.value = "";
   renderTalkModalList();
   await persistTalks();
