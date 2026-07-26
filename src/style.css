@@ -195,51 +195,119 @@ button {
   margin-left: 0.8rem;
 }
 
-.compact-list {
+/* 熱度模式的小卡：手機一欄、桌機自動多欄 */
+.heat-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.heat-card {
   background: #fff;
   border-radius: 10px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
-  overflow: hidden;
-}
-
-.compact-row {
-  display: grid;
-  grid-template-columns: minmax(4.5rem, 1.2fr) auto minmax(0, 1.4fr) auto auto minmax(4rem, 0.8fr);
-  align-items: center;
+  padding: 0.7rem 0.8rem;
+  display: flex;
+  flex-direction: column;
   gap: 0.5rem;
-  padding: 0.5rem 0.9rem;
-  border-bottom: 1px solid #f0f2f5;
-  cursor: pointer;
-  font-size: 0.86rem;
 }
 
-.compact-row:last-child {
-  border-bottom: none;
+.heat-card-main {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
 }
 
-.compact-row:hover {
-  background: #f9fafb;
+.heat-badge {
+  flex-shrink: 0;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 0;
 }
 
-.compact-name {
+.heat-card-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.heat-card-name {
   font-weight: 600;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.compact-status {
-  color: #666;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.compact-meta {
-  color: #999;
+.heat-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
   font-size: 0.78rem;
-  text-align: right;
+  color: #888;
+}
+
+.heat-card-note {
+  font-size: 0.78rem;
+  color: #777;
+  background: #f7f8fa;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+}
+
+.heat-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.heat-card-actions button {
+  flex: 1 1 auto;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.8rem;
   white-space: nowrap;
+}
+
+.part-na {
+  background: #f1f3f5;
+  color: #bbb;
+  border-color: #e6e9ec;
+}
+
+/* 熱度對話框 */
+.heat-current {
+  font-size: 0.9rem;
+  margin: 0.6rem 0;
+}
+
+.heat-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0.8rem;
+}
+
+.heat-option {
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.9rem;
+}
+
+.heat-option.selected {
+  outline: 2px solid #2f6fed;
+  outline-offset: 1px;
 }
 
 .metric {

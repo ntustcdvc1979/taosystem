@@ -178,6 +178,76 @@ ${formatEvents(events)}
 }
 
 /**
+ * 依每個人的活動紀錄與聯絡紀錄內容評估「成全熱度」。
+ * 回傳 { assessments: [{ ref, level, reason }] }，level 0-3。
+ * @param {string} apiKey - 共用 Anthropic API Key
+ * @param {object[]} roster - 要評估的對象，每筆含 ref 編號（已做代號替換）
+ */
+export async function assessHeat(apiKey, roster) {
+  const client = makeClient(apiKey);
+
+  const rosterText = roster.map((p) => `【編號 ${p.ref}】\n${formatPerson(p)}`).join("\n\n");
+
+  const system = `${DOMAIN_CONTEXT}
+
+「成全熱度」代表**從最近的談話內容看，這個人離下一階段有多近**。下一階段依目前成全狀況而定：未求道者的下一階段是求道，已求道者是法會或研究班（新民班等），班程有基礎者是更上一階的班或承擔。
+
+評分標準（level）：
+- 3（熱）：最近的談話已經明確觸及下一階段（例如未求道者聊到求道、已求道者聊到法會或研究班），而且對方有正面回應或表達意願，可以把握機會推進。
+- 2（溫）：關係良好、談得來，對道場的事有基本好感，但還沒實際談到下一階段，或談到了但反應保留。
+- 1（涼）：只有一般寒暄或事務性往來，還沒進入成全的話題。
+- 0（冷）：幾乎沒有實質互動可判斷，或對方明確表達沒有興趣。
+
+請**只根據紀錄內容判斷**，不要因為紀錄久遠而扣分（時間造成的衰減由系統另外處理）。若某人完全沒有紀錄可判斷，給 0 並在理由說明「尚無紀錄可判斷」。
+
+以下是要評估的對象（共 ${roster.length} 位）：
+
+${rosterText || "（沒有對象）"}`;
+
+  const user = `請逐一評估上面每一位的成全熱度，回傳每個人的編號、熱度等級（0-3）與一句話理由（reason 25 字以內，說明是從哪段談話看出來的）。`;
+
+  const response = await client.messages.create({
+    model: MODEL,
+    max_tokens: 8192,
+    thinking: { type: "adaptive" },
+    system,
+    messages: [{ role: "user", content: user }],
+    output_config: {
+      format: {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: {
+            assessments: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  ref: { type: "integer", description: "對象的編號" },
+                  level: { type: "integer", description: "熱度等級：0 冷、1 涼、2 溫、3 熱" },
+                  reason: { type: "string", description: "一句話理由，25 字以內" },
+                },
+                required: ["ref", "level", "reason"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["assessments"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  if (response.stop_reason === "refusal") {
+    throw new Error("AI 拒絕了這個請求，請調整資料內容後再試。");
+  }
+
+  const text = response.content.find((b) => b.type === "text")?.text ?? "";
+  return JSON.parse(text);
+}
+
+/**
  * 為某個活動挑選適合邀約的對象。回傳 { invitees: [{ ref, reason }] }。
  * ref 對應呼叫端傳入的 roster 編號，呼叫端再對回實際對象（避免同名混淆）。
  * @param {string} apiKey - 共用 Anthropic API Key

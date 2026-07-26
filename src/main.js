@@ -5,6 +5,7 @@ import {
   generateSuggestion,
   chatWithAgent,
   suggestInvitees,
+  assessHeat,
 } from "./ai.js";
 import {
   onAuthStateChanged,
@@ -41,7 +42,18 @@ const logoutBtn = document.getElementById("logout-btn");
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
 const toggleViewBtn = document.getElementById("toggle-view-btn");
+const aiHeatBtn = document.getElementById("ai-heat-btn");
 const toggleHiddenTagsBtn = document.getElementById("toggle-hidden-tags-btn");
+
+// 成全熱度對話框
+const heatModal = document.getElementById("heat-modal");
+const heatModalName = document.getElementById("heat-modal-name");
+const heatModalCurrent = document.getElementById("heat-modal-current");
+const heatOptions = document.getElementById("heat-options");
+const heatModalReason = document.getElementById("heat-modal-reason");
+const heatAiOneBtn = document.getElementById("heat-ai-one-btn");
+const heatModalStatus = document.getElementById("heat-modal-status");
+const heatCloseBtn = document.getElementById("heat-close-btn");
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
 
@@ -52,7 +64,7 @@ let showHiddenTags = false;
 // 卡片上每種紀錄顯示幾筆（其餘以「還有 N 筆」帶過）
 const RECORD_PREVIEW_COUNT = 2;
 
-// 名單檢視模式："detail"（詳細卡片）／"compact"（參與度・成全熱度簡覽）
+// 名單檢視模式："detail"（詳細卡片）／"heat"（成全熱度・參與度）
 let viewMode = "detail";
 
 const entryModal = document.getElementById("entry-modal");
@@ -221,6 +233,7 @@ function subscribeEntries() {
       renderEntries();
       refreshOpenActivityModal();
       refreshOpenTalkModal();
+      if (heatModalEntryId) renderHeatModal();
     },
     (err) => {
       // 通常是這個 Google 帳號不在白名單內，被 Firestore 規則擋下
@@ -272,37 +285,68 @@ function daysSince(dateStr) {
   return Math.floor((today - then) / 86400000);
 }
 
-// 參與度：參加過的活動次數（活動紀錄 ＋ 在活動邀約中回覆可以的次數）
+// 參與度：近一個月「有辦的活動」裡，這個人出席了幾成
 function participation(entry) {
-  const accepted = allEvents.filter((ev) =>
-    (ev.invites || []).some((i) => i.entryId === entry.id && i.status === "已回覆可以")
-  ).length;
-  const count = (entry.activities || []).length + accepted;
-  if (count >= 6) return { level: 3, label: "高", count };
-  if (count >= 3) return { level: 2, label: "中", count };
-  if (count >= 1) return { level: 1, label: "低", count };
-  return { level: 0, label: "無", count };
+  const recentEvents = allEvents.filter((ev) => {
+    const d = daysSince(ev.date);
+    return d !== null && d >= 0 && d <= 30;
+  });
+  if (recentEvents.length === 0) {
+    return { level: null, label: "—", text: "近一個月沒有活動" };
+  }
+
+  const attended = recentEvents.filter((ev) => {
+    // 在該活動的邀約名單中回覆可以
+    if ((ev.invites || []).some((i) => i.entryId === entry.id && i.status === "已回覆可以")) {
+      return true;
+    }
+    // 或有一筆活動紀錄的日期落在該活動期間內
+    const start = ev.date;
+    const end = ev.endDate || ev.date;
+    return (entry.activities || []).some((a) => a.date && a.date >= start && a.date <= end);
+  }).length;
+
+  const ratio = attended / recentEvents.length;
+  const text = `近一個月 ${recentEvents.length} 場中出席 ${attended} 場`;
+  if (ratio >= 0.6) return { level: 3, label: "高", text };
+  if (ratio >= 0.3) return { level: 2, label: "中", text };
+  if (ratio > 0) return { level: 1, label: "低", text };
+  return { level: 0, label: "無", text };
 }
 
-// 成全熱度：最近還有沒有在互動（看活動紀錄與聯絡紀錄的日期）
-function warmth(entry) {
+// ---------- 成全熱度 ----------
+// 基準值來自 AI 評估或手動設定（存在 entry.heat），代表「談話內容顯示他離下一階段有多近」；
+// 顯示值再依「多久沒聯絡」衰減：每過一週降一級，提醒該再關心了。
+const HEAT_LABELS = ["冷", "涼", "溫", "熱"];
+const HEAT_DECAY_DAYS = 7;
+
+// 最近一次互動（活動紀錄或聯絡紀錄）距今幾天
+function lastTouchDays(entry) {
   const dates = [...(entry.activities || []), ...(entry.talks || [])]
     .map((r) => r.date)
     .filter(Boolean)
     .sort();
-  if (dates.length === 0) return { level: 0, label: "冷", days: null };
+  if (dates.length === 0) return null;
+  return daysSince(dates[dates.length - 1]);
+}
 
-  const days = daysSince(dates[dates.length - 1]);
-  const recent = dates.filter((d) => {
-    const n = daysSince(d);
-    return n !== null && n <= 90;
-  }).length;
-
-  if (days === null) return { level: 0, label: "冷", days: null };
-  if (days <= 30 && recent >= 3) return { level: 3, label: "熱", days };
-  if (days <= 30) return { level: 2, label: "溫", days };
-  if (days <= 90) return { level: 1, label: "涼", days };
-  return { level: 0, label: "冷", days };
+function heat(entry) {
+  const h = entry.heat || {};
+  const base = typeof h.level === "number" ? h.level : 0;
+  const days = lastTouchDays(entry);
+  const weeks = days === null ? 0 : Math.floor(days / HEAT_DECAY_DAYS);
+  const level = Math.max(0, base - weeks);
+  return {
+    level,
+    base,
+    days,
+    weeks,
+    label: HEAT_LABELS[level],
+    reason: h.reason || "",
+    source: h.source || "",
+    assessed: typeof h.level === "number",
+    decayed: weeks > 0 && base > level,
+  };
 }
 
 // ---------- Render（卡片式名單） ----------
@@ -332,15 +376,15 @@ function renderEntries() {
   });
 
   entriesList.innerHTML = "";
-  entriesList.classList.toggle("compact-mode", viewMode === "compact");
+  entriesList.classList.toggle("compact-mode", viewMode === "heat");
 
   if (filtered.length === 0) {
     entriesList.innerHTML = '<p class="empty-text">尚無資料</p>';
     return;
   }
 
-  if (viewMode === "compact") {
-    renderCompactList(filtered);
+  if (viewMode === "heat") {
+    renderHeatList(filtered);
     return;
   }
 
@@ -400,43 +444,179 @@ function renderEntries() {
   });
 }
 
-// ---------- 簡覽模式：一人一列，用顏色呈現參與度與成全熱度 ----------
-function renderCompactList(entries) {
+// ---------- 熱度：手動調整 / AI 評估 ----------
+let heatModalEntryId = null;
+
+async function saveHeat(entryId, level, reason, source) {
+  try {
+    await updateDoc(doc(db, ENTRIES_COLLECTION, entryId), {
+      heat: { level, reason: reason || "", source, assessedAt: ymd(new Date()) },
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+  } catch (err) {
+    alert("儲存熱度失敗：" + err.message);
+  }
+}
+
+function openHeatModal(entry) {
+  heatModalEntryId = entry.id;
+  heatModalName.textContent = entry.name || "";
+  heatModalStatus.textContent = "";
+  renderHeatModal();
+  heatModal.classList.remove("hidden");
+}
+
+function renderHeatModal() {
+  const entry = allEntries.find((en) => en.id === heatModalEntryId);
+  if (!entry) return;
+  const h = heat(entry);
+
+  heatModalCurrent.innerHTML =
+    `目前顯示：<span class="metric heat-${h.level}">${h.label}</span>` +
+    (h.decayed
+      ? `（評估為 ${HEAT_LABELS[h.base]}，已 ${h.days} 天沒聯絡而降級）`
+      : h.assessed
+        ? ""
+        : "（尚未評估）");
+
+  heatOptions.innerHTML = HEAT_LABELS.map(
+    (label, l) =>
+      `<button type="button" class="metric heat-${l} heat-option${l === h.base ? " selected" : ""}" data-level="${l}">${label}</button>`
+  ).join("");
+
+  heatModalReason.textContent = h.reason
+    ? `評語（${h.source === "manual" ? "手動" : "AI"}）：${h.reason}`
+    : "";
+}
+
+heatOptions.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".heat-option");
+  if (!btn || !heatModalEntryId) return;
+  await saveHeat(heatModalEntryId, Number(btn.dataset.level), "手動設定", "manual");
+  heatModalStatus.textContent = "已更新熱度。";
+});
+
+heatCloseBtn.addEventListener("click", () => {
+  heatModal.classList.add("hidden");
+  heatModalEntryId = null;
+});
+heatModal.addEventListener("click", (e) => {
+  if (e.target === heatModal) heatCloseBtn.click();
+});
+
+// 用 AI 依「活動紀錄／聯絡紀錄的內容」評估熱度；entries 為要評估的對象
+async function runHeatAssessment(entries, statusEl, btn) {
+  if (entries.length === 0) {
+    statusEl.textContent = "沒有需要評估的對象。";
+    return;
+  }
+  statusEl.textContent = `AI 評估中（${entries.length} 位），請稍候...`;
+  if (btn) btn.disabled = true;
+  try {
+    const apiKey = await getSharedApiKey();
+    if (!apiKey) {
+      throw new Error(
+        "尚未設定共用 API Key。請管理員到 Firebase Console 的 Firestore 建立 config 集合下的 ai 文件，欄位 anthropicApiKey 填入 Key（詳見 README）。"
+      );
+    }
+    const { forward, reverse } = buildNameMap();
+    const roster = entries.map((en, i) => ({ ref: i + 1, ...maskEntry(en, forward) }));
+    const result = await assessHeat(apiKey, roster);
+
+    let updated = 0;
+    for (const a of result.assessments || []) {
+      const target = entries[a.ref - 1];
+      if (!target) continue;
+      await saveHeat(target.id, a.level, unmaskNames(a.reason || "", reverse), "ai");
+      updated += 1;
+    }
+    statusEl.textContent = updated
+      ? `AI 已評估 ${updated} 位的熱度。`
+      : "AI 沒有回傳可用的評估結果。";
+  } catch (err) {
+    statusEl.textContent = aiErrorMessage(err, "AI 評估失敗");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+aiHeatBtn.addEventListener("click", async () => {
+  // 只評估目前看得到的人（被「團內幹部」開關藏起來的不評估）
+  const visible = allEntries.filter((en) => showHiddenTags || !hasHiddenTag(en));
+  // 沒有獨立的狀態列，就借按鈕本身顯示進度，結束後再恢復原本文字
+  const statusEl = {
+    set textContent(v) {
+      aiHeatBtn.textContent = v;
+    },
+  };
+  await runHeatAssessment(visible, statusEl, aiHeatBtn);
+  setTimeout(() => {
+    aiHeatBtn.textContent = "AI 評估熱度";
+  }, 4000);
+});
+
+heatAiOneBtn.addEventListener("click", async () => {
+  const entry = allEntries.find((en) => en.id === heatModalEntryId);
+  if (!entry) return;
+  await runHeatAssessment([entry], heatModalStatus, heatAiOneBtn);
+  renderHeatModal();
+});
+
+// ---------- 熱度模式：一人一張小卡，用顏色呈現熱度與參與度（手機也好按） ----------
+function renderHeatList(entries) {
   const legend = `
     <div class="compact-legend">
-      <span>參與度（參加過的活動次數）：</span>
-      ${[0, 1, 2, 3]
-        .map((l) => `<span class="metric part-${l}">${["無", "低", "中", "高"][l]}</span>`)
-        .join("")}
-      <span class="legend-sep">成全熱度（最近互動狀況）：</span>
-      ${[0, 1, 2, 3]
-        .map((l) => `<span class="metric heat-${l}">${["冷", "涼", "溫", "熱"][l]}</span>`)
+      <span>成全熱度（談話離下一階段多近，每週沒聯絡降一級）：</span>
+      ${HEAT_LABELS.map((label, l) => `<span class="metric heat-${l}">${label}</span>`).join("")}
+      <span class="legend-sep">參與度（近一個月活動出席比例）：</span>
+      ${["無", "低", "中", "高"]
+        .map((label, l) => `<span class="metric part-${l}">${label}</span>`)
         .join("")}
     </div>`;
 
-  const rows = entries
+  const cards = entries
     .map((entry) => {
       const p = participation(entry);
-      const w = warmth(entry);
+      const h = heat(entry);
       const lastTouch =
-        w.days === null ? "尚無紀錄" : w.days === 0 ? "今天" : `${w.days} 天前`;
+        h.days === null ? "尚無紀錄" : h.days === 0 ? "今天" : `${h.days} 天前`;
+      const partClass = p.level === null ? "part-na" : `part-${p.level}`;
+      const note = h.decayed
+        ? `已 ${h.days} 天沒聯絡，熱度自 ${HEAT_LABELS[h.base]} 降為 ${h.label}`
+        : h.reason || (h.assessed ? "" : "尚未評估熱度");
       return `
-        <div class="compact-row" data-id="${entry.id}" title="點一下開啟編輯">
-          <span class="compact-name">${escapeHtml(entry.name)}</span>
-          ${
-            entry.gender
-              ? `<span class="gender-badge ${entry.gender === "坤" ? "gender-kun" : "gender-qian"}">${escapeHtml(entry.gender)}</span>`
-              : `<span></span>`
-          }
-          <span class="compact-status">${escapeHtml(entry.status || "")}</span>
-          <span class="metric part-${p.level}" title="參加過 ${p.count} 次">參與 ${p.label}</span>
-          <span class="metric heat-${w.level}" title="最近一次互動：${lastTouch}">熱度 ${w.label}</span>
-          <span class="compact-meta">${lastTouch}</span>
+        <div class="heat-card" data-id="${entry.id}">
+          <div class="heat-card-main">
+            <span class="metric heat-${h.level} heat-badge">${h.label}</span>
+            <div class="heat-card-info">
+              <div class="heat-card-name">
+                ${escapeHtml(entry.name)}
+                ${
+                  entry.gender
+                    ? `<span class="gender-badge ${entry.gender === "坤" ? "gender-kun" : "gender-qian"}">${escapeHtml(entry.gender)}</span>`
+                    : ""
+                }
+              </div>
+              <div class="heat-card-meta">
+                ${entry.status ? `<span>${escapeHtml(entry.status)}</span>` : ""}
+                <span class="metric ${partClass}" title="${escapeHtml(p.text)}">參與 ${p.label}</span>
+                <span>${lastTouch}</span>
+              </div>
+            </div>
+          </div>
+          ${note ? `<div class="heat-card-note">${escapeHtml(note)}</div>` : ""}
+          <div class="heat-card-actions">
+            <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
+            <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聯絡紀錄</button>
+            <button data-action="heat" data-id="${entry.id}" class="btn-secondary">熱度</button>
+            <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
+          </div>
         </div>`;
     })
     .join("");
 
-  entriesList.innerHTML = legend + `<div class="compact-list">${rows}</div>`;
+  entriesList.innerHTML = legend + `<div class="heat-list">${cards}</div>`;
 }
 
 // ---------- 拖曳排序（僅在未搜尋/未篩選時可用） ----------
@@ -639,8 +819,9 @@ searchInput.addEventListener("input", renderEntries);
 filterStatus.addEventListener("change", renderEntries);
 
 toggleViewBtn.addEventListener("click", () => {
-  viewMode = viewMode === "detail" ? "compact" : "detail";
-  toggleViewBtn.textContent = viewMode === "compact" ? "切換詳細模式" : "切換簡覽模式";
+  viewMode = viewMode === "detail" ? "heat" : "detail";
+  toggleViewBtn.textContent = viewMode === "heat" ? "切換詳細模式" : "切換熱度模式";
+  aiHeatBtn.classList.toggle("hidden", viewMode !== "heat");
   renderEntries();
 });
 
@@ -941,14 +1122,6 @@ entriesList.addEventListener("click", async (e) => {
     return;
   }
 
-  // 簡覽模式沒有操作按鈕，點整列直接開編輯
-  const compactRow = e.target.closest(".compact-row");
-  if (compactRow) {
-    const entry = allEntries.find((en) => en.id === compactRow.dataset.id);
-    if (entry) openModal(entry);
-    return;
-  }
-
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
   const id = btn.dataset.id;
@@ -962,6 +1135,8 @@ entriesList.addEventListener("click", async (e) => {
     openTalkModal(entry);
   } else if (btn.dataset.action === "ai") {
     openAiModal(entry);
+  } else if (btn.dataset.action === "heat") {
+    openHeatModal(entry);
   } else if (btn.dataset.action === "delete") {
     if (confirm(`確定要刪除「${entry.name}」的資料嗎？此動作無法復原。`)) {
       try {
