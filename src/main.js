@@ -40,6 +40,7 @@ const logoutBtn = document.getElementById("logout-btn");
 
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
+const toggleViewBtn = document.getElementById("toggle-view-btn");
 const toggleHiddenTagsBtn = document.getElementById("toggle-hidden-tags-btn");
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
@@ -50,6 +51,9 @@ let showHiddenTags = false;
 
 // 卡片上每種紀錄顯示幾筆（其餘以「還有 N 筆」帶過）
 const RECORD_PREVIEW_COUNT = 2;
+
+// 名單檢視模式："detail"（詳細卡片）／"compact"（參與度・成全熱度簡覽）
+let viewMode = "detail";
 
 const entryModal = document.getElementById("entry-modal");
 const entryForm = document.getElementById("entry-form");
@@ -117,6 +121,11 @@ const newInviteStatus = document.getElementById("new-invite-status");
 const addInviteBtn = document.getElementById("add-invite-btn");
 const aiInviteBtn = document.getElementById("ai-invite-btn");
 const inviteAiStatus = document.getElementById("invite-ai-status");
+const inviteNoteEditor = document.getElementById("invite-note-editor");
+const inviteNoteName = document.getElementById("invite-note-name");
+const inviteNoteText = document.getElementById("invite-note-text");
+const inviteNoteSave = document.getElementById("invite-note-save");
+const inviteNoteCancel = document.getElementById("invite-note-cancel");
 
 // AI 成全建議對話框
 const aiModal = document.getElementById("ai-modal");
@@ -252,6 +261,50 @@ function hasHiddenTag(entry) {
   return (entry.tags || []).some((t) => HIDDEN_TAGS.includes(t));
 }
 
+// ---------- 參與度與成全熱度（簡覽模式用） ----------
+// 兩個指標都由既有紀錄推算，不另外儲存，所以永遠跟著資料自動更新。
+
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const then = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(then.getTime())) return null;
+  const today = new Date();
+  return Math.floor((today - then) / 86400000);
+}
+
+// 參與度：參加過的活動次數（活動紀錄 ＋ 在活動邀約中回覆可以的次數）
+function participation(entry) {
+  const accepted = allEvents.filter((ev) =>
+    (ev.invites || []).some((i) => i.entryId === entry.id && i.status === "已回覆可以")
+  ).length;
+  const count = (entry.activities || []).length + accepted;
+  if (count >= 6) return { level: 3, label: "高", count };
+  if (count >= 3) return { level: 2, label: "中", count };
+  if (count >= 1) return { level: 1, label: "低", count };
+  return { level: 0, label: "無", count };
+}
+
+// 成全熱度：最近還有沒有在互動（看活動紀錄與聯絡紀錄的日期）
+function warmth(entry) {
+  const dates = [...(entry.activities || []), ...(entry.talks || [])]
+    .map((r) => r.date)
+    .filter(Boolean)
+    .sort();
+  if (dates.length === 0) return { level: 0, label: "冷", days: null };
+
+  const days = daysSince(dates[dates.length - 1]);
+  const recent = dates.filter((d) => {
+    const n = daysSince(d);
+    return n !== null && n <= 90;
+  }).length;
+
+  if (days === null) return { level: 0, label: "冷", days: null };
+  if (days <= 30 && recent >= 3) return { level: 3, label: "熱", days };
+  if (days <= 30) return { level: 2, label: "溫", days };
+  if (days <= 90) return { level: 1, label: "涼", days };
+  return { level: 0, label: "冷", days };
+}
+
 // ---------- Render（卡片式名單） ----------
 function renderEntries() {
   const searchTerm = searchInput.value.trim().toLowerCase();
@@ -279,9 +332,15 @@ function renderEntries() {
   });
 
   entriesList.innerHTML = "";
+  entriesList.classList.toggle("compact-mode", viewMode === "compact");
 
   if (filtered.length === 0) {
     entriesList.innerHTML = '<p class="empty-text">尚無資料</p>';
+    return;
+  }
+
+  if (viewMode === "compact") {
+    renderCompactList(filtered);
     return;
   }
 
@@ -339,6 +398,45 @@ function renderEntries() {
     `;
     entriesList.appendChild(card);
   });
+}
+
+// ---------- 簡覽模式：一人一列，用顏色呈現參與度與成全熱度 ----------
+function renderCompactList(entries) {
+  const legend = `
+    <div class="compact-legend">
+      <span>參與度（參加過的活動次數）：</span>
+      ${[0, 1, 2, 3]
+        .map((l) => `<span class="metric part-${l}">${["無", "低", "中", "高"][l]}</span>`)
+        .join("")}
+      <span class="legend-sep">成全熱度（最近互動狀況）：</span>
+      ${[0, 1, 2, 3]
+        .map((l) => `<span class="metric heat-${l}">${["冷", "涼", "溫", "熱"][l]}</span>`)
+        .join("")}
+    </div>`;
+
+  const rows = entries
+    .map((entry) => {
+      const p = participation(entry);
+      const w = warmth(entry);
+      const lastTouch =
+        w.days === null ? "尚無紀錄" : w.days === 0 ? "今天" : `${w.days} 天前`;
+      return `
+        <div class="compact-row" data-id="${entry.id}" title="點一下開啟編輯">
+          <span class="compact-name">${escapeHtml(entry.name)}</span>
+          ${
+            entry.gender
+              ? `<span class="gender-badge ${entry.gender === "坤" ? "gender-kun" : "gender-qian"}">${escapeHtml(entry.gender)}</span>`
+              : `<span></span>`
+          }
+          <span class="compact-status">${escapeHtml(entry.status || "")}</span>
+          <span class="metric part-${p.level}" title="參加過 ${p.count} 次">參與 ${p.label}</span>
+          <span class="metric heat-${w.level}" title="最近一次互動：${lastTouch}">熱度 ${w.label}</span>
+          <span class="compact-meta">${lastTouch}</span>
+        </div>`;
+    })
+    .join("");
+
+  entriesList.innerHTML = legend + `<div class="compact-list">${rows}</div>`;
 }
 
 // ---------- 拖曳排序（僅在未搜尋/未篩選時可用） ----------
@@ -499,7 +597,11 @@ function maskedUpcomingEvents(forward) {
     type: ev.type,
     // 邀約名單也用代號，AI 才知道誰已答應/婉拒，不會重複推薦
     invites: (ev.invites || [])
-      .map((inv) => ({ name: maskNames(entryName(inv.entryId), forward), status: inv.status }))
+      .map((inv) => ({
+        name: maskNames(entryName(inv.entryId), forward),
+        status: inv.status,
+        note: maskNames(inv.note || "", forward),
+      }))
       .filter((inv) => inv.name),
   }));
 }
@@ -535,6 +637,12 @@ function escapeHtml(value) {
 
 searchInput.addEventListener("input", renderEntries);
 filterStatus.addEventListener("change", renderEntries);
+
+toggleViewBtn.addEventListener("click", () => {
+  viewMode = viewMode === "detail" ? "compact" : "detail";
+  toggleViewBtn.textContent = viewMode === "compact" ? "切換詳細模式" : "切換簡覽模式";
+  renderEntries();
+});
 
 toggleHiddenTagsBtn.addEventListener("click", () => {
   showHiddenTags = !showHiddenTags;
@@ -833,6 +941,14 @@ entriesList.addEventListener("click", async (e) => {
     return;
   }
 
+  // 簡覽模式沒有操作按鈕，點整列直接開編輯
+  const compactRow = e.target.closest(".compact-row");
+  if (compactRow) {
+    const entry = allEntries.find((en) => en.id === compactRow.dataset.id);
+    if (entry) openModal(entry);
+    return;
+  }
+
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
   const id = btn.dataset.id;
@@ -860,7 +976,13 @@ entriesList.addEventListener("click", async (e) => {
 // ---------- 活動管理（月曆檢視） ----------
 const EVENT_TYPES = ["廣結善緣", "獻供", "求道", "成全", "法會", "幹訓"];
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
-const INVITE_STATUSES = ["預定邀約", "已邀約待回覆", "已回覆可以", "已回覆不行"];
+const INVITE_STATUSES = [
+  "預定邀約",
+  "已邀約待回覆",
+  "回覆不確定",
+  "已回覆可以",
+  "已回覆不行",
+];
 
 let calCursor = firstOfMonth(new Date()); // 目前顯示的月份（該月 1 號）
 let editingEventId = null;
@@ -941,6 +1063,7 @@ function startEditEvent(ev) {
   inviteSection.classList.remove("hidden"); // 邀約名單只在編輯既有活動時有意義
   newInvitePerson.value = "";
   inviteAiStatus.textContent = "";
+  closeInviteNoteEditor();
   renderInviteList();
   newEventName.focus();
 }
@@ -961,6 +1084,7 @@ function resetEventForm() {
   inviteSection.classList.add("hidden");
   newInvitePerson.value = "";
   inviteAiStatus.textContent = "";
+  closeInviteNoteEditor();
 }
 
 // ---------- 活動邀約名單 ----------
@@ -990,10 +1114,14 @@ function renderInviteList() {
     const chips = members
       .map((inv) => {
         const name = entryName(inv.entryId);
+        const note = (inv.note || "").trim();
         return `
           <div class="invite-chip" draggable="true" data-entry-id="${inv.entryId}">
-            <span class="${name ? "" : "invite-missing"}">${escapeHtml(name || "（對象已刪除）")}</span>
-            <button type="button" class="invite-remove" title="移除">×</button>
+            <div class="invite-chip-top">
+              <span class="invite-chip-name ${name ? "" : "invite-missing"}" title="點一下編輯備註">${escapeHtml(name || "（對象已刪除）")}</span>
+              <button type="button" class="invite-remove" title="移除">×</button>
+            </div>
+            ${note ? `<div class="invite-chip-note" title="${escapeHtml(note)}">${escapeHtml(note)}</div>` : ""}
           </div>`;
       })
       .join("");
@@ -1057,12 +1185,50 @@ newInvitePerson.addEventListener("keydown", (e) => {
 });
 
 inviteBoard.addEventListener("click", async (e) => {
-  if (!e.target.closest(".invite-remove")) return;
   const chip = e.target.closest(".invite-chip");
-  editingEventInvites = editingEventInvites.filter((i) => i.entryId !== chip.dataset.entryId);
+  if (!chip) return;
+
+  if (e.target.closest(".invite-remove")) {
+    editingEventInvites = editingEventInvites.filter((i) => i.entryId !== chip.dataset.entryId);
+    closeInviteNoteEditor();
+    renderInviteList();
+    await persistInvites();
+    return;
+  }
+
+  // 點名字：在下方的編輯區改備註（不擠在名字旁邊）
+  if (e.target.closest(".invite-chip-name")) openInviteNoteEditor(chip.dataset.entryId);
+});
+
+// ---------- 邀約備註（在看板下方編輯） ----------
+let noteEditingEntryId = null;
+
+function openInviteNoteEditor(entryId) {
+  const inv = editingEventInvites.find((i) => i.entryId === entryId);
+  if (!inv) return;
+  noteEditingEntryId = entryId;
+  inviteNoteName.textContent = entryName(entryId) || "（對象已刪除）";
+  inviteNoteText.value = inv.note || "";
+  inviteNoteEditor.classList.remove("hidden");
+  inviteNoteText.focus();
+}
+
+function closeInviteNoteEditor() {
+  noteEditingEntryId = null;
+  inviteNoteEditor.classList.add("hidden");
+  inviteNoteText.value = "";
+}
+
+inviteNoteSave.addEventListener("click", async () => {
+  if (!noteEditingEntryId) return;
+  const inv = editingEventInvites.find((i) => i.entryId === noteEditingEntryId);
+  if (inv) inv.note = inviteNoteText.value.trim();
+  closeInviteNoteEditor();
   renderInviteList();
   await persistInvites();
 });
+
+inviteNoteCancel.addEventListener("click", closeInviteNoteEditor);
 
 // ---------- 邀約名單：拖到別框改變狀態 ----------
 let dragInviteEntryId = null;

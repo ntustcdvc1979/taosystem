@@ -52,6 +52,7 @@
             <option value="講師">講師</option>
             <option value="未確定">未確定</option>
           </select>
+          <button id="toggle-view-btn" class="btn-secondary">切換簡覽模式</button>
           <button id="toggle-hidden-tags-btn" class="btn-secondary">顯示團內幹部</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
@@ -256,6 +257,7 @@
               <select id="new-invite-status">
                 <option value="預定邀約">預定邀約</option>
                 <option value="已邀約待回覆">已邀約待回覆</option>
+                <option value="回覆不確定">回覆不確定</option>
                 <option value="已回覆可以">已回覆可以</option>
                 <option value="已回覆不行">已回覆不行</option>
               </select>
@@ -264,7 +266,18 @@
 
             <p id="invite-ai-status" class="hint-text"></p>
             <div id="invite-board" class="invite-board"></div>
-            <p class="hint-text">把名字拖到其他框即可改變狀態。邀約狀況會即時儲存，AI 產生建議時也會參照（例如已回覆不行的就不會再推薦同一個活動）。</p>
+
+            <!-- 備註編輯區：點名字後在這裡編輯，不擠在名字旁邊 -->
+            <div id="invite-note-editor" class="invite-note-editor hidden">
+              <span class="field-label">備註 — <span id="invite-note-name"></span></span>
+              <textarea id="invite-note-text" rows="2" placeholder="例：最近在忙期末考，考完再約"></textarea>
+              <div class="invite-note-actions">
+                <button type="button" id="invite-note-save" class="btn-primary btn-small">儲存備註</button>
+                <button type="button" id="invite-note-cancel" class="btn-secondary btn-small">取消</button>
+              </div>
+            </div>
+
+            <p class="hint-text">把名字拖到其他框即可改變狀態，點名字可加備註。邀約狀況會即時儲存，AI 產生建議時也會參照（例如已回覆不行的就不會再推薦同一個活動）。</p>
           </div>
 
           <div class="modal-actions">

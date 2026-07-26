@@ -172,6 +172,97 @@ button {
   grid-column: 1 / -1;
 }
 
+/* 簡覽模式：一人一列，用顏色看參與度與成全熱度 */
+.cards-wrap.compact-mode {
+  display: block;
+}
+
+.compact-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  color: #777;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.6rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.legend-sep {
+  margin-left: 0.8rem;
+}
+
+.compact-list {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.compact-row {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, 1.2fr) auto minmax(0, 1.4fr) auto auto minmax(4rem, 0.8fr);
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid #f0f2f5;
+  cursor: pointer;
+  font-size: 0.86rem;
+}
+
+.compact-row:last-child {
+  border-bottom: none;
+}
+
+.compact-row:hover {
+  background: #f9fafb;
+}
+
+.compact-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-status {
+  color: #666;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compact-meta {
+  color: #999;
+  font-size: 0.78rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.metric {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+/* 參與度：由淺到深的綠 */
+.part-0 { background: #f1f3f5; color: #999; border-color: #e6e9ec; }
+.part-1 { background: #eaf7ef; color: #3f9e63; border-color: #d3edde; }
+.part-2 { background: #d6f0e0; color: #1e8a4c; border-color: #b9e5cb; }
+.part-3 { background: #1e8a4c; color: #fff; border-color: #1e8a4c; }
+
+/* 成全熱度：冷（灰藍）→ 涼（藍）→ 溫（琥珀）→ 熱（紅） */
+.heat-0 { background: #eef1f5; color: #8b98a9; border-color: #e3e8ee; }
+.heat-1 { background: #e0f2fe; color: #0369a1; border-color: #c7e6fb; }
+.heat-2 { background: #fef3c7; color: #b45309; border-color: #fae2a0; }
+.heat-3 { background: #dc2626; color: #fff; border-color: #dc2626; }
+
 .person-card {
   background: #fff;
   border-radius: 10px;
@@ -608,10 +699,10 @@ button {
   min-width: 0;
 }
 
-/* 邀約名單看板：四個狀態各一框，可互相拖曳 */
+/* 邀約名單看板：每個狀態一框，可互相拖曳。欄數隨寬度自動調整 */
 .invite-board {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 0.5rem;
   margin-top: 0.5rem;
 }
@@ -659,10 +750,6 @@ button {
 }
 
 .invite-chip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.25rem;
   background: #fff;
   border: 1px solid #dfe3e8;
   border-radius: 6px;
@@ -672,12 +759,61 @@ button {
   cursor: grab;
 }
 
+.invite-chip-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+}
+
 /* 名字過長時截斷，不要把框撐開或折成多行 */
-.invite-chip > span {
+.invite-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  cursor: pointer;
+  border-bottom: 1px dashed #d5d8dd;
+}
+
+.invite-chip-name:hover {
+  border-bottom-color: #2f6fed;
+  color: #2f6fed;
+}
+
+/* 備註：接在名字下面一行，不另外塞框框到名字旁邊 */
+.invite-chip-note {
+  color: #888;
+  font-size: 0.72rem;
+  margin-top: 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invite-note-editor {
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  background: #f7f9fc;
+  border: 1px solid #e2e8f2;
+  border-radius: 8px;
+}
+
+.invite-note-editor textarea {
+  width: 100%;
+  margin-top: 0.3rem !important;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.invite-note-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
 }
 
 .invite-chip.dragging {
@@ -685,12 +821,6 @@ button {
   cursor: grabbing;
 }
 
-/* 視窗較窄時改成兩欄，四欄會擠到看不清楚 */
-@media (max-width: 720px) {
-  .invite-board {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 
 .invite-remove {
   background: none;
