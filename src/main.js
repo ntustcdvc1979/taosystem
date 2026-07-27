@@ -285,29 +285,60 @@ function daysSince(dateStr) {
   return Math.floor((today - then) / 86400000);
 }
 
-// 參與度：近一個月「有辦的活動」裡，這個人出席了幾成
-function participation(entry) {
-  const recentEvents = allEvents.filter((ev) => {
-    const d = daysSince(ev.date);
+// 近一個月「辦過的活動」清單：活動管理登錄的活動，加上大家在活動紀錄裡寫到、
+// 但沒登錄在活動管理的活動（例如臨時的聚會）。以活動名稱辨識，避免同一場算兩次。
+function recentActivityPool() {
+  const inWindow = (dateStr) => {
+    const d = daysSince(dateStr);
     return d !== null && d >= 0 && d <= 30;
+  };
+  const pool = new Map(); // 名稱 → { name, event }
+
+  allEvents.forEach((ev) => {
+    if (!inWindow(ev.date)) return;
+    const key = (ev.name || "").trim();
+    if (key) pool.set(key, { name: key, event: ev });
   });
-  if (recentEvents.length === 0) {
+
+  allEntries.forEach((en) => {
+    (en.activities || []).forEach((a) => {
+      const key = (a.activity || "").trim();
+      if (!key || !inWindow(a.date) || pool.has(key)) return;
+      pool.set(key, { name: key, event: null });
+    });
+  });
+
+  return [...pool.values()];
+}
+
+// 參與度：近一個月辦過的活動裡，這個人出席了幾成
+function participation(entry) {
+  const pool = recentActivityPool();
+  if (pool.length === 0) {
     return { level: null, label: "—", text: "近一個月沒有活動" };
   }
 
-  const attended = recentEvents.filter((ev) => {
-    // 在該活動的邀約名單中回覆可以
-    if ((ev.invites || []).some((i) => i.entryId === entry.id && i.status === "已回覆可以")) {
-      return true;
-    }
-    // 或有一筆活動紀錄的日期落在該活動期間內
-    const start = ev.date;
-    const end = ev.endDate || ev.date;
-    return (entry.activities || []).some((a) => a.date && a.date >= start && a.date <= end);
+  const myActivityNames = new Set(
+    (entry.activities || [])
+      .filter((a) => {
+        const d = daysSince(a.date);
+        return d !== null && d >= 0 && d <= 30;
+      })
+      .map((a) => (a.activity || "").trim())
+      .filter(Boolean)
+  );
+
+  const attended = pool.filter((item) => {
+    // 自己的活動紀錄裡有這場
+    if (myActivityNames.has(item.name)) return true;
+    // 或在活動管理的邀約名單中回覆可以
+    return (item.event?.invites || []).some(
+      (i) => i.entryId === entry.id && i.status === "已回覆可以"
+    );
   }).length;
 
-  const ratio = attended / recentEvents.length;
-  const text = `近一個月 ${recentEvents.length} 場中出席 ${attended} 場`;
+  const ratio = attended / pool.length;
+  const text = `近一個月 ${pool.length} 場中出席 ${attended} 場`;
   if (ratio >= 0.6) return { level: 3, label: "高", text };
   if (ratio >= 0.3) return { level: 2, label: "中", text };
   if (ratio > 0) return { level: 1, label: "低", text };
