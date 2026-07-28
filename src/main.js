@@ -1412,11 +1412,18 @@ function renderInviteList() {
       </div>`;
   }).join("");
 
-  renderInviteSuggestions();
+  // 清單只在使用者正在輸入時才需要更新；沒點進輸入框就不要自己跳出來
+  if (document.activeElement === newInvitePerson) renderInviteSuggestions();
 }
 
 // 自己做的搜尋清單（不用 <datalist>：中文 IME 輸入時它常常不篩選，等於不能搜尋）
 function renderInviteSuggestions() {
+  // 只有點進輸入框時才顯示，避免一開啟活動就掛著一張下拉清單
+  if (document.activeElement !== newInvitePerson) {
+    hideInviteSuggestions();
+    return;
+  }
+
   const q = newInvitePerson.value.trim().toLowerCase();
   const invited = new Set(editingEventInvites.map((i) => i.entryId));
   const matches = allEntries
