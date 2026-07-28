@@ -54,6 +54,12 @@ const heatModalReason = document.getElementById("heat-modal-reason");
 const heatAiOneBtn = document.getElementById("heat-ai-one-btn");
 const heatModalStatus = document.getElementById("heat-modal-status");
 const heatCloseBtn = document.getElementById("heat-close-btn");
+
+// 近兩週活動提醒
+const upcomingNotice = document.getElementById("upcoming-notice");
+const noticeList = document.getElementById("notice-list");
+const noticeDismissBtn = document.getElementById("notice-dismiss");
+const NOTICE_DISMISS_KEY = "taosystem_notice_dismissed";
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
 
@@ -127,7 +133,7 @@ const eventsCloseBtn = document.getElementById("events-close-btn");
 const inviteSection = document.getElementById("invite-section");
 const inviteSummary = document.getElementById("invite-summary");
 const inviteBoard = document.getElementById("invite-board");
-const invitePersonOptions = document.getElementById("invite-person-options");
+const inviteSuggestions = document.getElementById("invite-suggestions");
 const newInvitePerson = document.getElementById("new-invite-person");
 const newInviteStatus = document.getElementById("new-invite-status");
 const addInviteBtn = document.getElementById("add-invite-btn");
@@ -256,6 +262,8 @@ function subscribeEvents() {
       allEvents = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderCalendar();
       refreshOpenInviteList();
+      renderUpcomingNotice();
+      renderEntries(); // 參與度會用到活動資料
     },
     (err) => {
       if (err.code !== "permission-denied") console.error(err);
@@ -268,6 +276,72 @@ function upcomingEvents() {
   const today = new Date().toISOString().slice(0, 10);
   return allEvents.filter((ev) => (ev.endDate || ev.date || "") >= today);
 }
+
+// ---------- 近兩週活動提醒 ----------
+const NOTICE_DAYS = 14;
+
+function renderUpcomingNotice() {
+  if (localStorage.getItem(NOTICE_DISMISS_KEY) === ymd(new Date())) {
+    upcomingNotice.classList.add("hidden");
+    return;
+  }
+
+  const soon = allEvents
+    .filter((ev) => {
+      const d = daysSince(ev.date);
+      return d !== null && d <= 0 && -d <= NOTICE_DAYS; // 今天到 14 天後
+    })
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  if (soon.length === 0) {
+    upcomingNotice.classList.add("hidden");
+    return;
+  }
+
+  noticeList.innerHTML = soon
+    .map((ev) => {
+      const left = -daysSince(ev.date);
+      const when = left === 0 ? "今天" : left === 1 ? "明天" : `${left} 天後`;
+      const invites = ev.invites || [];
+      const ok = invites.filter((i) => i.status === "已回覆可以").length;
+      const pending = invites.filter(
+        (i) => i.status === "預定邀約" || i.status === "已邀約待回覆" || i.status === "回覆不確定"
+      ).length;
+      const summary = invites.length
+        ? `已邀約 ${invites.length} 人（${ok} 人可以${pending ? `、${pending} 人待確認` : ""}）`
+        : "尚未邀約任何人";
+      return `
+        <div class="notice-item">
+          <div class="notice-item-info">
+            <span class="notice-when">${when}</span>
+            <span class="notice-name">${escapeHtml(ev.name)}</span>
+            <span class="notice-type">${escapeHtml(ev.type || "")}</span>
+            <span class="notice-summary${invites.length ? "" : " notice-warn"}">${summary}</span>
+          </div>
+          <button type="button" class="btn-primary btn-small" data-notice-event="${ev.id}">安排邀約</button>
+        </div>`;
+    })
+    .join("");
+  upcomingNotice.classList.remove("hidden");
+}
+
+// 點「安排邀約」：直接開活動管理並進入該活動的編輯（下面就是邀約看板與 AI 建議邀約）
+noticeList.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-notice-event]");
+  if (!btn) return;
+  const ev = allEvents.find((x) => x.id === btn.dataset.noticeEvent);
+  if (!ev) return;
+  resetEventForm();
+  calCursor = firstOfMonth(new Date(ev.date + "T00:00:00"));
+  renderCalendar();
+  eventsModal.classList.remove("hidden");
+  startEditEvent(ev);
+});
+
+noticeDismissBtn.addEventListener("click", () => {
+  localStorage.setItem(NOTICE_DISMISS_KEY, ymd(new Date()));
+  upcomingNotice.classList.add("hidden");
+});
 
 // 對象只要有任何一個預設隱藏的標籤（例：團內幹部），整張卡片就不顯示（除非開關開啟）
 function hasHiddenTag(entry) {
@@ -1338,13 +1412,69 @@ function renderInviteList() {
       </div>`;
   }).join("");
 
-  // 打字用的候選清單：只列出還沒加進來的人
-  const invited = new Set(editingEventInvites.map((i) => i.entryId));
-  invitePersonOptions.innerHTML = allEntries
-    .filter((en) => !invited.has(en.id))
-    .map((en) => `<option value="${escapeHtml(en.name)}"></option>`)
-    .join("");
+  renderInviteSuggestions();
 }
+
+// 自己做的搜尋清單（不用 <datalist>：中文 IME 輸入時它常常不篩選，等於不能搜尋）
+function renderInviteSuggestions() {
+  const q = newInvitePerson.value.trim().toLowerCase();
+  const invited = new Set(editingEventInvites.map((i) => i.entryId));
+  const matches = allEntries
+    .filter((en) => !invited.has(en.id))
+    .filter((en) => {
+      if (!q) return true;
+      return [en.name, en.department, getBackground(en)]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q);
+    })
+    .slice(0, 8);
+
+  if (matches.length === 0) {
+    inviteSuggestions.innerHTML = q
+      ? `<div class="invite-suggestion-empty">找不到「${escapeHtml(newInvitePerson.value.trim())}」</div>`
+      : "";
+    inviteSuggestions.classList.toggle("hidden", !q);
+    return;
+  }
+
+  inviteSuggestions.innerHTML = matches
+    .map(
+      (en) =>
+        `<div class="invite-suggestion" data-id="${en.id}">${escapeHtml(en.name)}${
+          en.department ? `<span class="suggestion-meta">${escapeHtml(en.department)}</span>` : ""
+        }</div>`
+    )
+    .join("");
+  inviteSuggestions.classList.remove("hidden");
+}
+
+function hideInviteSuggestions() {
+  inviteSuggestions.classList.add("hidden");
+}
+
+async function addInviteByEntryId(entryId) {
+  if (!entryId || editingEventInvites.some((i) => i.entryId === entryId)) return;
+  editingEventInvites.push({ entryId, status: newInviteStatus.value });
+  newInvitePerson.value = "";
+  inviteAiStatus.textContent = "";
+  renderInviteList();
+  hideInviteSuggestions();
+  await persistInvites();
+}
+
+newInvitePerson.addEventListener("input", renderInviteSuggestions);
+newInvitePerson.addEventListener("focus", renderInviteSuggestions);
+newInvitePerson.addEventListener("blur", () => setTimeout(hideInviteSuggestions, 150));
+
+// 用 mousedown：click 之前 input 會先 blur，會把清單關掉而點不到
+inviteSuggestions.addEventListener("mousedown", async (e) => {
+  const item = e.target.closest(".invite-suggestion");
+  if (!item) return;
+  e.preventDefault();
+  await addInviteByEntryId(item.dataset.id);
+});
 
 async function persistInvites() {
   if (!editingEventId) return;
@@ -1365,21 +1495,25 @@ addInviteBtn.addEventListener("click", async () => {
     newInvitePerson.focus();
     return;
   }
-  const match = allEntries.find((en) => (en.name || "").trim() === typed);
+  const invited = new Set(editingEventInvites.map((i) => i.entryId));
+  const notInvited = allEntries.filter((en) => !invited.has(en.id));
+  // 先找完全相同的姓名，其次接受部分輸入（只在唯一時才自動選，避免加錯人）
+  const exact = notInvited.find((en) => (en.name || "").trim() === typed);
+  const partial = notInvited.filter((en) => (en.name || "").includes(typed));
+  const match = exact || (partial.length === 1 ? partial[0] : null);
+
   if (!match) {
-    inviteAiStatus.textContent = `名單上找不到「${typed}」，請確認姓名或先新增這位對象。`;
+    if (allEntries.some((en) => (en.name || "").trim() === typed)) {
+      inviteAiStatus.textContent = `「${typed}」已經在邀約名單裡了。`;
+    } else if (partial.length > 1) {
+      inviteAiStatus.textContent = `符合「${typed}」的有多位，請從清單中點選。`;
+    } else {
+      inviteAiStatus.textContent = `名單上找不到「${typed}」，請確認姓名或先新增這位對象。`;
+    }
     newInvitePerson.focus();
     return;
   }
-  if (editingEventInvites.some((i) => i.entryId === match.id)) {
-    inviteAiStatus.textContent = `「${typed}」已經在邀約名單裡了。`;
-    return;
-  }
-  editingEventInvites.push({ entryId: match.id, status: newInviteStatus.value });
-  newInvitePerson.value = "";
-  inviteAiStatus.textContent = "";
-  renderInviteList();
-  await persistInvites();
+  await addInviteByEntryId(match.id);
 });
 
 // Enter 直接加入，不用移到按鈕

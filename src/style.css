@@ -195,6 +195,135 @@ button {
   margin-left: 0.8rem;
 }
 
+/* 近兩週活動提醒 */
+.upcoming-notice {
+  margin: 0 1.5rem 1rem;
+  background: #fff8ed;
+  border: 1px solid #f6d9a8;
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+}
+
+.notice-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.notice-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #b45309;
+}
+
+.btn-link-plain {
+  background: none;
+  border: none;
+  color: #a68a5b;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.3rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.notice-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0;
+  border-top: 1px solid #f6e5c8;
+}
+
+.notice-item-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  min-width: 0;
+}
+
+.notice-when {
+  background: #b45309;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.notice-name {
+  font-weight: 600;
+}
+
+.notice-type {
+  color: #8a7350;
+  font-size: 0.78rem;
+}
+
+.notice-summary {
+  color: #8a7350;
+  font-size: 0.8rem;
+}
+
+.notice-warn {
+  color: #c0392b;
+}
+
+/* 邀約對象搜尋清單 */
+.invite-person-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.invite-person-wrap input {
+  width: 100%;
+}
+
+.invite-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 2px;
+}
+
+.invite-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.invite-suggestion:hover {
+  background: #eef4ff;
+}
+
+.suggestion-meta {
+  color: #999;
+  font-size: 0.76rem;
+}
+
+.invite-suggestion-empty {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  color: #999;
+}
+
 /* 熱度模式的小卡：手機一欄、桌機自動多欄 */
 .heat-list {
   display: grid;

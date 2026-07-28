@@ -59,6 +59,15 @@
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
 
+        <!-- 近兩週活動提醒：提示該安排邀約了 -->
+        <div id="upcoming-notice" class="upcoming-notice hidden">
+          <div class="notice-head">
+            <span class="notice-title">近兩週的活動</span>
+            <button type="button" id="notice-dismiss" class="btn-link-plain">今天不再顯示</button>
+          </div>
+          <div id="notice-list"></div>
+        </div>
+
         <div id="entries-list" class="cards-wrap">
           <p class="empty-text">尚無資料</p>
         </div>
@@ -276,8 +285,10 @@
             </div>
 
             <div class="invite-add-row">
-              <input type="text" id="new-invite-person" list="invite-person-options" placeholder="輸入姓名（可打字搜尋）" autocomplete="off" />
-              <datalist id="invite-person-options"></datalist>
+              <div class="invite-person-wrap">
+                <input type="text" id="new-invite-person" placeholder="輸入姓名或系級搜尋" autocomplete="off" />
+                <div id="invite-suggestions" class="invite-suggestions hidden"></div>
+              </div>
               <select id="new-invite-status">
                 <option value="預定邀約">預定邀約</option>
                 <option value="已邀約待回覆">已邀約待回覆</option>
