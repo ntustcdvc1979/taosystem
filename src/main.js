@@ -24,10 +24,12 @@ import {
   onSnapshot,
   serverTimestamp,
   query,
+  where,
   orderBy,
 } from "firebase/firestore";
 
 const ENTRIES_COLLECTION = "entries";
+const PERSONAL_COLLECTION = "personalEntries"; // 個人名單，只有建立者本人看得到
 const CHAT_COLLECTION = "chatHistories"; // 每位使用者一份，文件 ID = 使用者 uid
 const EVENTS_COLLECTION = "events"; // 近期活動（名稱、日期、類型）
 
@@ -41,8 +43,11 @@ const logoutBtn = document.getElementById("logout-btn");
 
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
+const filterScope = document.getElementById("filter-scope");
+const teamNameBtn = document.getElementById("team-name-btn");
 const toggleViewBtn = document.getElementById("toggle-view-btn");
 const aiHeatBtn = document.getElementById("ai-heat-btn");
+aiHeatBtn.classList.remove("hidden"); // 預設就是熱度模式
 const toggleHiddenTagsBtn = document.getElementById("toggle-hidden-tags-btn");
 
 // 成全熱度對話框
@@ -70,8 +75,8 @@ let showHiddenTags = false;
 // 卡片上每種紀錄顯示幾筆（其餘以「還有 N 筆」帶過）
 const RECORD_PREVIEW_COUNT = 2;
 
-// 名單檢視模式："detail"（詳細卡片）／"heat"（成全熱度・參與度）
-let viewMode = "detail";
+// 名單檢視模式："heat"（成全熱度・參與度，預設）／"detail"（詳細卡片）
+let viewMode = "heat";
 
 const entryModal = document.getElementById("entry-modal");
 const entryForm = document.getElementById("entry-form");
@@ -79,6 +84,8 @@ const modalTitle = document.getElementById("modal-title");
 const cancelBtn = document.getElementById("cancel-btn");
 
 const fieldId = document.getElementById("entry-id");
+const fieldScope = document.getElementById("field-scope");
+const scopeHint = document.getElementById("scope-hint");
 const fieldName = document.getElementById("field-name");
 const fieldGender = document.getElementById("field-gender");
 const fieldDepartment = document.getElementById("field-department");
@@ -169,10 +176,16 @@ const chatSendBtn = document.getElementById("chat-send-btn");
 const chatClearBtn = document.getElementById("chat-clear-btn");
 const chatCloseBtn = document.getElementById("chat-close-btn");
 
+// 名單分兩個集合：團隊名單大家共管，個人名單只有本人看得到。
+// 兩邊各自訂閱後合併成 allEntries，每筆會帶 _scope / _col 以便寫回正確的集合。
 let allEntries = [];
+let teamEntries = [];
+let myPersonalEntries = [];
 let unsubscribeEntries = null;
+let unsubscribePersonal = null;
 let allEvents = [];
 let unsubscribeEventsSub = null;
+let teamName = "團隊";
 
 // ---------- Auth ----------
 onAuthStateChanged(auth, (user) => {
@@ -183,6 +196,7 @@ onAuthStateChanged(auth, (user) => {
     chatFab.classList.remove("hidden");
     subscribeEntries();
     subscribeEvents();
+    loadTeamName();
     loadChatHistory();
   } else {
     appView.classList.add("hidden");
@@ -193,13 +207,56 @@ onAuthStateChanged(auth, (user) => {
       unsubscribeEntries();
       unsubscribeEntries = null;
     }
+    if (unsubscribePersonal) {
+      unsubscribePersonal();
+      unsubscribePersonal = null;
+    }
     if (unsubscribeEventsSub) {
       unsubscribeEventsSub();
       unsubscribeEventsSub = null;
     }
     allEntries = [];
+    teamEntries = [];
+    myPersonalEntries = [];
     allEvents = [];
     chatHistory = [];
+  }
+});
+
+// ---------- 團隊名單的稱呼（存在 config/team 的 name 欄位） ----------
+async function loadTeamName() {
+  try {
+    const snap = await getDoc(doc(db, "config", "team"));
+    const name = snap.exists() ? (snap.data().name || "").trim() : "";
+    if (name) teamName = name;
+  } catch (err) {
+    console.error(err);
+  }
+  applyTeamName();
+}
+
+function applyTeamName() {
+  filterScope.options[1].textContent = `${teamName}名單`;
+  fieldScope.options[0].textContent = `${teamName}名單（所有幹部都看得到）`;
+  teamNameBtn.textContent = `團隊名稱：${teamName}`;
+  renderEntries();
+}
+
+teamNameBtn.addEventListener("click", async () => {
+  const next = prompt("團隊名單的稱呼（例如：台科崇德）", teamName);
+  if (next === null) return;
+  const name = next.trim();
+  if (!name) return;
+  try {
+    await setDoc(doc(db, "config", "team"), {
+      name,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+    teamName = name;
+    applyTeamName();
+  } catch (err) {
+    alert("儲存團隊名稱失敗：" + err.message);
   }
 });
 
@@ -222,24 +279,34 @@ googleLoginBtn.addEventListener("click", async () => {
 logoutBtn.addEventListener("click", () => signOut(auth));
 
 // ---------- Firestore subscription ----------
+// 合併團隊與個人名單。預設依建立時間新到舊；手動排序過（有 order 欄位）就依 order。
+function mergeEntries() {
+  allEntries = [...teamEntries, ...myPersonalEntries].sort((a, b) => {
+    const ao = a.order;
+    const bo = b.order;
+    if (ao != null && bo != null) return ao - bo;
+    if (ao != null) return -1;
+    if (bo != null) return 1;
+    return (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0);
+  });
+  renderEntries();
+  refreshOpenActivityModal();
+  refreshOpenTalkModal();
+  if (heatModalEntryId) renderHeatModal();
+}
+
 function subscribeEntries() {
-  const q = query(collection(db, ENTRIES_COLLECTION), orderBy("createdAt", "desc"));
+  // 團隊名單：白名單成員都看得到
   unsubscribeEntries = onSnapshot(
-    q,
+    collection(db, ENTRIES_COLLECTION),
     (snapshot) => {
-      // 預設依建立時間新到舊；一旦使用者手動排序過（有 order 欄位），改依 order。
-      allEntries = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      allEntries.sort((a, b) => {
-        const ao = a.order, bo = b.order;
-        if (ao != null && bo != null) return ao - bo;
-        if (ao != null) return -1;
-        if (bo != null) return 1;
-        return 0; // 皆未排序：維持 Firestore 的 createdAt desc
-      });
-      renderEntries();
-      refreshOpenActivityModal();
-      refreshOpenTalkModal();
-      if (heatModalEntryId) renderHeatModal();
+      teamEntries = snapshot.docs.map((d) => ({
+        id: d.id,
+        _scope: "team",
+        _col: ENTRIES_COLLECTION,
+        ...d.data(),
+      }));
+      mergeEntries();
     },
     (err) => {
       // 通常是這個 Google 帳號不在白名單內，被 Firestore 規則擋下
@@ -252,6 +319,33 @@ function subscribeEntries() {
       }
     }
   );
+
+  // 個人名單：只查自己的（規則也只允許讀自己的，查詢條件必須一致才不會被整批拒絕）
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  unsubscribePersonal = onSnapshot(
+    query(collection(db, PERSONAL_COLLECTION), where("ownerUid", "==", uid)),
+    (snapshot) => {
+      myPersonalEntries = snapshot.docs.map((d) => ({
+        id: d.id,
+        _scope: "personal",
+        _col: PERSONAL_COLLECTION,
+        ...d.data(),
+      }));
+      mergeEntries();
+    },
+    (err) => {
+      if (err.code !== "permission-denied") console.error(err);
+    }
+  );
+}
+
+// 找出某筆名單該寫回哪個集合（團隊 / 個人）
+function entryRef(entryOrId) {
+  const entry =
+    typeof entryOrId === "string" ? allEntries.find((e) => e.id === entryOrId) : entryOrId;
+  if (!entry) return null;
+  return doc(db, entry._col || ENTRIES_COLLECTION, entry.id);
 }
 
 function subscribeEvents() {
@@ -459,9 +553,12 @@ function renderEntries() {
   const searchTerm = searchInput.value.trim().toLowerCase();
   const statusVal = filterStatus.value;
   // 只有在沒有搜尋/篩選時才能拖曳排序（否則只看到部分卡片，排序會錯亂）
-  const canReorder = !searchTerm && !statusVal;
+  const canReorder = !searchTerm && !statusVal && !filterScope.value;
+
+  const scopeVal = filterScope.value;
 
   const filtered = allEntries.filter((entry) => {
+    if (scopeVal && (entry._scope || "team") !== scopeVal) return false;
     if (!showHiddenTags && hasHiddenTag(entry)) return false;
     if (statusVal && entry.status !== statusVal) return false;
     if (searchTerm) {
@@ -525,6 +622,7 @@ function renderEntries() {
     card.innerHTML = `
       <div class="person-card-header">
         <span class="person-name">${escapeHtml(entry.name)}</span>
+        ${entry._scope === "personal" ? `<span class="scope-badge">個人</span>` : ""}
         ${entry.gender ? `<span class="gender-badge ${entry.gender === "坤" ? "gender-kun" : "gender-qian"}">${escapeHtml(entry.gender)}</span>` : ""}
         ${entry.department ? `<span class="person-meta">${escapeHtml(entry.department)}</span>` : ""}
         ${entry.status ? `<span class="status-badge">${escapeHtml(entry.status)}</span>` : ""}
@@ -542,6 +640,7 @@ function renderEntries() {
         <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
         <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聯絡紀錄</button>
         <button data-action="ai" data-id="${entry.id}" class="btn-secondary">AI 建議</button>
+        ${entry._scope === "personal" ? `<button data-action="to-team" data-id="${entry.id}" class="btn-secondary">轉為${escapeHtml(teamName)}名單</button>` : ""}
         <button data-action="delete" data-id="${entry.id}" class="btn-danger">刪除</button>
       </div>
     `;
@@ -554,7 +653,7 @@ let heatModalEntryId = null;
 
 async function saveHeat(entryId, level, reason, source) {
   try {
-    await updateDoc(doc(db, ENTRIES_COLLECTION, entryId), {
+    await updateDoc(entryRef(entryId), {
       heat: { level, reason: reason || "", source, assessedAt: ymd(new Date()) },
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
@@ -697,6 +796,7 @@ function renderHeatList(entries) {
             <div class="heat-card-info">
               <div class="heat-card-name">
                 ${escapeHtml(entry.name)}
+                ${entry._scope === "personal" ? `<span class="scope-badge">個人</span>` : ""}
                 ${
                   entry.gender
                     ? `<span class="gender-badge ${entry.gender === "坤" ? "gender-kun" : "gender-qian"}">${escapeHtml(entry.gender)}</span>`
@@ -722,6 +822,23 @@ function renderHeatList(entries) {
     .join("");
 
   entriesList.innerHTML = legend + `<div class="heat-list">${cards}</div>`;
+}
+
+// 個人名單轉為團隊名單：沿用同一個文件 ID 搬到 entries 集合，
+// 這樣活動邀約名單裡記的 entryId 才不會失效。
+async function transferToTeam(entry) {
+  const { id, _scope, _col, ownerUid, ...data } = entry;
+  try {
+    await setDoc(doc(db, ENTRIES_COLLECTION, id), {
+      ...data,
+      transferredBy: auth.currentUser?.email || null,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+    await deleteDoc(doc(db, PERSONAL_COLLECTION, id));
+  } catch (err) {
+    alert("轉移失敗：" + err.message);
+  }
 }
 
 // ---------- 拖曳排序（僅在未搜尋/未篩選時可用） ----------
@@ -764,7 +881,7 @@ async function persistOrderFromDom() {
   ids.forEach((id, index) => {
     const entry = allEntries.find((en) => en.id === id);
     if (entry && entry.order !== index) {
-      updates.push(updateDoc(doc(db, ENTRIES_COLLECTION, id), { order: index }));
+      updates.push(updateDoc(entryRef(id), { order: index }));
     }
   });
   try {
@@ -922,6 +1039,7 @@ function escapeHtml(value) {
 
 searchInput.addEventListener("input", renderEntries);
 filterStatus.addEventListener("change", renderEntries);
+filterScope.addEventListener("change", renderEntries);
 
 toggleViewBtn.addEventListener("click", () => {
   viewMode = viewMode === "detail" ? "heat" : "detail";
@@ -989,7 +1107,7 @@ function renderActivityModalList() {
 
 async function persistActivities() {
   try {
-    await updateDoc(doc(db, ENTRIES_COLLECTION, activityModalEntryId), {
+    await updateDoc(entryRef(activityModalEntryId), {
       activities: activityModalActivities,
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
@@ -1095,7 +1213,7 @@ function renderTalkModalList() {
 
 async function persistTalks() {
   try {
-    await updateDoc(doc(db, ENTRIES_COLLECTION, talkModalEntryId), {
+    await updateDoc(entryRef(talkModalEntryId), {
       talks: talkModalTalks,
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
@@ -1151,6 +1269,13 @@ function openModal(entry = null) {
   if (entry) {
     modalTitle.textContent = "編輯名單";
     fieldId.value = entry.id;
+    // 既有資料的歸屬只能透過「轉為團隊名單」變更，這裡鎖起來避免誤改
+    fieldScope.value = entry._scope || "team";
+    fieldScope.disabled = true;
+    scopeHint.textContent =
+      entry._scope === "personal"
+        ? "這是你的個人名單，其他人看不到。要分享請用卡片上的「轉為團隊名單」。"
+        : `這筆已在${teamName}名單，所有幹部都看得到。`;
     fieldName.value = entry.name || "";
     fieldGender.value = entry.gender || "";
     fieldDepartment.value = entry.department || "";
@@ -1163,6 +1288,9 @@ function openModal(entry = null) {
   } else {
     modalTitle.textContent = "新增名單";
     fieldId.value = "";
+    fieldScope.disabled = false;
+    fieldScope.value = "team";
+    scopeHint.textContent = "個人名單只有你自己看得到，之後可以再轉為團隊名單。";
   }
   entryModal.classList.remove("hidden");
   fieldName.focus();
@@ -1203,10 +1331,13 @@ entryForm.addEventListener("submit", async (e) => {
   const id = fieldId.value;
   try {
     if (id) {
-      await updateDoc(doc(db, ENTRIES_COLLECTION, id), data);
+      // 編輯時不動歸屬（要換歸屬請用卡片上的「轉為團隊名單」）
+      await updateDoc(entryRef(id), data);
     } else {
-      await addDoc(collection(db, ENTRIES_COLLECTION), {
+      const personal = fieldScope.value === "personal";
+      await addDoc(collection(db, personal ? PERSONAL_COLLECTION : ENTRIES_COLLECTION), {
         ...data,
+        ...(personal ? { ownerUid: auth.currentUser?.uid || null } : {}),
         activities: [],
         talks: [],
         createdAt: serverTimestamp(),
@@ -1242,10 +1373,18 @@ entriesList.addEventListener("click", async (e) => {
     openAiModal(entry);
   } else if (btn.dataset.action === "heat") {
     openHeatModal(entry);
+  } else if (btn.dataset.action === "to-team") {
+    if (
+      confirm(
+        `確定把「${entry.name}」轉為${teamName}名單嗎？轉移後所有幹部都看得到這筆資料（含紀錄與備註），且無法從網頁上轉回個人名單。`
+      )
+    ) {
+      await transferToTeam(entry);
+    }
   } else if (btn.dataset.action === "delete") {
     if (confirm(`確定要刪除「${entry.name}」的資料嗎？此動作無法復原。`)) {
       try {
-        await deleteDoc(doc(db, ENTRIES_COLLECTION, id));
+        await deleteDoc(entryRef(entry));
       } catch (err) {
         alert("刪除失敗：" + err.message);
       }
@@ -1851,7 +1990,7 @@ aiGenerateBtn.addEventListener("click", async () => {
 aiApplyBtn.addEventListener("click", async () => {
   if (!aiLastSuggestion || !aiModalEntryId) return;
   try {
-    await updateDoc(doc(db, ENTRIES_COLLECTION, aiModalEntryId), {
+    await updateDoc(entryRef(aiModalEntryId), {
       strategy: aiLastSuggestion.strategy,
       method: aiLastSuggestion.method,
       recommendedActivity: aiLastSuggestion.recommendedActivity || "",

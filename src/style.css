@@ -484,6 +484,18 @@ button {
   font-weight: 700;
 }
 
+/* 個人名單標記：只有本人看得到的資料 */
+.scope-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  background: #f3ecfb;
+  color: #7c3aed;
+  border: 1px solid #e4d7f7;
+  white-space: nowrap;
+}
+
 .gender-badge {
   display: inline-block;
   padding: 0.1rem 0.5rem;

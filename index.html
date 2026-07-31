@@ -52,10 +52,16 @@
             <option value="講師">講師</option>
             <option value="未確定">未確定</option>
           </select>
-          <button id="toggle-view-btn" class="btn-secondary">切換熱度模式</button>
+          <select id="filter-scope">
+            <option value="">全部名單</option>
+            <option value="team">團隊名單</option>
+            <option value="personal">我的個人名單</option>
+          </select>
+          <button id="toggle-view-btn" class="btn-secondary">切換詳細模式</button>
           <button id="ai-heat-btn" class="btn-secondary hidden">AI 評估熱度</button>
           <button id="toggle-hidden-tags-btn" class="btn-secondary">顯示團內幹部</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
+          <button id="team-name-btn" class="btn-secondary">團隊名稱</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
 
@@ -82,6 +88,14 @@
             <label>
               姓名 <span class="required">*</span>
               <input type="text" id="field-name" required />
+            </label>
+            <label>
+              歸屬
+              <select id="field-scope">
+                <option value="team">團隊名單（所有幹部都看得到）</option>
+                <option value="personal">個人名單（只有我看得到）</option>
+              </select>
+              <span id="scope-hint" class="hint-text"></span>
             </label>
             <label>
               性別

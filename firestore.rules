@@ -15,15 +15,26 @@ service cloud.firestore {
              ];
     }
 
+    // 團隊名單：白名單成員共同管理，彼此都看得到
     match /entries/{entryId} {
       allow read, write: if isAllowed();
     }
 
-    // 共用設定（含 AI 的共用 API Key，存在 config/ai 文件的 anthropicApiKey 欄位）。
-    // 只有白名單成員能讀取；寫入僅限透過 Firebase Console（管理員）操作。
+    // 個人名單：只有建立者本人看得到、改得動，其他白名單成員一律讀不到。
+    // ownerUid 必須等於自己的 uid，避免有人把資料掛到別人名下或偷看別人的。
+    match /personalEntries/{entryId} {
+      allow read, delete: if isAllowed() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isAllowed() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isAllowed()
+                    && resource.data.ownerUid == request.auth.uid
+                    && request.resource.data.ownerUid == request.auth.uid;
+    }
+
+    // 共用設定：config/ai 放 AI 的共用 API Key、config/team 放團隊名單的稱呼。
+    // 白名單成員都能讀；只有團隊名稱可以在網頁上改，API Key 一律只能從 Console 設定。
     match /config/{docId} {
       allow read: if isAllowed();
-      allow write: if false;
+      allow write: if isAllowed() && docId == 'team';
     }
 
     // 近期活動（活動管理頁維護：名稱、日期、類型），白名單成員可讀寫
