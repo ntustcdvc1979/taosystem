@@ -20,6 +20,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   setDoc,
   onSnapshot,
   serverTimestamp,
@@ -28,10 +29,25 @@ import {
   orderBy,
 } from "firebase/firestore";
 
+// 資料一律放在自己道務單位底下（units/{unitId}/…），路徑本身就是隔離邊界：
+// 查詢天然只看得到自己單位的資料，不會出現「規則擋得住但查詢整批失敗」的問題。
 const ENTRIES_COLLECTION = "entries";
 const PERSONAL_COLLECTION = "personalEntries"; // 個人名單，只有建立者本人看得到
 const CHAT_COLLECTION = "chatHistories"; // 每位使用者一份，文件 ID = 使用者 uid
 const EVENTS_COLLECTION = "events"; // 近期活動（名稱、日期、類型）
+const LINKS_COLLECTION = "memberLinks"; // 帳號 ↔ 名單對應
+
+let myUnitId = null;
+let myUnitName = "";
+let myEntryId = null; // 這支帳號綁定到名單中的哪一位
+
+// units/{unitId}/{name} 的集合參考
+function unitCol(name) {
+  return collection(db, "units", myUnitId, name);
+}
+function unitDoc(name, id) {
+  return doc(db, "units", myUnitId, name, id);
+}
 
 // ---------- DOM refs ----------
 const loginView = document.getElementById("login-view");
@@ -44,7 +60,16 @@ const logoutBtn = document.getElementById("logout-btn");
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
 const filterScope = document.getElementById("filter-scope");
-const teamNameBtn = document.getElementById("team-name-btn");
+const unitNameLabel = document.getElementById("unit-name");
+const bindMeBtn = document.getElementById("bind-me-btn");
+const migrateBtn = document.getElementById("migrate-btn");
+
+// 綁定自己的對話框
+const bindModal = document.getElementById("bind-modal");
+const bindSearch = document.getElementById("bind-search");
+const bindResults = document.getElementById("bind-results");
+const bindStatus = document.getElementById("bind-status");
+const bindCloseBtn = document.getElementById("bind-close-btn");
 const toggleViewBtn = document.getElementById("toggle-view-btn");
 const aiHeatBtn = document.getElementById("ai-heat-btn");
 aiHeatBtn.classList.remove("hidden"); // 預設就是熱度模式
@@ -92,6 +117,8 @@ const fieldDepartment = document.getElementById("field-department");
 const fieldTags = document.getElementById("field-tags");
 const fieldBackground = document.getElementById("field-background");
 const fieldContact = document.getElementById("field-contact");
+const contactField = document.getElementById("contact-field");
+const contactSelfHint = document.getElementById("contact-self-hint");
 const fieldStatus = document.getElementById("field-status");
 const fieldStrategy = document.getElementById("field-strategy");
 const fieldMethod = document.getElementById("field-method");
@@ -128,6 +155,7 @@ const calTodayBtn = document.getElementById("cal-today");
 const eventFormMode = document.getElementById("event-form-mode");
 const newEventDate = document.getElementById("new-event-date");
 const newEventEndDate = document.getElementById("new-event-end-date");
+const eventMultiday = document.getElementById("event-multiday");
 const newEventName = document.getElementById("new-event-name");
 const newEventType = document.getElementById("new-event-type");
 const addEventBtn = document.getElementById("add-event-btn");
@@ -188,15 +216,21 @@ let unsubscribeEventsSub = null;
 let teamName = "團隊";
 
 // ---------- Auth ----------
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
   if (user) {
+    currentUserLabel.textContent = user.email;
+    // 先確認這支帳號屬於哪個道務單位；沒設定就不讓進去（資料路徑也組不出來）
+    const ok = await loadMyUnit();
+    if (!ok) {
+      await signOut(auth);
+      return;
+    }
     loginView.classList.add("hidden");
     appView.classList.remove("hidden");
-    currentUserLabel.textContent = user.email;
     chatFab.classList.remove("hidden");
     subscribeEntries();
     subscribeEvents();
-    loadTeamName();
+    loadMyLink();
     loadChatHistory();
   } else {
     appView.classList.add("hidden");
@@ -223,42 +257,145 @@ onAuthStateChanged(auth, (user) => {
   }
 });
 
-// ---------- 團隊名單的稱呼（存在 config/team 的 name 欄位） ----------
-async function loadTeamName() {
+// ---------- 帳號歸屬的道務單位 ----------
+// members/{uid} 與 units/{unitId} 都只能由管理員在 Firebase Console 設定，網頁只讀不寫。
+async function loadMyUnit() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return false;
   try {
-    const snap = await getDoc(doc(db, "config", "team"));
-    const name = snap.exists() ? (snap.data().name || "").trim() : "";
-    if (name) teamName = name;
+    const memberSnap = await getDoc(doc(db, "members", uid));
+    if (!memberSnap.exists() || !memberSnap.data().unitId) {
+      loginError.textContent =
+        "這個帳號還沒指派道務單位，請聯絡管理員在 Firebase 的 members 設定後再登入。";
+      return false;
+    }
+    myUnitId = memberSnap.data().unitId;
+
+    const unitSnap = await getDoc(doc(db, "units", myUnitId));
+    myUnitName = (unitSnap.exists() ? unitSnap.data().name : "") || myUnitId;
+    teamName = myUnitName;
+  } catch (err) {
+    loginError.textContent = "讀取帳號歸屬失敗：" + err.message;
+    return false;
+  }
+  applyUnitName();
+  return true;
+}
+
+function applyUnitName() {
+  unitNameLabel.textContent = myUnitName;
+  unitNameLabel.classList.remove("hidden");
+  filterScope.options[1].textContent = `${teamName}名單`;
+  fieldScope.options[0].textContent = `${teamName}名單（同單位幹部都看得到）`;
+}
+
+// ---------- 帳號綁定到名單中的自己 ----------
+async function loadMyLink() {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try {
+    const snap = await getDoc(unitDoc(LINKS_COLLECTION, uid));
+    myEntryId = snap.exists() ? snap.data().entryId || null : null;
   } catch (err) {
     console.error(err);
+    myEntryId = null;
   }
-  applyTeamName();
+  refreshBindPrompt();
 }
 
-function applyTeamName() {
-  filterScope.options[1].textContent = `${teamName}名單`;
-  fieldScope.options[0].textContent = `${teamName}名單（所有幹部都看得到）`;
-  teamNameBtn.textContent = `團隊名稱：${teamName}`;
-  renderEntries();
+// 我自己在名單上的名字（沒綁定就用 Email）
+function myDisplayName() {
+  const me = allEntries.find((en) => en.id === myEntryId);
+  return me?.name || auth.currentUser?.email || "";
 }
 
-teamNameBtn.addEventListener("click", async () => {
-  const next = prompt("團隊名單的稱呼（例如：台科崇德）", teamName);
-  if (next === null) return;
-  const name = next.trim();
-  if (!name) return;
+function refreshBindPrompt() {
+  const bound = !!myEntryId && allEntries.some((en) => en.id === myEntryId);
+  bindMeBtn.classList.toggle("hidden", bound);
+  bindMeBtn.textContent = myEntryId && !bound ? "重新綁定我的資料" : "綁定我的資料";
+}
+
+function renderBindResults() {
+  const q = bindSearch.value.trim().toLowerCase();
+  const matches = teamEntries
+    .filter((en) => !q || (en.name || "").toLowerCase().includes(q))
+    .slice(0, 10);
+  bindResults.innerHTML = matches.length
+    ? matches
+        .map(
+          (en) =>
+            `<button type="button" class="bind-result" data-id="${en.id}">${escapeHtml(en.name)}${
+              en.department ? `<span class="suggestion-meta">${escapeHtml(en.department)}</span>` : ""
+            }</button>`
+        )
+        .join("")
+    : `<p class="hint-text">${q ? `找不到「${escapeHtml(bindSearch.value.trim())}」` : "團隊名單目前是空的"}</p>`;
+}
+
+bindSearch.addEventListener("input", renderBindResults);
+
+bindResults.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".bind-result");
+  if (!btn) return;
+  const uid = auth.currentUser?.uid;
   try {
-    await setDoc(doc(db, "config", "team"), {
-      name,
-      updatedAt: serverTimestamp(),
-      updatedBy: auth.currentUser?.email || null,
+    await setDoc(unitDoc(LINKS_COLLECTION, uid), {
+      entryId: btn.dataset.id,
+      email: auth.currentUser?.email || null,
+      linkedAt: serverTimestamp(),
     });
-    teamName = name;
-    applyTeamName();
+    myEntryId = btn.dataset.id;
+    bindStatus.textContent = `已綁定為「${allEntries.find((en) => en.id === myEntryId)?.name || ""}」。`;
+    refreshBindPrompt();
+    renderEntries();
   } catch (err) {
-    alert("儲存團隊名稱失敗：" + err.message);
+    bindStatus.textContent = "綁定失敗：" + err.message;
   }
 });
+
+bindMeBtn.addEventListener("click", () => {
+  bindSearch.value = "";
+  bindStatus.textContent = "";
+  renderBindResults();
+  bindModal.classList.remove("hidden");
+  bindSearch.focus();
+});
+bindCloseBtn.addEventListener("click", () => bindModal.classList.add("hidden"));
+bindModal.addEventListener("click", (e) => {
+  if (e.target === bindModal) bindModal.classList.add("hidden");
+});
+
+// ---------- 一次性搬移舊資料（舊版把資料放在最上層集合） ----------
+async function migrateLegacyData() {
+  if (
+    !confirm(
+      `把舊資料搬到「${myUnitName}」底下嗎？\n\n會複製舊的團隊名單、個人名單與活動到新位置，舊資料保留不動（確認沒問題後可自行到 Console 刪除）。`
+    )
+  ) {
+    return;
+  }
+  migrateBtn.disabled = true;
+  migrateBtn.textContent = "搬移中...";
+  try {
+    let moved = 0;
+    for (const name of [ENTRIES_COLLECTION, PERSONAL_COLLECTION, EVENTS_COLLECTION]) {
+      const snap = await getDocs(collection(db, name));
+      for (const d of snap.docs) {
+        await setDoc(unitDoc(name, d.id), d.data());
+        moved += 1;
+      }
+    }
+    migrateBtn.textContent = `已搬移 ${moved} 筆`;
+    setTimeout(() => migrateBtn.classList.add("hidden"), 4000);
+  } catch (err) {
+    alert("搬移失敗：" + err.message);
+    migrateBtn.textContent = "搬移舊資料";
+  } finally {
+    migrateBtn.disabled = false;
+  }
+}
+
+migrateBtn.addEventListener("click", migrateLegacyData);
 
 const googleProvider = new GoogleAuthProvider();
 
@@ -292,13 +429,16 @@ function mergeEntries() {
   renderEntries();
   refreshOpenActivityModal();
   refreshOpenTalkModal();
+  refreshBindPrompt();
+  // 單位底下還沒有任何名單時，提供把舊資料搬過來的入口
+  migrateBtn.classList.toggle("hidden", allEntries.length > 0);
   if (heatModalEntryId) renderHeatModal();
 }
 
 function subscribeEntries() {
-  // 團隊名單：白名單成員都看得到
+  // 團隊名單：同一個道務單位的成員都看得到
   unsubscribeEntries = onSnapshot(
-    collection(db, ENTRIES_COLLECTION),
+    unitCol(ENTRIES_COLLECTION),
     (snapshot) => {
       teamEntries = snapshot.docs.map((d) => ({
         id: d.id,
@@ -309,10 +449,10 @@ function subscribeEntries() {
       mergeEntries();
     },
     (err) => {
-      // 通常是這個 Google 帳號不在白名單內，被 Firestore 規則擋下
+      // 通常是這個 Google 帳號還沒被指派道務單位，被 Firestore 規則擋下
       if (err.code === "permission-denied") {
         loginError.textContent =
-          "此 Google 帳號沒有存取權限，請聯絡管理員將你的 Email 加入白名單。";
+          "此 Google 帳號沒有存取權限，請聯絡管理員在 Firebase 設定你所屬的道務單位。";
         signOut(auth);
       } else {
         console.error(err);
@@ -324,7 +464,7 @@ function subscribeEntries() {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
   unsubscribePersonal = onSnapshot(
-    query(collection(db, PERSONAL_COLLECTION), where("ownerUid", "==", uid)),
+    query(unitCol(PERSONAL_COLLECTION), where("ownerUid", "==", uid)),
     (snapshot) => {
       myPersonalEntries = snapshot.docs.map((d) => ({
         id: d.id,
@@ -345,11 +485,11 @@ function entryRef(entryOrId) {
   const entry =
     typeof entryOrId === "string" ? allEntries.find((e) => e.id === entryOrId) : entryOrId;
   if (!entry) return null;
-  return doc(db, entry._col || ENTRIES_COLLECTION, entry.id);
+  return unitDoc(entry._col || ENTRIES_COLLECTION, entry.id);
 }
 
 function subscribeEvents() {
-  const q = query(collection(db, EVENTS_COLLECTION), orderBy("date"));
+  const q = query(unitCol(EVENTS_COLLECTION), orderBy("date"));
   unsubscribeEventsSub = onSnapshot(
     q,
     (snapshot) => {
@@ -510,6 +650,28 @@ function participation(entry) {
   if (ratio >= 0.6) return { level: 3, label: "高", text };
   if (ratio >= 0.3) return { level: 2, label: "中", text };
   if (ratio > 0) return { level: 1, label: "低", text };
+  return { level: 0, label: "無", text };
+}
+
+// 互動度：近兩週 14 天裡，有幾天跟他有互動（聯絡紀錄或活動紀錄）。
+// 用「有互動的天數 ÷ 14」當比例，同一天多筆只算一天，避免一次補登很多筆就衝高。
+const INTERACTION_DAYS = 14;
+
+function interaction(entry) {
+  const days = new Set(
+    [...(entry.activities || []), ...(entry.talks || [])]
+      .map((r) => r.date)
+      .filter((d) => {
+        const n = daysSince(d);
+        return n !== null && n >= 0 && n < INTERACTION_DAYS;
+      })
+  );
+  const count = days.size;
+  const ratio = count / INTERACTION_DAYS;
+  const text = `近兩週有 ${count} 天互動`;
+  if (ratio >= 0.28) return { level: 3, label: "高", text }; // 約每週 2 次以上
+  if (ratio >= 0.14) return { level: 2, label: "中", text }; // 約每週 1 次
+  if (count > 0) return { level: 1, label: "低", text };
   return { level: 0, label: "無", text };
 }
 
@@ -777,11 +939,16 @@ function renderHeatList(entries) {
       ${["無", "低", "中", "高"]
         .map((label, l) => `<span class="metric part-${l}">${label}</span>`)
         .join("")}
+      <span class="legend-sep">互動度（近兩週有幾天互動）：</span>
+      ${["無", "低", "中", "高"]
+        .map((label, l) => `<span class="metric act-${l}">${label}</span>`)
+        .join("")}
     </div>`;
 
   const cards = entries
     .map((entry) => {
       const p = participation(entry);
+      const x = interaction(entry);
       const h = heat(entry);
       const lastTouch =
         h.days === null ? "尚無紀錄" : h.days === 0 ? "今天" : `${h.days} 天前`;
@@ -806,6 +973,7 @@ function renderHeatList(entries) {
               <div class="heat-card-meta">
                 ${entry.status ? `<span>${escapeHtml(entry.status)}</span>` : ""}
                 <span class="metric ${partClass}" title="${escapeHtml(p.text)}">參與 ${p.label}</span>
+                <span class="metric act-${x.level}" title="${escapeHtml(x.text)}">互動 ${x.label}</span>
                 <span>${lastTouch}</span>
               </div>
             </div>
@@ -829,13 +997,13 @@ function renderHeatList(entries) {
 async function transferToTeam(entry) {
   const { id, _scope, _col, ownerUid, ...data } = entry;
   try {
-    await setDoc(doc(db, ENTRIES_COLLECTION, id), {
+    await setDoc(unitDoc(ENTRIES_COLLECTION, id), {
       ...data,
       transferredBy: auth.currentUser?.email || null,
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
     });
-    await deleteDoc(doc(db, PERSONAL_COLLECTION, id));
+    await deleteDoc(unitDoc(PERSONAL_COLLECTION, id));
   } catch (err) {
     alert("轉移失敗：" + err.message);
   }
@@ -1292,9 +1460,23 @@ function openModal(entry = null) {
     fieldScope.value = "team";
     scopeHint.textContent = "個人名單只有你自己看得到，之後可以再轉為團隊名單。";
   }
+  applyScopeToContactField();
   entryModal.classList.remove("hidden");
   fieldName.focus();
 }
+
+// 個人名單的聯絡人一定是自己，所以不顯示欄位（省得多填一次）
+function applyScopeToContactField() {
+  const personal = fieldScope.value === "personal";
+  contactField.classList.toggle("hidden", personal);
+  contactSelfHint.classList.toggle("hidden", !personal);
+  const me = myDisplayName();
+  contactSelfHint.textContent = me
+    ? `個人名單的聯絡人就是你自己（${me}），不用另外填。`
+    : "個人名單的聯絡人就是你自己，不用另外填。";
+}
+
+fieldScope.addEventListener("change", applyScopeToContactField);
 
 function closeModal() {
   entryModal.classList.add("hidden");
@@ -1320,7 +1502,8 @@ entryForm.addEventListener("submit", async (e) => {
       .map((t) => t.trim())
       .filter(Boolean),
     background: fieldBackground.value.trim(),
-    contact: fieldContact.value.trim(),
+    // 個人名單的聯絡人固定是自己
+    contact: fieldScope.value === "personal" ? myDisplayName() : fieldContact.value.trim(),
     status: fieldStatus.value,
     strategy: fieldStrategy.value.trim(),
     method: fieldMethod.value.trim(),
@@ -1335,7 +1518,7 @@ entryForm.addEventListener("submit", async (e) => {
       await updateDoc(entryRef(id), data);
     } else {
       const personal = fieldScope.value === "personal";
-      await addDoc(collection(db, personal ? PERSONAL_COLLECTION : ENTRIES_COLLECTION), {
+      await addDoc(unitCol(personal ? PERSONAL_COLLECTION : ENTRIES_COLLECTION), {
         ...data,
         ...(personal ? { ownerUid: auth.currentUser?.uid || null } : {}),
         activities: [],
@@ -1394,6 +1577,16 @@ entriesList.addEventListener("click", async (e) => {
 
 // ---------- 活動管理（月曆檢視） ----------
 const EVENT_TYPES = ["廣結善緣", "獻供", "求道", "成全", "法會", "幹訓"];
+
+// 單日活動只出現一個日期選擇；勾了「多日活動」才顯示結束日期
+function applyMultidayToggle() {
+  const multi = eventMultiday.checked;
+  newEventEndDate.classList.toggle("hidden", !multi);
+  if (!multi) newEventEndDate.value = "";
+  else if (!newEventEndDate.value) newEventEndDate.value = newEventDate.value;
+}
+
+eventMultiday.addEventListener("change", applyMultidayToggle);
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 const INVITE_STATUSES = [
   "預定邀約",
@@ -1472,6 +1665,8 @@ function startEditEvent(ev) {
   editingEventInvites = (ev.invites || []).map((i) => ({ ...i }));
   newEventDate.value = ev.date || "";
   newEventEndDate.value = ev.endDate || "";
+  eventMultiday.checked = !!ev.endDate && ev.endDate !== ev.date;
+  applyMultidayToggle();
   newEventName.value = ev.name || "";
   newEventType.value = ev.type || EVENT_TYPES[0];
   eventFormMode.textContent = "編輯活動";
@@ -1493,6 +1688,8 @@ function resetEventForm() {
   editingEventInvites = [];
   newEventDate.value = "";
   newEventEndDate.value = "";
+  eventMultiday.checked = false;
+  applyMultidayToggle();
   newEventName.value = "";
   newEventType.value = EVENT_TYPES[0];
   eventFormMode.textContent = "新增活動";
@@ -1625,7 +1822,7 @@ inviteSuggestions.addEventListener("mousedown", async (e) => {
 async function persistInvites() {
   if (!editingEventId) return;
   try {
-    await updateDoc(doc(db, EVENTS_COLLECTION, editingEventId), {
+    await updateDoc(unitDoc(EVENTS_COLLECTION, editingEventId), {
       invites: editingEventInvites,
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
@@ -1846,7 +2043,7 @@ addEventBtn.addEventListener("click", async () => {
   const data = validEventInput();
   if (!data) return;
   try {
-    await addDoc(collection(db, EVENTS_COLLECTION), {
+    await addDoc(unitCol(EVENTS_COLLECTION), {
       ...data,
       invites: [],
       createdAt: serverTimestamp(),
@@ -1863,7 +2060,7 @@ saveEventBtn.addEventListener("click", async () => {
   const data = validEventInput();
   if (!data) return;
   try {
-    await updateDoc(doc(db, EVENTS_COLLECTION, editingEventId), {
+    await updateDoc(unitDoc(EVENTS_COLLECTION, editingEventId), {
       ...data,
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
@@ -1878,7 +2075,7 @@ deleteEventBtn.addEventListener("click", async () => {
   if (!editingEventId) return;
   if (!confirm(`確定刪除活動「${newEventName.value.trim()}」？`)) return;
   try {
-    await deleteDoc(doc(db, EVENTS_COLLECTION, editingEventId));
+    await deleteDoc(unitDoc(EVENTS_COLLECTION, editingEventId));
     resetEventForm();
   } catch (err) {
     alert("刪除活動失敗：" + err.message);
@@ -1955,7 +2152,7 @@ aiGenerateBtn.addEventListener("click", async () => {
   aiGenerateBtn.disabled = true;
 
   try {
-    // 共用 Key 存在 Firestore config/ai，由白名單規則保護
+    // 共用 Key 存在 Firestore config/ai，由安全規則保護
     const apiKey = await getSharedApiKey();
     if (!apiKey) {
       throw new Error(
@@ -2009,8 +2206,8 @@ aiModal.addEventListener("click", (e) => {
 });
 
 // ---------- AI Agent 聊天室（可看到整份去識別化名單） ----------
-// 對話紀錄存在 Firestore 的 chatHistories/{uid}，每位使用者一份、只有本人讀得到，
-// 重新整理或換裝置都還在。內容以真名保存（與名單同等級的資料，受同一份白名單規則保護）。
+// 對話紀錄存在 units/{unitId}/chatHistories/{uid}，每位使用者一份、只有本人讀得到，
+// 重新整理或換裝置都還在。內容以真名保存（與名單同等級的資料，受同一份安全規則保護）。
 let chatHistory = [];
 let chatBusy = false;
 
@@ -2018,7 +2215,7 @@ async function loadChatHistory() {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
   try {
-    const snap = await getDoc(doc(db, CHAT_COLLECTION, uid));
+    const snap = await getDoc(unitDoc(CHAT_COLLECTION, uid));
     chatHistory = snap.exists() ? snap.data().messages || [] : [];
   } catch (err) {
     console.error(err);
@@ -2031,7 +2228,7 @@ async function saveChatHistory() {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
   try {
-    await setDoc(doc(db, CHAT_COLLECTION, uid), {
+    await setDoc(unitDoc(CHAT_COLLECTION, uid), {
       messages: chatHistory,
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,

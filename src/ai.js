@@ -3,7 +3,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
 
 // 共用的 Anthropic API Key 存在 Firestore 的 config/ai 文件（欄位 anthropicApiKey），
-// 由 Firestore 安全規則的 Email 白名單保護：只有登入且在白名單內的人讀得到。
+// 由 Firestore 安全規則保護：只有設定過歸屬單位（members/{uid}）的帳號讀得到。
 // Key 不寫在程式碼、不進 git、也不會出現在部署後的公開 JS 裡。
 let cachedKey = null;
 
@@ -75,7 +75,7 @@ function formatEvents(events) {
 function makeClient(apiKey) {
   return new Anthropic({
     apiKey,
-    dangerouslyAllowBrowser: true, // 純前端網站；key 由 Firestore 白名單規則保護
+    dangerouslyAllowBrowser: true, // 純前端網站；key 由 Firestore 安全規則保護
   });
 }
 

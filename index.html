@@ -31,7 +31,9 @@
         <header class="topbar">
           <h1>成全名單管理</h1>
           <div class="topbar-right">
+            <span id="unit-name" class="unit-badge hidden"></span>
             <span id="current-user"></span>
+            <button id="bind-me-btn" class="btn-secondary hidden">綁定我的資料</button>
             <button id="logout-btn" class="btn-secondary">登出</button>
           </div>
         </header>
@@ -61,7 +63,7 @@
           <button id="ai-heat-btn" class="btn-secondary hidden">AI 評估熱度</button>
           <button id="toggle-hidden-tags-btn" class="btn-secondary">顯示團內幹部</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
-          <button id="team-name-btn" class="btn-secondary">團隊名稱</button>
+          <button id="migrate-btn" class="btn-secondary hidden">搬移舊資料</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
 
@@ -116,12 +118,13 @@
             </label>
             <label>
               背景
-              <textarea id="field-background" rows="2" placeholder="用文字描述背景，例如：熱音社社員、大四資工系家教、系排球隊、超商打工"></textarea>
+              <textarea id="field-background" rows="4" placeholder="用文字描述背景，例如：熱音社社員、大四資工系家教、系排球隊、超商打工"></textarea>
             </label>
-            <label>
+            <label id="contact-field">
               聯絡人
               <input type="text" id="field-contact" placeholder="負責這位的人" />
             </label>
+            <p id="contact-self-hint" class="hint-text hidden">個人名單的聯絡人就是你自己，不用另外填。</p>
             <label>
               成全狀況
               <select id="field-status">
@@ -233,6 +236,29 @@
         </div>
       </div>
 
+      <!-- 綁定自己 對話框：把登入帳號對應到名單中的哪一位 -->
+      <div id="bind-modal" class="modal hidden">
+        <div class="modal-content">
+          <h2>綁定我的資料</h2>
+          <p class="hint-text">
+            每位幹部自己也是名單中的一員。綁定後，系統才知道名單上哪一位是你，
+            聯絡人、個人名單等才會正確對應。
+          </p>
+          <label>
+            在名單中找到自己
+            <input type="text" id="bind-search" placeholder="輸入姓名搜尋" autocomplete="off" />
+          </label>
+          <div id="bind-results" class="bind-results"></div>
+          <p id="bind-status" class="hint-text"></p>
+          <p class="hint-text">
+            找不到自己？請先關掉這個視窗，用「＋ 新增名單」把自己加進團隊名單，再回來綁定。
+          </p>
+          <div class="modal-actions">
+            <button type="button" id="bind-close-btn" class="btn-secondary">關閉</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 成全熱度 對話框（手動調整／單獨用 AI 評估） -->
       <div id="heat-modal" class="modal hidden">
         <div class="modal-content">
@@ -272,9 +298,13 @@
 
           <div class="event-form">
             <span id="event-form-mode" class="field-label">新增活動</span>
+            <label class="event-multiday">
+              <input type="checkbox" id="event-multiday" />
+              多日活動
+            </label>
             <div class="event-add-row">
               <input type="date" id="new-event-date" title="開始日期" />
-              <input type="date" id="new-event-end-date" title="結束日期（選填，單日活動可留空）" />
+              <input type="date" id="new-event-end-date" class="hidden" title="結束日期" />
               <input type="text" id="new-event-name" placeholder="活動名稱" />
               <select id="new-event-type">
                 <option value="廣結善緣">廣結善緣</option>

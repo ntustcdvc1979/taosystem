@@ -3,49 +3,86 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ===== 授權白名單 =====
-    // 只有下面清單裡的 Google 帳號 Email 才能存取資料。
-    // 要新增使用者：把對方的 Google Email 加到這個陣列裡，然後重新發布規則。
-    function isAllowed() {
-      return request.auth != null &&
-             request.auth.token.email in [
-               'damoncho510@gmail.com'
-               // , 'someone@gmail.com'
-               // , 'another@gmail.com'
-             ];
+    // ===== 帳號歸屬 =====
+    // 每支帳號屬於哪個道務單位，由管理員在 Firebase Console 的 members/{uid} 設定，
+    // 網頁端一律不能寫入。沒有這份文件的帳號＝未授權，什麼都讀不到。
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function hasMember() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/members/$(request.auth.uid));
+    }
+    function myUnit() {
+      return get(/databases/$(database)/documents/members/$(request.auth.uid)).data.unitId;
+    }
+    function inUnit(unitId) {
+      return hasMember() && myUnit() == unitId;
     }
 
-    // 團隊名單：白名單成員共同管理，彼此都看得到
-    match /entries/{entryId} {
-      allow read, write: if isAllowed();
+    // 帳號歸屬：只讀得到自己那一份，且只能從 Console 設定
+    match /members/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if false;
     }
 
-    // 個人名單：只有建立者本人看得到、改得動，其他白名單成員一律讀不到。
-    // ownerUid 必須等於自己的 uid，避免有人把資料掛到別人名下或偷看別人的。
-    match /personalEntries/{entryId} {
-      allow read, delete: if isAllowed() && resource.data.ownerUid == request.auth.uid;
-      allow create: if isAllowed() && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isAllowed()
-                    && resource.data.ownerUid == request.auth.uid
-                    && request.resource.data.ownerUid == request.auth.uid;
+    // ===== 道務單位 =====
+    // 單位名稱等資料由 Console 設定，網頁只顯示不修改
+    match /units/{unitId} {
+      allow read: if inUnit(unitId);
+      allow write: if false;
+
+      // 團隊名單：同單位成員共管
+      match /entries/{entryId} {
+        allow read, write: if inUnit(unitId);
+      }
+
+      // 個人名單：同單位、且只有建立者本人存取得到
+      match /personalEntries/{entryId} {
+        allow read, delete: if inUnit(unitId) && resource.data.ownerUid == request.auth.uid;
+        allow create: if inUnit(unitId) && request.resource.data.ownerUid == request.auth.uid;
+        allow update: if inUnit(unitId)
+                      && resource.data.ownerUid == request.auth.uid
+                      && request.resource.data.ownerUid == request.auth.uid;
+      }
+
+      // 活動
+      match /events/{eventId} {
+        allow read, write: if inUnit(unitId);
+      }
+
+      // AI 成全助手的對話紀錄：只有本人讀寫得到
+      match /chatHistories/{userId} {
+        allow read, write: if inUnit(unitId) && request.auth.uid == userId;
+      }
+
+      // 帳號綁定到名單中的哪一位：同單位可讀（才知道誰是誰），但只能設定自己的
+      match /memberLinks/{userId} {
+        allow read: if inUnit(unitId);
+        allow write: if inUnit(unitId) && request.auth.uid == userId;
+      }
     }
 
-    // 共用設定：config/ai 放 AI 的共用 API Key、config/team 放團隊名單的稱呼。
-    // 白名單成員都能讀；只有團隊名稱可以在網頁上改，API Key 一律只能從 Console 設定。
+    // ===== 共用設定 =====
+    // config/ai 放 AI 的共用 API Key，跨單位共用；只能從 Console 設定
     match /config/{docId} {
-      allow read: if isAllowed();
-      allow write: if isAllowed() && docId == 'team';
+      allow read: if hasMember();
+      allow write: if false;
     }
 
-    // 近期活動（活動管理頁維護：名稱、日期、類型），白名單成員可讀寫
+    // ===== 舊資料（搬移用，搬完後可以整段刪掉）=====
+    // 舊版把資料放在最上層集合，這裡保留讀取與刪除權限，讓網頁的「搬移舊資料」能運作。
+    match /entries/{entryId} {
+      allow read, delete: if hasMember();
+    }
+    match /personalEntries/{entryId} {
+      allow read, delete: if hasMember();
+    }
     match /events/{eventId} {
-      allow read, write: if isAllowed();
+      allow read, delete: if hasMember();
     }
-
-    // AI 成全助手的對話紀錄，每位使用者一份（文件 ID = 使用者 uid）。
-    // 除了要在白名單內，還限定只能讀寫自己那一份，看不到別人的對話。
     match /chatHistories/{userId} {
-      allow read, write: if isAllowed() && request.auth.uid == userId;
+      allow read, delete: if hasMember() && request.auth.uid == userId;
     }
 
     // 其他所有路徑一律拒絕
