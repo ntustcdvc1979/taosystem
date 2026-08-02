@@ -12,8 +12,7 @@
 
 1. 建立單位：`units/{unitId}` 文件，欄位 `name` 填單位名稱（例如「台科崇德」）。`unitId` 自訂（例如 `ntust-chongde`）。
 2. 指派帳號：`memberEmails/{對方的 gmail（小寫）}` 文件，欄位 `unitId` 填上面的單位 ID。
-   - 也可以改用 `members/{uid}`（優先於 Email），uid 在「Authentication」→「Users」查得到。
-   - **兩者都沒有的帳號一律進不去**，這取代了舊版寫在安全規則裡的 Email 白名單。
+   - **沒有這份文件的帳號一律進不去**，這取代了舊版寫在安全規則裡的 Email 白名單。
 3. 這些集合都**只能從 Console 修改**，網頁端無論如何都寫不進去。
 
 ### 帳號綁定（每位使用者自己做一次）
@@ -212,9 +211,7 @@ GitHub Actions build 時會自動把這些 secret 注入（見 [.github/workflow
 
 本系統用 **Google 帳號登入**。Google 登入預設會讓**任何一個 Google 帳號都能通過驗證**，所以「誰能看到資料」是另外由帳號歸屬決定——**沒有被指派道務單位的帳號，登入後會立刻被登出，什麼都讀不到**。
 
-### 用 Gmail 指派（建議）
-
-只要知道對方的 Gmail 就能先設好，不用等他登入過：
+授權方式只有一種：把對方的 Gmail 寫進 `memberEmails`。只要知道 Gmail 就能先設好，不用等他登入過：
 
 1. Firebase Console →「Firestore Database」→「資料」，在 **`memberEmails`** 集合建立文件：
    - 文件 ID：他的 Gmail，**全部小寫**（例如 `someone@gmail.com`）
@@ -226,19 +223,11 @@ GitHub Actions build 時會自動把這些 secret 注入（見 [.github/workflow
 
 > 文件 ID 必須跟他 Google 帳號的 Email 完全一樣。Google 帳號的 Email 一律是小寫，所以請用小寫；打錯不會有錯誤訊息，只會一直進不去。
 
-### 用 UID 指派
-
-想精準綁定某一支帳號（例如同一人有多個 Email、或不想被 Email 影響）時可以改用這個，**優先於 Gmail 的設定**：
-
-1. 請對方先用 Google 帳號登入一次（會被擋下來，但 Firebase 已建立該帳號）。
-2. Console →「Authentication」→「Users」，複製他的 **User UID**。
-3. 在 **`members`** 集合建立文件：文件 ID＝該 UID，欄位 `unitId`＝單位 ID。
-
 ### 移除與換單位
 
-- 移除某人：刪掉他的 `memberEmails/{gmail}`（和 `members/{uid}`，若有的話）。
+- 移除某人：刪掉他的 `memberEmails/{gmail}` 文件。
 - 換單位：改那份文件的 `unitId`。
-- **這三個集合（`memberEmails`、`members`、`units`）的寫入在安全規則裡一律拒絕**，任何人都無法從網頁把自己加進去或換單位。
+- **這兩個集合（`memberEmails`、`units`）的寫入在安全規則裡一律拒絕**，任何人都無法從網頁把自己加進去或換單位。
 
 ## 三、本機開發
 
@@ -271,7 +260,7 @@ npm run dev
 
 Firebase 的 Web `apiKey` 只是用來**識別專案**，不授予任何資料權限，公開在前端是 Google 官方認可的正常做法。因為本專案是純靜態網站，這把 key 一定會出現在部署後的 JS 裡，藏不住也不需要藏。真正的存取控管靠下面三層：
 
-1. **Firestore 安全規則（最重要）**：[firestore.rules](firestore.rules) 以 `memberEmails/{gmail}` 或 `members/{uid}` 決定帳號歸屬，只有被指派單位的帳號能讀寫該單位的資料，其他人（包含拿到 apiKey 的陌生人）一律被擋。
+1. **Firestore 安全規則（最重要）**：[firestore.rules](firestore.rules) 以 `memberEmails/{gmail}` 決定帳號歸屬，只有被指派單位的帳號能讀寫該單位的資料，其他人（包含拿到 apiKey 的陌生人）一律被擋。
 2. **Google 登入**：必須先用 Google 帳號登入才會有 `request.auth`。
 3. **（建議加強）API key 限制**：到 [Google Cloud Console 憑證頁](https://console.cloud.google.com/apis/credentials) → 找到 Firebase 自動建立的 Browser key → 「應用程式限制」設 HTTP 參照網址，只允許 `ntustcdvc1979.github.io/*` 與 `localhost`；「API 限制」只勾用得到的 API。這樣就算別人複製你的 apiKey 也很難從別的網站濫用。
 4. **（進階選項）App Check**：若想更嚴格地確保只有你的網站能呼叫 Firebase，可啟用 Firebase App Check（搭配 reCAPTCHA）。

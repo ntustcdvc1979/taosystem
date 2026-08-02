@@ -3,7 +3,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
 
 // 共用的 Anthropic API Key 存在 Firestore 的 config/ai 文件（欄位 anthropicApiKey），
-// 由 Firestore 安全規則保護：只有設定過歸屬單位（members/{uid}）的帳號讀得到。
+// 由 Firestore 安全規則保護：只有設定過歸屬單位（memberEmails/{gmail}）的帳號讀得到。
 // Key 不寫在程式碼、不進 git、也不會出現在部署後的公開 JS 裡。
 let cachedKey = null;
 

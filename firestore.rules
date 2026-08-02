@@ -5,36 +5,22 @@ service cloud.firestore {
 
     // ===== 帳號歸屬 =====
     // 每支帳號屬於哪個道務單位，由管理員在 Firebase Console 設定，網頁端一律不能寫入。
-    // 兩種指派方式，擇一即可（都沒有＝未授權，登入後什麼都讀不到）：
-    //   memberEmails/{gmail}  欄位 unitId ← 不必先問到 UID，建議用這個
-    //   members/{uid}         欄位 unitId ← 精準綁定某支帳號，優先於 Email
+    //   memberEmails/{gmail}  欄位 unitId
     function isSignedIn() {
       return request.auth != null;
     }
-    function byUid() {
-      return exists(/databases/$(database)/documents/members/$(request.auth.uid));
-    }
-    function byEmail() {
-      return request.auth.token.email != null &&
+    function hasMember() {
+      return isSignedIn() && request.auth.token.email != null &&
              exists(/databases/$(database)/documents/memberEmails/$(request.auth.token.email));
     }
-    function hasMember() {
-      return isSignedIn() && (byUid() || byEmail());
-    }
     function myUnit() {
-      return byUid()
-        ? get(/databases/$(database)/documents/members/$(request.auth.uid)).data.unitId
-        : get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email)).data.unitId;
+      return get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email)).data.unitId;
     }
     function inUnit(unitId) {
       return hasMember() && myUnit() == unitId;
     }
 
     // 帳號歸屬：只讀得到自己那一份，且只能從 Console 設定
-    match /members/{uid} {
-      allow read: if isSignedIn() && request.auth.uid == uid;
-      allow write: if false;
-    }
     match /memberEmails/{email} {
       allow read: if isSignedIn() && request.auth.token.email == email;
       allow write: if false;

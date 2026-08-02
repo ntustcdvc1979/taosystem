@@ -254,21 +254,14 @@ onAuthStateChanged(auth, async (user) => {
 });
 
 // ---------- 帳號歸屬的道務單位 ----------
-// members/{uid}、memberEmails/{gmail} 與 units/{unitId} 都只能由管理員在 Firebase Console
-// 設定，網頁只讀不寫。用 Email 指派的好處是不必先請對方登入一次來取得 UID。
+// memberEmails/{gmail} 與 units/{unitId} 都只能由管理員在 Firebase Console 設定，
+// 網頁只讀不寫。用 Gmail 當文件 ID，管理員不必先請對方登入一次來取得 UID。
 async function loadMyUnit() {
-  const uid = auth.currentUser?.uid;
   const email = auth.currentUser?.email;
-  if (!uid) return false;
+  if (!auth.currentUser) return false;
   try {
-    // 兩種指派方式：members/{uid}（精準）或 memberEmails/{gmail}（不用先問到 UID）
-    let unitId = null;
-    const memberSnap = await getDoc(doc(db, "members", uid));
-    if (memberSnap.exists()) unitId = memberSnap.data().unitId || null;
-    if (!unitId && email) {
-      const byEmail = await getDoc(doc(db, "memberEmails", email));
-      if (byEmail.exists()) unitId = byEmail.data().unitId || null;
-    }
+    const memberSnap = email ? await getDoc(doc(db, "memberEmails", email)) : null;
+    const unitId = memberSnap?.exists() ? memberSnap.data().unitId || null : null;
     if (!unitId) {
       loginError.textContent =
         "這個帳號還沒指派道務單位，請聯絡管理員在 Firebase 設定後再登入。";
