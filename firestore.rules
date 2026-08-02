@@ -4,17 +4,27 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===== 帳號歸屬 =====
-    // 每支帳號屬於哪個道務單位，由管理員在 Firebase Console 的 members/{uid} 設定，
-    // 網頁端一律不能寫入。沒有這份文件的帳號＝未授權，什麼都讀不到。
+    // 每支帳號屬於哪個道務單位，由管理員在 Firebase Console 設定，網頁端一律不能寫入。
+    // 兩種指派方式，擇一即可（都沒有＝未授權，登入後什麼都讀不到）：
+    //   memberEmails/{gmail}  欄位 unitId ← 不必先問到 UID，建議用這個
+    //   members/{uid}         欄位 unitId ← 精準綁定某支帳號，優先於 Email
     function isSignedIn() {
       return request.auth != null;
     }
+    function byUid() {
+      return exists(/databases/$(database)/documents/members/$(request.auth.uid));
+    }
+    function byEmail() {
+      return request.auth.token.email != null &&
+             exists(/databases/$(database)/documents/memberEmails/$(request.auth.token.email));
+    }
     function hasMember() {
-      return isSignedIn() &&
-             exists(/databases/$(database)/documents/members/$(request.auth.uid));
+      return isSignedIn() && (byUid() || byEmail());
     }
     function myUnit() {
-      return get(/databases/$(database)/documents/members/$(request.auth.uid)).data.unitId;
+      return byUid()
+        ? get(/databases/$(database)/documents/members/$(request.auth.uid)).data.unitId
+        : get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email)).data.unitId;
     }
     function inUnit(unitId) {
       return hasMember() && myUnit() == unitId;
@@ -23,6 +33,10 @@ service cloud.firestore {
     // 帳號歸屬：只讀得到自己那一份，且只能從 Console 設定
     match /members/{uid} {
       allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+    match /memberEmails/{email} {
+      allow read: if isSignedIn() && request.auth.token.email == email;
       allow write: if false;
     }
 
@@ -70,22 +84,7 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // ===== 舊資料（搬移用，搬完後可以整段刪掉）=====
-    // 舊版把資料放在最上層集合，這裡保留讀取與刪除權限，讓網頁的「搬移舊資料」能運作。
-    match /entries/{entryId} {
-      allow read, delete: if hasMember();
-    }
-    match /personalEntries/{entryId} {
-      allow read, delete: if hasMember();
-    }
-    match /events/{eventId} {
-      allow read, delete: if hasMember();
-    }
-    match /chatHistories/{userId} {
-      allow read, delete: if hasMember() && request.auth.uid == userId;
-    }
-
-    // 其他所有路徑一律拒絕
+    // 其他所有路徑一律拒絕（含舊版放在最上層的 entries / personalEntries / events）
     match /{document=**} {
       allow read, write: if false;
     }

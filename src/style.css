@@ -195,6 +195,13 @@ button {
   margin-left: 0.8rem;
 }
 
+/* 圖例上直接標出門檻，例如「高」旁邊的「4 天以上」 */
+.legend-rule {
+  margin-right: 0.5rem;
+  margin-left: -0.15rem;
+  color: #999;
+}
+
 /* 近兩週活動提醒 */
 .upcoming-notice {
   margin: 0 1.5rem 1rem;

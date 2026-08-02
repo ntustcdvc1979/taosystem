@@ -20,7 +20,6 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  getDocs,
   setDoc,
   onSnapshot,
   serverTimestamp,
@@ -62,7 +61,6 @@ const filterStatus = document.getElementById("filter-status");
 const filterScope = document.getElementById("filter-scope");
 const unitNameLabel = document.getElementById("unit-name");
 const bindMeBtn = document.getElementById("bind-me-btn");
-const migrateBtn = document.getElementById("migrate-btn");
 
 // 綁定自己的對話框
 const bindModal = document.getElementById("bind-modal");
@@ -218,7 +216,7 @@ let teamName = "團隊";
 // ---------- Auth ----------
 onAuthStateChanged(auth, async (user) => {
   if (user) {
-    currentUserLabel.textContent = user.email;
+    updateUserLabel();
     // 先確認這支帳號屬於哪個道務單位；沒設定就不讓進去（資料路徑也組不出來）
     const ok = await loadMyUnit();
     if (!ok) {
@@ -232,7 +230,6 @@ onAuthStateChanged(auth, async (user) => {
     subscribeEvents();
     loadMyLink();
     loadChatHistory();
-    refreshMigrateBtn();
   } else {
     appView.classList.add("hidden");
     loginView.classList.remove("hidden");
@@ -259,18 +256,27 @@ onAuthStateChanged(auth, async (user) => {
 });
 
 // ---------- 帳號歸屬的道務單位 ----------
-// members/{uid} 與 units/{unitId} 都只能由管理員在 Firebase Console 設定，網頁只讀不寫。
+// members/{uid}、memberEmails/{gmail} 與 units/{unitId} 都只能由管理員在 Firebase Console
+// 設定，網頁只讀不寫。用 Email 指派的好處是不必先請對方登入一次來取得 UID。
 async function loadMyUnit() {
   const uid = auth.currentUser?.uid;
+  const email = auth.currentUser?.email;
   if (!uid) return false;
   try {
+    // 兩種指派方式：members/{uid}（精準）或 memberEmails/{gmail}（不用先問到 UID）
+    let unitId = null;
     const memberSnap = await getDoc(doc(db, "members", uid));
-    if (!memberSnap.exists() || !memberSnap.data().unitId) {
+    if (memberSnap.exists()) unitId = memberSnap.data().unitId || null;
+    if (!unitId && email) {
+      const byEmail = await getDoc(doc(db, "memberEmails", email));
+      if (byEmail.exists()) unitId = byEmail.data().unitId || null;
+    }
+    if (!unitId) {
       loginError.textContent =
-        "這個帳號還沒指派道務單位，請聯絡管理員在 Firebase 的 members 設定後再登入。";
+        "這個帳號還沒指派道務單位，請聯絡管理員在 Firebase 設定後再登入。";
       return false;
     }
-    myUnitId = memberSnap.data().unitId;
+    myUnitId = unitId;
 
     const unitSnap = await getDoc(doc(db, "units", myUnitId));
     myUnitName = (unitSnap.exists() ? unitSnap.data().name : "") || myUnitId;
@@ -304,16 +310,28 @@ async function loadMyLink() {
   refreshBindPrompt();
 }
 
+// 我自己在名單上的那一筆（沒綁定或那筆被刪掉了就是 undefined）
+function myEntry() {
+  return allEntries.find((en) => en.id === myEntryId);
+}
+
 // 我自己在名單上的名字（沒綁定就用 Email）
 function myDisplayName() {
-  const me = allEntries.find((en) => en.id === myEntryId);
-  return me?.name || auth.currentUser?.email || "";
+  return myEntry()?.name || auth.currentUser?.email || "";
+}
+
+// 綁定後工具列顯示「名字（gmail）」，讓人一眼看出自己是誰
+function updateUserLabel() {
+  const email = auth.currentUser?.email || "";
+  const name = myEntry()?.name;
+  currentUserLabel.textContent = name ? `${name}（${email}）` : email;
 }
 
 function refreshBindPrompt() {
   const bound = !!myEntryId && allEntries.some((en) => en.id === myEntryId);
   bindMeBtn.classList.toggle("hidden", bound);
   bindMeBtn.textContent = myEntryId && !bound ? "重新綁定我的資料" : "綁定我的資料";
+  updateUserLabel();
 }
 
 function renderBindResults() {
@@ -365,103 +383,6 @@ bindCloseBtn.addEventListener("click", () => bindModal.classList.add("hidden"));
 bindModal.addEventListener("click", (e) => {
   if (e.target === bindModal) bindModal.classList.add("hidden");
 });
-
-// ---------- 一次性搬移舊資料（舊版把資料放在最上層集合） ----------
-// 舊版的 entries / personalEntries / events 直接放在資料庫最上層，
-// 新版一律放在 units/{unitId}/ 底下。這裡主動去掃舊集合，有東西才顯示按鈕。
-const LEGACY_COLLECTIONS = [
-  { name: ENTRIES_COLLECTION, label: "團隊名單" },
-  { name: PERSONAL_COLLECTION, label: "個人名單" },
-  { name: EVENTS_COLLECTION, label: "活動" },
-];
-
-async function scanLegacyData() {
-  const found = [];
-  for (const col of LEGACY_COLLECTIONS) {
-    try {
-      const snap = await getDocs(collection(db, col.name));
-      if (snap.size > 0) found.push({ ...col, docs: snap.docs });
-    } catch (err) {
-      // 舊集合可能已經刪掉或規則不給讀，這不算錯誤
-      console.warn(`讀不到舊的 ${col.name}：`, err.code || err.message);
-    }
-  }
-  return found;
-}
-
-async function refreshMigrateBtn() {
-  const found = await scanLegacyData();
-  const total = found.reduce((sum, c) => sum + c.docs.length, 0);
-  console.info(
-    "舊資料掃描：",
-    LEGACY_COLLECTIONS.map(
-      (c) => `${c.name}=${found.find((f) => f.name === c.name)?.docs.length ?? 0}`
-    ).join(" ")
-  );
-  if (total === 0) {
-    // 網址加上 #migrate 可以強制叫出按鈕（按下去會告訴你掃到什麼）
-    migrateBtn.classList.toggle("hidden", location.hash !== "#migrate");
-    migrateBtn.textContent = "搬移舊資料";
-    return;
-  }
-  migrateBtn.textContent = `搬移舊資料（${total} 筆）`;
-  migrateBtn.title = found.map((c) => `${c.label} ${c.docs.length} 筆`).join("、");
-  migrateBtn.disabled = false;
-  migrateBtn.classList.remove("hidden");
-}
-
-async function migrateLegacyData() {
-  const uid = auth.currentUser?.uid;
-  const found = await scanLegacyData();
-  const total = found.reduce((sum, c) => sum + c.docs.length, 0);
-  if (total === 0) {
-    alert("找不到舊資料。可能已經搬過，或舊集合已經刪除。");
-    migrateBtn.classList.add("hidden");
-    return;
-  }
-  const summary = found.map((c) => `　・${c.label}：${c.docs.length} 筆`).join("\n");
-  if (
-    !confirm(
-      `把舊資料搬到「${myUnitName}」底下嗎？\n\n${summary}\n\n舊資料會保留不動，確認沒問題後可自行到 Firebase Console 刪除。`
-    )
-  ) {
-    return;
-  }
-  migrateBtn.disabled = true;
-  migrateBtn.textContent = "搬移中...";
-  let moved = 0;
-  let skipped = 0;
-  const failures = [];
-  for (const col of found) {
-    for (const d of col.docs) {
-      const data = d.data();
-      // 個人名單只搬自己的（別人的個人名單本來就不該進到我的帳號底下）
-      if (col.name === PERSONAL_COLLECTION) {
-        if (data.ownerUid && data.ownerUid !== uid) {
-          skipped += 1;
-          continue;
-        }
-        data.ownerUid = uid;
-      }
-      try {
-        await setDoc(unitDoc(col.name, d.id), data);
-        moved += 1;
-      } catch (err) {
-        failures.push(`${col.label} ${d.id}：${err.code || err.message}`);
-      }
-    }
-  }
-  const lines = [`已搬移 ${moved} 筆到「${myUnitName}」。`];
-  if (skipped > 0) lines.push(`略過 ${skipped} 筆別人的個人名單。`);
-  if (failures.length > 0) {
-    lines.push(`\n有 ${failures.length} 筆失敗：\n${failures.slice(0, 5).join("\n")}`);
-  }
-  alert(lines.join("\n"));
-  migrateBtn.disabled = false;
-  await refreshMigrateBtn();
-}
-
-migrateBtn.addEventListener("click", migrateLegacyData);
 
 const googleProvider = new GoogleAuthProvider();
 
@@ -718,8 +639,15 @@ function participation(entry) {
 }
 
 // 互動度：近兩週 14 天裡，有幾天跟他有互動（聯絡紀錄或活動紀錄）。
-// 用「有互動的天數 ÷ 14」當比例，同一天多筆只算一天，避免一次補登很多筆就衝高。
+// 同一天多筆只算一天，避免一次補登很多筆就衝高。
 const INTERACTION_DAYS = 14;
+const INTERACTION_HIGH_DAYS = 4; // 約每週 2 次以上
+const INTERACTION_MID_DAYS = 2; // 約每週 1 次
+const INTERACTION_RULE =
+  `近兩週（${INTERACTION_DAYS} 天）有互動的天數：` +
+  `${INTERACTION_HIGH_DAYS} 天以上＝高、` +
+  `${INTERACTION_MID_DAYS}–${INTERACTION_HIGH_DAYS - 1} 天＝中、1 天＝低、0 天＝無。` +
+  `同一天多筆只算一天。`;
 
 function interaction(entry) {
   const days = new Set(
@@ -731,10 +659,9 @@ function interaction(entry) {
       })
   );
   const count = days.size;
-  const ratio = count / INTERACTION_DAYS;
-  const text = `近兩週有 ${count} 天互動`;
-  if (ratio >= 0.28) return { level: 3, label: "高", text }; // 約每週 2 次以上
-  if (ratio >= 0.14) return { level: 2, label: "中", text }; // 約每週 1 次
+  const text = `近兩週有 ${count} 天互動\n${INTERACTION_RULE}`;
+  if (count >= INTERACTION_HIGH_DAYS) return { level: 3, label: "高", text };
+  if (count >= INTERACTION_MID_DAYS) return { level: 2, label: "中", text };
   if (count > 0) return { level: 1, label: "低", text };
   return { level: 0, label: "無", text };
 }
@@ -1003,9 +930,17 @@ function renderHeatList(entries) {
       ${["無", "低", "中", "高"]
         .map((label, l) => `<span class="metric part-${l}">${label}</span>`)
         .join("")}
-      <span class="legend-sep">互動度（近兩週有幾天互動）：</span>
-      ${["無", "低", "中", "高"]
-        .map((label, l) => `<span class="metric act-${l}">${label}</span>`)
+      <span class="legend-sep" title="${escapeHtml(INTERACTION_RULE)}">互動度（近兩週有互動的天數）：</span>
+      ${[
+        { label: "無", rule: "0 天" },
+        { label: "低", rule: "1 天" },
+        { label: "中", rule: `${INTERACTION_MID_DAYS}–${INTERACTION_HIGH_DAYS - 1} 天` },
+        { label: "高", rule: `${INTERACTION_HIGH_DAYS} 天以上` },
+      ]
+        .map(
+          (x, l) =>
+            `<span class="metric act-${l}">${x.label}</span><span class="legend-rule">${x.rule}</span>`
+        )
         .join("")}
     </div>`;
 

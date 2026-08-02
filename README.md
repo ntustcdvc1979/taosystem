@@ -11,10 +11,10 @@
 ### 管理員設定（在 Firebase Console 做）
 
 1. 建立單位：`units/{unitId}` 文件，欄位 `name` 填單位名稱（例如「台科崇德」）。`unitId` 自訂（例如 `ntust-chongde`）。
-2. 指派帳號：`members/{該帳號的 uid}` 文件，欄位 `unitId` 填上面的單位 ID。
-   - uid 可在 Firebase Console →「Authentication」→「Users」查到（該使用者需先登入過一次）。
-   - **沒有這份文件的帳號一律進不去**，這取代了舊版寫在安全規則裡的 Email 白名單。
-3. 這兩個集合都**只能從 Console 修改**，網頁端無論如何都寫不進去。
+2. 指派帳號：`memberEmails/{對方的 gmail（小寫）}` 文件，欄位 `unitId` 填上面的單位 ID。
+   - 也可以改用 `members/{uid}`（優先於 Email），uid 在「Authentication」→「Users」查得到。
+   - **兩者都沒有的帳號一律進不去**，這取代了舊版寫在安全規則裡的 Email 白名單。
+3. 這些集合都**只能從 Console 修改**，網頁端無論如何都寫不進去。
 
 ### 帳號綁定（每位使用者自己做一次）
 
@@ -210,31 +210,35 @@ GitHub Actions build 時會自動把這些 secret 注入（見 [.github/workflow
 
 ## 二、授權帳號（重要！）
 
-本系統用 **Google 帳號登入**。Google 登入預設會讓**任何一個 Google 帳號都能通過驗證**，所以「誰能看到資料」是由 `members` 集合決定——**沒有 `members/{uid}` 文件的帳號，登入後會立刻被登出，什麼都讀不到**。
+本系統用 **Google 帳號登入**。Google 登入預設會讓**任何一個 Google 帳號都能通過驗證**，所以「誰能看到資料」是另外由帳號歸屬決定——**沒有被指派道務單位的帳號，登入後會立刻被登出，什麼都讀不到**。
 
-要授權某個人使用：
+### 用 Gmail 指派（建議）
 
-1. 請對方先用 Google 帳號登入一次（會被擋下來，但 Firebase 會建立該帳號）。
-2. 到 Firebase Console →「Authentication」→「Users」，複製他的 **User UID**。
-3. 到「Firestore Database」→「資料」，在 **`members`** 集合建立文件：
-   - 文件 ID：剛剛的 UID
+只要知道對方的 Gmail 就能先設好，不用等他登入過：
+
+1. Firebase Console →「Firestore Database」→「資料」，在 **`memberEmails`** 集合建立文件：
+   - 文件 ID：他的 Gmail，**全部小寫**（例如 `someone@gmail.com`）
    - 欄位：`unitId`（字串）＝ 他所屬的道務單位 ID
-4. 若那個單位還不存在，在 **`units`** 集合建立文件：
+2. 若那個單位還不存在，在 **`units`** 集合建立文件：
    - 文件 ID：單位 ID（例如 `ntust-chongde`）
    - 欄位：`name`（字串）＝ 顯示用的單位名稱（例如「台科崇德」）
+3. 請他用**同一個 Gmail** 登入即可。
 
-要移除某人，把他的 `members/{uid}` 文件刪掉即可。**這兩個集合的寫入在安全規則裡一律拒絕**，任何人都無法從網頁把自己加進去或換單位。
+> 文件 ID 必須跟他 Google 帳號的 Email 完全一樣。Google 帳號的 Email 一律是小寫，所以請用小寫；打錯不會有錯誤訊息，只會一直進不去。
 
-### 從舊版搬移資料
+### 用 UID 指派
 
-舊版把 `entries`（團隊名單）、`personalEntries`（個人名單）、`events`（活動）放在資料庫**最上層**，新版一律放在 `units/{unitId}/` 底下。
+想精準綁定某一支帳號（例如同一人有多個 Email、或不想被 Email 影響）時可以改用這個，**優先於 Gmail 的設定**：
 
-登入後網頁會自動掃這三個舊集合，**掃到東西就會在工具列出現「搬移舊資料（N 筆）」按鈕**（滑鼠移上去可看到各類幾筆）。按下去會逐筆複製到你的單位底下，**文件 ID 保留不變**，所以活動的邀約關聯不會斷。舊資料保留不動。
+1. 請對方先用 Google 帳號登入一次（會被擋下來，但 Firebase 已建立該帳號）。
+2. Console →「Authentication」→「Users」，複製他的 **User UID**。
+3. 在 **`members`** 集合建立文件：文件 ID＝該 UID，欄位 `unitId`＝單位 ID。
 
-- 個人名單只會搬 `ownerUid` 是你自己的，別人的會略過。
-- 搬完會跳出結果（成功幾筆、略過幾筆、失敗的話列出原因）。
-- 按鈕沒出現＝掃到 0 筆。開瀏覽器主控台（F12）看 `舊資料掃描：entries=… personalEntries=… events=…` 就知道實際掃到什麼；也可以在網址後面加上 **`#migrate`** 強制叫出按鈕，按下去會顯示掃描結果。
-- 前提是 [firestore.rules](firestore.rules) 已發布，且裡面「舊資料（搬移用）」那一段還在——那段是舊集合的讀取／刪除權限。確認新資料都正常後，到 Console 刪掉舊集合，並把規則裡那一段移除。
+### 移除與換單位
+
+- 移除某人：刪掉他的 `memberEmails/{gmail}`（和 `members/{uid}`，若有的話）。
+- 換單位：改那份文件的 `unitId`。
+- **這三個集合（`memberEmails`、`members`、`units`）的寫入在安全規則裡一律拒絕**，任何人都無法從網頁把自己加進去或換單位。
 
 ## 三、本機開發
 
@@ -267,13 +271,13 @@ npm run dev
 
 Firebase 的 Web `apiKey` 只是用來**識別專案**，不授予任何資料權限，公開在前端是 Google 官方認可的正常做法。因為本專案是純靜態網站，這把 key 一定會出現在部署後的 JS 裡，藏不住也不需要藏。真正的存取控管靠下面三層：
 
-1. **Firestore 安全規則（最重要）**：[firestore.rules](firestore.rules) 以 `members/{uid}` 決定帳號歸屬，只有被指派單位的帳號能讀寫該單位的資料，其他人（包含拿到 apiKey 的陌生人）一律被擋。
+1. **Firestore 安全規則（最重要）**：[firestore.rules](firestore.rules) 以 `memberEmails/{gmail}` 或 `members/{uid}` 決定帳號歸屬，只有被指派單位的帳號能讀寫該單位的資料，其他人（包含拿到 apiKey 的陌生人）一律被擋。
 2. **Google 登入**：必須先用 Google 帳號登入才會有 `request.auth`。
 3. **（建議加強）API key 限制**：到 [Google Cloud Console 憑證頁](https://console.cloud.google.com/apis/credentials) → 找到 Firebase 自動建立的 Browser key → 「應用程式限制」設 HTTP 參照網址，只允許 `ntustcdvc1979.github.io/*` 與 `localhost`；「API 限制」只勾用得到的 API。這樣就算別人複製你的 apiKey 也很難從別的網站濫用。
 4. **（進階選項）App Check**：若想更嚴格地確保只有你的網站能呼叫 Firebase，可啟用 Firebase App Check（搭配 reCAPTCHA）。
 
 ### 帳號管理
 
-- **只幫真正需要的人建立 `members/{uid}` 文件**；要移除某人，把該文件刪掉即可（不用重新發布規則）。
-- 建立時請確認 UID 抄對——Firebase 認的身分是 UID 而不是 Email。
+- **只幫真正需要的人建立歸屬文件**；要移除某人，把該文件刪掉即可（不用重新發布規則）。
+- 用 Gmail 指派時，文件 ID 要跟他 Google 帳號的 Email 完全一致（小寫）；打錯不會報錯，只是進不去。
 - 不要把資料截圖或匯出後任意外傳。
