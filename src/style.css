@@ -762,6 +762,21 @@ button {
   margin-top: 1rem;
 }
 
+/* App 內建瀏覽器提示條（LINE / FB / IG 點進來時） */
+.inapp-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem;
+  background: #fff4d6;
+  border-bottom: 1px solid #f0dca8;
+  color: #7a5b12;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
 /* 唯讀欄位（例如個人名單的聯絡人＝自己）：看得到但不能改 */
 .readonly-input {
   background: #f4f5f7;

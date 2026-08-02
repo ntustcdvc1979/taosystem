@@ -83,6 +83,7 @@
       <!-- 新增/編輯 對話框 -->
       <div id="entry-modal" class="modal hidden">
         <div class="modal-content">
+          <button type="button" id="cancel-x" class="modal-close" aria-label="取消">×</button>
           <h2 id="modal-title">新增名單</h2>
           <form id="entry-form">
             <input type="hidden" id="entry-id" />
@@ -160,6 +161,7 @@
       <!-- 活動紀錄 對話框（每個人獨立管理，不依附在新增名單表單裡） -->
       <div id="activity-modal" class="modal hidden">
         <div class="modal-content">
+          <button type="button" id="activity-close-btn" class="modal-close" aria-label="關閉">×</button>
           <h2>活動紀錄 - <span id="activity-modal-name"></span></h2>
 
           <p class="hint-text">最新的紀錄排在最上面。</p>
@@ -172,16 +174,13 @@
             <textarea id="new-act-reaction" rows="2" placeholder="反應 / 回饋"></textarea>
             <button type="button" id="add-activity-btn" class="btn-primary btn-small">新增</button>
           </div>
-
-          <div class="modal-actions">
-            <button type="button" id="activity-close-btn" class="btn-secondary">關閉</button>
-          </div>
         </div>
       </div>
 
       <!-- 聯絡紀錄 對話框（每個人獨立管理） -->
       <div id="talk-modal" class="modal hidden">
         <div class="modal-content">
+          <button type="button" id="talk-close-btn" class="modal-close" aria-label="關閉">×</button>
           <h2>聯絡紀錄 - <span id="talk-modal-name"></span></h2>
           <p class="hint-text">記錄每次跟這個人聯絡（聊天、通話、見面等）的日期與內容，AI 產生建議時會一併參考。最新的紀錄排在最上面。</p>
 
@@ -192,10 +191,6 @@
             <input type="date" id="new-talk-date" />
             <textarea id="new-talk-content" rows="2" placeholder="聊了什麼、對方的反應"></textarea>
             <button type="button" id="add-talk-btn" class="btn-primary btn-small">新增</button>
-          </div>
-
-          <div class="modal-actions">
-            <button type="button" id="talk-close-btn" class="btn-secondary">關閉</button>
           </div>
         </div>
       </div>
@@ -260,6 +255,7 @@
       <!-- 成全熱度 對話框（手動調整／單獨用 AI 評估） -->
       <div id="heat-modal" class="modal hidden">
         <div class="modal-content">
+          <button type="button" id="heat-close-btn" class="modal-close" aria-label="關閉">×</button>
           <h2>成全熱度 - <span id="heat-modal-name"></span></h2>
           <p class="hint-text">
             熱度代表「談話內容顯示他離下一階段有多近」——未求道者聊到求道、已求道者聊到法會或研究班就會比較熱。
@@ -273,10 +269,6 @@
           <p id="heat-modal-reason" class="hint-text"></p>
           <button type="button" id="heat-ai-one-btn" class="btn-secondary btn-small">用 AI 重新評估這一位</button>
           <p id="heat-modal-status" class="hint-text"></p>
-
-          <div class="modal-actions">
-            <button type="button" id="heat-close-btn" class="btn-secondary">關閉</button>
-          </div>
         </div>
       </div>
 

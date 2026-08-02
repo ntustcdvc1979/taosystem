@@ -1,4 +1,5 @@
 import "./style.css";
+import { handleInAppBrowser } from "./inapp.js";
 import { auth, db } from "./firebase.js";
 import {
   getSharedApiKey,
@@ -27,6 +28,9 @@ import {
   where,
   orderBy,
 } from "firebase/firestore";
+
+// 從 LINE 等 App 內建瀏覽器點進來的話，先想辦法轉到系統瀏覽器（Google 登入不接受內建瀏覽器）
+handleInAppBrowser();
 
 // 資料一律放在自己道務單位底下（units/{unitId}/…），路徑本身就是隔離邊界：
 // 查詢天然只看得到自己單位的資料，不會出現「規則擋得住但查詢整批失敗」的問題。
@@ -1483,6 +1487,8 @@ function closeModal() {
 
 addEntryBtn.addEventListener("click", () => openModal());
 cancelBtn.addEventListener("click", closeModal);
+// 右上角的 × 等同取消
+document.getElementById("cancel-x").addEventListener("click", closeModal);
 entryModal.addEventListener("click", (e) => {
   if (e.target === entryModal) closeModal();
 });

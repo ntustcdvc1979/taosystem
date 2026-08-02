@@ -223,6 +223,12 @@ GitHub Actions build 時會自動把這些 secret 注入（見 [.github/workflow
 
 > 文件 ID 必須跟他 Google 帳號的 Email 完全一樣。Google 帳號的 Email 一律是小寫，所以請用小寫；打錯不會有錯誤訊息，只會一直進不去。
 
+### 從 LINE 點連結進來
+
+Google 不允許在 App 的內建瀏覽器裡登入（會出現 `disallowed_useragent`），所以網頁一偵測到是從 LINE 點進來的，就會自動在網址加上 `openExternalBrowser=1` 重新開一次——這是 LINE 支援的參數，會直接跳到手機預設的瀏覽器。
+
+Facebook／Instagram 沒有這種參數：Android 會試著用 `intent://` 交給系統瀏覽器，都不行時網頁上方會出現黃色提示條，教使用者從「⋯」選單用瀏覽器開啟，並附一顆「複製連結」按鈕。
+
 ### 移除與換單位
 
 - 移除某人：刪掉他的 `memberEmails/{gmail}` 文件。
