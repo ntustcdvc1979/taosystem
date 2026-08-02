@@ -119,11 +119,10 @@
               背景
               <textarea id="field-background" rows="4" placeholder="用文字描述背景，例如：熱音社社員、大四資工系家教、系排球隊、超商打工"></textarea>
             </label>
-            <label id="contact-field">
+            <label>
               聯絡人
               <input type="text" id="field-contact" placeholder="負責這位的人" />
             </label>
-            <p id="contact-self-hint" class="hint-text hidden">個人名單的聯絡人就是你自己，不用另外填。</p>
             <label>
               成全狀況
               <select id="field-status">
@@ -284,6 +283,7 @@
       <!-- 活動管理 對話框（月曆檢視） -->
       <div id="events-modal" class="modal hidden">
         <div class="modal-content events-modal-content">
+          <button type="button" id="events-close-x" class="modal-close" aria-label="關閉">×</button>
           <h2>活動管理</h2>
           <p class="hint-text">活動類型：廣結善緣／獻供／求道／成全／法會／幹訓，AI 產生建議時會參照。點日期格可帶入該天新增活動，點活動可編輯。結束日期留空表示單日活動。</p>
 
@@ -358,9 +358,6 @@
             <p class="hint-text">把名字拖到其他框即可改變狀態，點名字可加備註。邀約狀況會即時儲存，AI 產生建議時也會參照（例如已回覆不行的就不會再推薦同一個活動）。</p>
           </div>
 
-          <div class="modal-actions">
-            <button type="button" id="events-close-btn" class="btn-secondary">關閉</button>
-          </div>
         </div>
       </div>
 

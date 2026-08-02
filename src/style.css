@@ -715,6 +715,7 @@ button {
 }
 
 .modal-content {
+  position: relative;
   background: #fff;
   border-radius: 12px;
   padding: 1.8rem;
@@ -722,6 +723,26 @@ button {
   max-width: 480px;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+/* 右上角的關閉叉叉 */
+.modal-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.7rem;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #888;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  background: #f0f0f0;
+  color: #333;
 }
 
 /* 紀錄類對話框給寬一點，文字框才不會擠成一條 */
@@ -739,6 +760,13 @@ button {
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 1rem;
+}
+
+/* 唯讀欄位（例如個人名單的聯絡人＝自己）：看得到但不能改 */
+.readonly-input {
+  background: #f4f5f7;
+  color: #666;
+  cursor: default;
 }
 
 .required {
@@ -1186,6 +1214,12 @@ button {
   background: #2559c4;
 }
 
+/* 有對話框開著的時候把 AI 按鈕收起來，免得蓋到裡面的按鈕 */
+body:has(.modal:not(.hidden)) .chat-fab,
+body:has(.modal:not(.hidden)) .chat-panel {
+  display: none;
+}
+
 .chat-panel {
   position: fixed;
   right: 1.5rem;
@@ -1334,16 +1368,19 @@ button {
   .modal-content {
     padding: 1.1rem;
     max-height: 92vh;
-    /* 右下角有 AI 浮動按鈕，底部留白免得「儲存」被壓到 */
-    padding-bottom: 5.5rem;
   }
 
-  .modal-actions {
-    position: sticky;
-    bottom: 0;
-    background: #fff;
-    padding: 0.6rem 0 0;
-    margin-bottom: -4.5rem;
+  /* 儲存／取消就跟著表單走，不做浮動；AI 按鈕改到左下角避開它們 */
+  .chat-fab {
+    left: 1rem;
+    right: auto;
+    bottom: 1rem;
+  }
+
+  .chat-panel {
+    left: 0.6rem;
+    right: auto;
+    bottom: 5rem;
   }
 
   /* 紀錄列在窄畫面改成上下堆疊，文字框才有完整寬度 */

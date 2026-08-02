@@ -115,8 +115,6 @@ const fieldDepartment = document.getElementById("field-department");
 const fieldTags = document.getElementById("field-tags");
 const fieldBackground = document.getElementById("field-background");
 const fieldContact = document.getElementById("field-contact");
-const contactField = document.getElementById("contact-field");
-const contactSelfHint = document.getElementById("contact-self-hint");
 const fieldStatus = document.getElementById("field-status");
 const fieldStrategy = document.getElementById("field-strategy");
 const fieldMethod = document.getElementById("field-method");
@@ -160,7 +158,7 @@ const addEventBtn = document.getElementById("add-event-btn");
 const saveEventBtn = document.getElementById("save-event-btn");
 const deleteEventBtn = document.getElementById("delete-event-btn");
 const cancelEditBtn = document.getElementById("cancel-edit-btn");
-const eventsCloseBtn = document.getElementById("events-close-btn");
+const eventsCloseBtn = document.getElementById("events-close-x");
 
 // 活動邀約名單
 const inviteSection = document.getElementById("invite-section");
@@ -1448,7 +1446,9 @@ function openModal(entry = null) {
     fieldDepartment.value = entry.department || "";
     fieldTags.value = (entry.tags || []).join(", ");
     fieldBackground.value = getBackground(entry);
+    fieldContact.readOnly = false;
     fieldContact.value = entry.contact || "";
+    teamContactDraft = fieldContact.value;
     fieldStatus.value = entry.status || "";
     fieldStrategy.value = entry.strategy || "";
     fieldMethod.value = entry.method || "";
@@ -1458,21 +1458,28 @@ function openModal(entry = null) {
     fieldScope.disabled = false;
     fieldScope.value = "team";
     scopeHint.textContent = "個人名單只有你自己看得到，之後可以再轉為團隊名單。";
+    fieldContact.readOnly = false;
+    teamContactDraft = "";
   }
   applyScopeToContactField();
   entryModal.classList.remove("hidden");
   fieldName.focus();
 }
 
-// 個人名單的聯絡人一定是自己，所以不顯示欄位（省得多填一次）
+// 個人名單的聯絡人一定是自己：欄位照樣顯示，但填好自己的名字並鎖成唯讀
+let teamContactDraft = "";
+
 function applyScopeToContactField() {
   const personal = fieldScope.value === "personal";
-  contactField.classList.toggle("hidden", personal);
-  contactSelfHint.classList.toggle("hidden", !personal);
-  const me = myDisplayName();
-  contactSelfHint.textContent = me
-    ? `個人名單的聯絡人就是你自己（${me}），不用另外填。`
-    : "個人名單的聯絡人就是你自己，不用另外填。";
+  if (personal) {
+    if (!fieldContact.readOnly) teamContactDraft = fieldContact.value;
+    fieldContact.value = myDisplayName();
+  } else if (fieldContact.readOnly) {
+    fieldContact.value = teamContactDraft;
+  }
+  fieldContact.readOnly = personal;
+  fieldContact.classList.toggle("readonly-input", personal);
+  fieldContact.placeholder = personal ? "" : "負責這位的人";
 }
 
 fieldScope.addEventListener("change", applyScopeToContactField);
