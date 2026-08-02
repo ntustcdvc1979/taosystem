@@ -232,6 +232,7 @@ onAuthStateChanged(auth, async (user) => {
     subscribeEvents();
     loadMyLink();
     loadChatHistory();
+    refreshMigrateBtn();
   } else {
     appView.classList.add("hidden");
     loginView.classList.remove("hidden");
@@ -366,33 +367,98 @@ bindModal.addEventListener("click", (e) => {
 });
 
 // ---------- 一次性搬移舊資料（舊版把資料放在最上層集合） ----------
+// 舊版的 entries / personalEntries / events 直接放在資料庫最上層，
+// 新版一律放在 units/{unitId}/ 底下。這裡主動去掃舊集合，有東西才顯示按鈕。
+const LEGACY_COLLECTIONS = [
+  { name: ENTRIES_COLLECTION, label: "團隊名單" },
+  { name: PERSONAL_COLLECTION, label: "個人名單" },
+  { name: EVENTS_COLLECTION, label: "活動" },
+];
+
+async function scanLegacyData() {
+  const found = [];
+  for (const col of LEGACY_COLLECTIONS) {
+    try {
+      const snap = await getDocs(collection(db, col.name));
+      if (snap.size > 0) found.push({ ...col, docs: snap.docs });
+    } catch (err) {
+      // 舊集合可能已經刪掉或規則不給讀，這不算錯誤
+      console.warn(`讀不到舊的 ${col.name}：`, err.code || err.message);
+    }
+  }
+  return found;
+}
+
+async function refreshMigrateBtn() {
+  const found = await scanLegacyData();
+  const total = found.reduce((sum, c) => sum + c.docs.length, 0);
+  console.info(
+    "舊資料掃描：",
+    LEGACY_COLLECTIONS.map(
+      (c) => `${c.name}=${found.find((f) => f.name === c.name)?.docs.length ?? 0}`
+    ).join(" ")
+  );
+  if (total === 0) {
+    // 網址加上 #migrate 可以強制叫出按鈕（按下去會告訴你掃到什麼）
+    migrateBtn.classList.toggle("hidden", location.hash !== "#migrate");
+    migrateBtn.textContent = "搬移舊資料";
+    return;
+  }
+  migrateBtn.textContent = `搬移舊資料（${total} 筆）`;
+  migrateBtn.title = found.map((c) => `${c.label} ${c.docs.length} 筆`).join("、");
+  migrateBtn.disabled = false;
+  migrateBtn.classList.remove("hidden");
+}
+
 async function migrateLegacyData() {
+  const uid = auth.currentUser?.uid;
+  const found = await scanLegacyData();
+  const total = found.reduce((sum, c) => sum + c.docs.length, 0);
+  if (total === 0) {
+    alert("找不到舊資料。可能已經搬過，或舊集合已經刪除。");
+    migrateBtn.classList.add("hidden");
+    return;
+  }
+  const summary = found.map((c) => `　・${c.label}：${c.docs.length} 筆`).join("\n");
   if (
     !confirm(
-      `把舊資料搬到「${myUnitName}」底下嗎？\n\n會複製舊的團隊名單、個人名單與活動到新位置，舊資料保留不動（確認沒問題後可自行到 Console 刪除）。`
+      `把舊資料搬到「${myUnitName}」底下嗎？\n\n${summary}\n\n舊資料會保留不動，確認沒問題後可自行到 Firebase Console 刪除。`
     )
   ) {
     return;
   }
   migrateBtn.disabled = true;
   migrateBtn.textContent = "搬移中...";
-  try {
-    let moved = 0;
-    for (const name of [ENTRIES_COLLECTION, PERSONAL_COLLECTION, EVENTS_COLLECTION]) {
-      const snap = await getDocs(collection(db, name));
-      for (const d of snap.docs) {
-        await setDoc(unitDoc(name, d.id), d.data());
+  let moved = 0;
+  let skipped = 0;
+  const failures = [];
+  for (const col of found) {
+    for (const d of col.docs) {
+      const data = d.data();
+      // 個人名單只搬自己的（別人的個人名單本來就不該進到我的帳號底下）
+      if (col.name === PERSONAL_COLLECTION) {
+        if (data.ownerUid && data.ownerUid !== uid) {
+          skipped += 1;
+          continue;
+        }
+        data.ownerUid = uid;
+      }
+      try {
+        await setDoc(unitDoc(col.name, d.id), data);
         moved += 1;
+      } catch (err) {
+        failures.push(`${col.label} ${d.id}：${err.code || err.message}`);
       }
     }
-    migrateBtn.textContent = `已搬移 ${moved} 筆`;
-    setTimeout(() => migrateBtn.classList.add("hidden"), 4000);
-  } catch (err) {
-    alert("搬移失敗：" + err.message);
-    migrateBtn.textContent = "搬移舊資料";
-  } finally {
-    migrateBtn.disabled = false;
   }
+  const lines = [`已搬移 ${moved} 筆到「${myUnitName}」。`];
+  if (skipped > 0) lines.push(`略過 ${skipped} 筆別人的個人名單。`);
+  if (failures.length > 0) {
+    lines.push(`\n有 ${failures.length} 筆失敗：\n${failures.slice(0, 5).join("\n")}`);
+  }
+  alert(lines.join("\n"));
+  migrateBtn.disabled = false;
+  await refreshMigrateBtn();
 }
 
 migrateBtn.addEventListener("click", migrateLegacyData);
@@ -430,8 +496,6 @@ function mergeEntries() {
   refreshOpenActivityModal();
   refreshOpenTalkModal();
   refreshBindPrompt();
-  // 單位底下還沒有任何名單時，提供把舊資料搬過來的入口
-  migrateBtn.classList.toggle("hidden", allEntries.length > 0);
   if (heatModalEntryId) renderHeatModal();
 }
 
