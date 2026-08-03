@@ -19,11 +19,25 @@ service cloud.firestore {
     function inUnit(unitId) {
       return hasMember() && myUnit() == unitId;
     }
+    // 道務組組長：寫在 units/{unitId}.leaderEmails（陣列），只能從 Console 指定。
+    // 組長可以增減「自己單位」的使用者 Email，但不能指派組長、也碰不到別的單位。
+    function isLeader() {
+      return hasMember() &&
+             get(/databases/$(database)/documents/units/$(myUnit()))
+               .data.get('leaderEmails', []).hasAny([request.auth.token.email]);
+    }
 
-    // 帳號歸屬：只讀得到自己那一份，且只能從 Console 設定
+    // 帳號歸屬：本人讀得到自己那一份；組長讀得到（也管得到）同單位的每一份
     match /memberEmails/{email} {
-      allow read: if isSignedIn() && request.auth.token.email == email;
-      allow write: if false;
+      allow read: if isSignedIn() &&
+                     (request.auth.token.email == email ||
+                      (isLeader() && resource.data.unitId == myUnit()));
+      allow create: if isLeader() && request.resource.data.unitId == myUnit();
+      allow update: if isLeader() && resource.data.unitId == myUnit()
+                    && request.resource.data.unitId == myUnit();
+      // 組長不能把自己刪掉，免得整個單位沒人管得動
+      allow delete: if isLeader() && resource.data.unitId == myUnit()
+                    && request.auth.token.email != email;
     }
 
     // ===== 道務單位 =====

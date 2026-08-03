@@ -34,6 +34,7 @@
             <span id="unit-name" class="unit-badge hidden"></span>
             <span id="current-user"></span>
             <button id="bind-me-btn" class="btn-secondary hidden">綁定我的資料</button>
+            <button id="members-btn" class="btn-secondary hidden">使用者管理</button>
             <button id="logout-btn" class="btn-secondary">登出</button>
           </div>
         </header>
@@ -249,6 +250,26 @@
           <div class="modal-actions">
             <button type="button" id="bind-close-btn" class="btn-secondary">關閉</button>
           </div>
+        </div>
+      </div>
+
+      <!-- 使用者管理 對話框：只有道務組組長看得到 -->
+      <div id="members-modal" class="modal hidden">
+        <div class="modal-content">
+          <button type="button" id="members-close-btn" class="modal-close" aria-label="關閉">×</button>
+          <h2>使用者管理 - <span id="members-unit-name"></span></h2>
+          <p class="hint-text">
+            這裡列出可以登入本單位的 Google 帳號。加進來的人下次登入就能看到單位的名單，
+            移除後就再也進不來。組長身分由後台（Firebase Console）指定，這裡改不了。
+          </p>
+
+          <div class="member-add-row">
+            <input type="email" id="new-member-email" placeholder="對方的 Gmail" autocomplete="off" />
+            <button type="button" id="add-member-btn" class="btn-primary btn-small">加入</button>
+          </div>
+          <p id="members-status" class="hint-text"></p>
+
+          <div id="members-list" class="members-list"></div>
         </div>
       </div>
 

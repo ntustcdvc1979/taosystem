@@ -12,6 +12,7 @@
 
 1. 建立單位：`units/{unitId}` 文件，欄位 `name` 填單位名稱（例如「台科崇德」）。`unitId` 自訂（例如 `ntust-chongde`）。
 2. 指派帳號：`memberEmails/{對方的 gmail（小寫）}` 文件，欄位 `unitId` 填上面的單位 ID。
+   - 在 `units/{unitId}` 加 `leaderEmails`（陣列）指定道務組組長，之後增減使用者可以直接在網頁上做。
    - **沒有這份文件的帳號一律進不去**，這取代了舊版寫在安全規則裡的 Email 白名單。
 3. 這些集合都**只能從 Console 修改**，網頁端無論如何都寫不進去。
 
@@ -223,6 +224,19 @@ GitHub Actions build 時會自動把這些 secret 注入（見 [.github/workflow
 
 > 文件 ID 必須跟他 Google 帳號的 Email 完全一樣。Google 帳號的 Email 一律是小寫，所以請用小寫；打錯不會有錯誤訊息，只會一直進不去。
 
+### 指定道務組組長（之後就不用進 Console 了）
+
+在 **`units/{unitId}`** 文件加一個欄位：
+
+- `leaderEmails`（**陣列**，元素是字串）＝ 組長的 Gmail，小寫，可以放多位
+
+被列進去的人登入後，工具列會多一顆 **「使用者管理」**；不是組長的人連按鈕都看不到，就算自己想辦法叫出來，安全規則也擋著寫不進去。組長在那裡可以：
+
+- **加入**：填對方的 Gmail 按「加入」，等同幫他建一份 `memberEmails/{gmail}`（`unitId` 自動填成自己的單位）。
+- **移除**：把人移出單位，他下次就登不進來（名單資料不受影響）。**不能移除自己**，避免整個單位沒人管得動。
+
+組長**不能**指派組長，也碰不到別的單位的使用者——`leaderEmails` 只能從 Console 改。已經屬於別的單位的 Email 也加不進來（會顯示沒有權限）。
+
 ### 從 LINE 點連結進來
 
 Google 不允許在 App 的內建瀏覽器裡登入（會出現 `disallowed_useragent`），所以網頁一偵測到是從 LINE 點進來的，就會自動在網址加上 `openExternalBrowser=1` 重新開一次——這是 LINE 支援的參數，會直接跳到手機預設的瀏覽器。
@@ -231,9 +245,9 @@ Facebook／Instagram 沒有這種參數：Android 會試著用 `intent://` 交�
 
 ### 移除與換單位
 
-- 移除某人：刪掉他的 `memberEmails/{gmail}` 文件。
+- 移除某人：刪掉他的 `memberEmails/{gmail}` 文件（組長也可以直接在網頁上做）。
 - 換單位：改那份文件的 `unitId`。
-- **這兩個集合（`memberEmails`、`units`）的寫入在安全規則裡一律拒絕**，任何人都無法從網頁把自己加進去或換單位。
+- **`units` 集合的寫入在安全規則裡一律拒絕**，`memberEmails` 只有該單位的組長改得動，任何人都無法從網頁把自己加進去、升自己當組長或換單位。
 
 ## 三、本機開發
 

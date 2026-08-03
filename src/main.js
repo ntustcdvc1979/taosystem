@@ -43,6 +43,7 @@ const LINKS_COLLECTION = "memberLinks"; // 帳號 ↔ 名單對應
 let myUnitId = null;
 let myUnitName = "";
 let myEntryId = null; // 這支帳號綁定到名單中的哪一位
+let iAmLeader = false; // 道務組組長，可以增減本單位的使用者
 
 // units/{unitId}/{name} 的集合參考
 function unitCol(name) {
@@ -65,6 +66,16 @@ const filterStatus = document.getElementById("filter-status");
 const filterScope = document.getElementById("filter-scope");
 const unitNameLabel = document.getElementById("unit-name");
 const bindMeBtn = document.getElementById("bind-me-btn");
+
+// 使用者管理（只有道務組組長看得到）
+const membersBtn = document.getElementById("members-btn");
+const membersModal = document.getElementById("members-modal");
+const membersCloseBtn = document.getElementById("members-close-btn");
+const membersUnitName = document.getElementById("members-unit-name");
+const membersList = document.getElementById("members-list");
+const membersStatus = document.getElementById("members-status");
+const newMemberEmail = document.getElementById("new-member-email");
+const addMemberBtn = document.getElementById("add-member-btn");
 
 // 綁定自己的對話框
 const bindModal = document.getElementById("bind-modal");
@@ -249,6 +260,13 @@ onAuthStateChanged(auth, async (user) => {
       unsubscribeEventsSub();
       unsubscribeEventsSub = null;
     }
+    if (unsubscribeMembers) {
+      unsubscribeMembers();
+      unsubscribeMembers = null;
+    }
+    iAmLeader = false;
+    membersBtn.classList.add("hidden");
+    membersModal.classList.add("hidden");
     allEntries = [];
     teamEntries = [];
     myPersonalEntries = [];
@@ -276,11 +294,15 @@ async function loadMyUnit() {
     const unitSnap = await getDoc(doc(db, "units", myUnitId));
     myUnitName = (unitSnap.exists() ? unitSnap.data().name : "") || myUnitId;
     teamName = myUnitName;
+    // 道務組組長寫在單位資料裡，只有 Console 改得動；組長才看得到「使用者管理」
+    const leaders = (unitSnap.exists() ? unitSnap.data().leaderEmails : null) || [];
+    iAmLeader = leaders.some((e) => (e || "").toLowerCase() === (email || "").toLowerCase());
   } catch (err) {
     loginError.textContent = "讀取帳號歸屬失敗：" + err.message;
     return false;
   }
   applyUnitName();
+  membersBtn.classList.toggle("hidden", !iAmLeader);
   return true;
 }
 
@@ -377,6 +399,125 @@ bindMeBtn.addEventListener("click", () => {
 bindCloseBtn.addEventListener("click", () => bindModal.classList.add("hidden"));
 bindModal.addEventListener("click", (e) => {
   if (e.target === bindModal) bindModal.classList.add("hidden");
+});
+
+// ---------- 使用者管理（道務組組長） ----------
+// 組長可以增減 memberEmails 裡屬於自己單位的 Email。安全規則同樣只認組長，
+// 所以就算有人自己叫出按鈕也寫不進去；組長身分只能從 Console 的 units 指定。
+let unsubscribeMembers = null;
+let unitMembers = [];
+
+function openMembersModal() {
+  membersUnitName.textContent = myUnitName;
+  membersStatus.textContent = "";
+  newMemberEmail.value = "";
+  membersModal.classList.remove("hidden");
+  subscribeMembers();
+}
+
+function closeMembersModal() {
+  membersModal.classList.add("hidden");
+  if (unsubscribeMembers) {
+    unsubscribeMembers();
+    unsubscribeMembers = null;
+  }
+}
+
+function subscribeMembers() {
+  if (unsubscribeMembers) unsubscribeMembers();
+  unsubscribeMembers = onSnapshot(
+    query(collection(db, "memberEmails"), where("unitId", "==", myUnitId)),
+    (snapshot) => {
+      unitMembers = snapshot.docs.map((d) => ({ email: d.id, ...d.data() }));
+      unitMembers.sort((a, b) => a.email.localeCompare(b.email));
+      renderMembers();
+    },
+    (err) => {
+      membersStatus.textContent = "讀取失敗：" + err.message;
+    }
+  );
+}
+
+function renderMembers() {
+  const me = (auth.currentUser?.email || "").toLowerCase();
+  if (unitMembers.length === 0) {
+    membersList.innerHTML = `<p class="hint-text">目前沒有任何使用者。</p>`;
+    return;
+  }
+  membersList.innerHTML = unitMembers
+    .map((m) => {
+      const isMe = m.email.toLowerCase() === me;
+      return `
+        <div class="member-row">
+          <span class="member-email">${escapeHtml(m.email)}${isMe ? '<span class="member-self">你</span>' : ""}</span>
+          ${
+            isMe
+              ? `<span class="hint-text">不能移除自己</span>`
+              : `<button type="button" class="btn-danger btn-small" data-email="${escapeHtml(m.email)}">移除</button>`
+          }
+        </div>`;
+    })
+    .join("");
+}
+
+async function addMember() {
+  const email = newMemberEmail.value.trim().toLowerCase();
+  if (!email) return;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    membersStatus.textContent = "請填寫完整的 Email。";
+    return;
+  }
+  if (unitMembers.some((m) => m.email.toLowerCase() === email)) {
+    membersStatus.textContent = "這個 Email 已經在名單裡了。";
+    return;
+  }
+  addMemberBtn.disabled = true;
+  try {
+    await setDoc(doc(db, "memberEmails", email), {
+      unitId: myUnitId,
+      addedBy: auth.currentUser?.email || null,
+      addedAt: serverTimestamp(),
+    });
+    newMemberEmail.value = "";
+    membersStatus.textContent = `已加入 ${email}，他用這個 Google 帳號登入就進得來。`;
+  } catch (err) {
+    membersStatus.textContent =
+      err.code === "permission-denied"
+        ? "沒有權限。可能這個 Email 已經屬於別的道務單位。"
+        : "加入失敗：" + err.message;
+  } finally {
+    addMemberBtn.disabled = false;
+  }
+}
+
+membersBtn.addEventListener("click", openMembersModal);
+membersCloseBtn.addEventListener("click", closeMembersModal);
+membersModal.addEventListener("click", (e) => {
+  if (e.target === membersModal) closeMembersModal();
+});
+addMemberBtn.addEventListener("click", addMember);
+newMemberEmail.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    addMember();
+  }
+});
+
+membersList.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-email]");
+  if (!btn) return;
+  const email = btn.dataset.email;
+  if (!confirm(`把 ${email} 移出「${myUnitName}」嗎？\n\n他之後就登不進來了（已建立的名單資料不受影響）。`)) {
+    return;
+  }
+  btn.disabled = true;
+  try {
+    await deleteDoc(doc(db, "memberEmails", email));
+    membersStatus.textContent = `已移除 ${email}。`;
+  } catch (err) {
+    membersStatus.textContent = "移除失敗：" + err.message;
+    btn.disabled = false;
+  }
 });
 
 const googleProvider = new GoogleAuthProvider();

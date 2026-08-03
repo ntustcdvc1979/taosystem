@@ -762,6 +762,51 @@ button {
   margin-top: 1rem;
 }
 
+/* 使用者管理（道務組組長） */
+.member-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.6rem 0 0.2rem;
+}
+
+.member-add-row input {
+  flex: 1 1 220px;
+}
+
+.members-list {
+  margin-top: 0.4rem;
+}
+
+.member-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.2rem;
+  border-bottom: 1px solid #eee;
+  font-size: 0.9rem;
+}
+
+.member-row:last-child {
+  border-bottom: none;
+}
+
+.member-email {
+  word-break: break-all;
+}
+
+.member-self {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: #e8f0fe;
+  color: #2f6fed;
+  font-size: 0.72rem;
+}
+
 /* App 內建瀏覽器提示條（LINE / FB / IG 點進來時） */
 .inapp-notice {
   display: flex;
