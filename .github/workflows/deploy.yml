@@ -10,9 +10,11 @@ permissions:
   pages: write
   id-token: write
 
+# 同時間只跑一個部署，但**不要**中斷跑到一半的那個——Pages 後端被中斷後
+# 容易讓部署卡在 queued/in_progress，後面的就跟著失敗。
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -44,3 +46,6 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          # 預設只等 10 分鐘；Pages 後端偶爾塞車，放寬到 20 分鐘免得白白失敗
+          timeout: 1200000
