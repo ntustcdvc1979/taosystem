@@ -202,6 +202,57 @@ button {
   color: #999;
 }
 
+/* 標籤篩選面板 */
+.tag-filter-panel {
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.6rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.tag-filter-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.tag-filter-head .hint-text {
+  flex: 1 1 240px;
+}
+
+.tag-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tag-filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #e2e5ea;
+  border-radius: 999px;
+  background: #f7f8fa;
+  color: #555;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.tag-filter-item:has(input:checked) {
+  background: #e8f0fe;
+  border-color: #d3e0fb;
+  color: #2559c4;
+}
+
+.tag-filter-item input {
+  width: auto;
+  margin: 0;
+}
+
 /* 近兩週活動提醒 */
 .upcoming-notice {
   margin: 0 1.5rem 1rem;
@@ -867,6 +918,15 @@ button {
 .trend-controls label {
   flex: 0 0 auto;
   font-size: 0.85rem;
+}
+
+.trend-filter {
+  margin: 0.5rem 0 0.9rem;
+}
+
+.trend-filter .hint-text {
+  display: block;
+  margin-bottom: 0.35rem;
 }
 
 .trend-chart {

@@ -75,6 +75,7 @@ const trendCloseBtn = document.getElementById("trend-close-btn");
 const trendRange = document.getElementById("trend-range");
 const trendStep = document.getElementById("trend-step");
 const trendCharts = document.getElementById("trend-charts");
+const trendTagFilterList = document.getElementById("trend-tag-filter");
 const trendDetail = document.getElementById("trend-detail");
 const trendDetailTitle = document.getElementById("trend-detail-title");
 const trendDetailClose = document.getElementById("trend-detail-close");
@@ -107,7 +108,10 @@ const bindCloseBtn = document.getElementById("bind-close-btn");
 const toggleViewBtn = document.getElementById("toggle-view-btn");
 const aiHeatBtn = document.getElementById("ai-heat-btn");
 aiHeatBtn.classList.remove("hidden"); // 預設就是熱度模式
-const toggleHiddenTagsBtn = document.getElementById("toggle-hidden-tags-btn");
+const tagFilterBtn = document.getElementById("tag-filter-btn");
+const tagFilterPanel = document.getElementById("tag-filter-panel");
+const tagFilterList = document.getElementById("tag-filter-list");
+const tagFilterAll = document.getElementById("tag-filter-all");
 
 // 成全熱度對話框
 const heatModal = document.getElementById("heat-modal");
@@ -128,8 +132,29 @@ const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
 
 // 預設隱藏的標籤（例：內部幹部身分不宜隨手就看到）。如需增減，直接編輯這個陣列。
-const HIDDEN_TAGS = ["團內幹部"];
-let showHiddenTags = false;
+// 標籤篩選：沒有打勾的標籤，帶有該標籤的對象整張卡片就不顯示。
+// 預設只有「團內幹部」沒打勾；使用者調過之後記在這台裝置上。
+const DEFAULT_HIDDEN_TAGS = ["團內幹部"];
+const HIDDEN_TAGS_KEY = "hiddenTags";
+let hiddenTags = loadHiddenTags();
+
+function loadHiddenTags() {
+  try {
+    const raw = localStorage.getItem(HIDDEN_TAGS_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {
+    // 存壞了就當作沒設定過
+  }
+  return new Set(DEFAULT_HIDDEN_TAGS);
+}
+
+function saveHiddenTags() {
+  try {
+    localStorage.setItem(HIDDEN_TAGS_KEY, JSON.stringify([...hiddenTags]));
+  } catch {
+    // 無痕模式之類寫不進去就算了，只是這次不會記住
+  }
+}
 
 // 卡片上每種紀錄顯示幾筆（其餘以「還有 N 筆」帶過）
 const RECORD_PREVIEW_COUNT = 2;
@@ -578,6 +603,7 @@ function mergeEntries() {
   refreshOpenActivityModal();
   refreshOpenTalkModal();
   refreshBindPrompt();
+  renderTagFilter(); // 新標籤要出現在篩選清單，按鈕上的隱藏數也要跟著更新
   if (heatModalEntryId) renderHeatModal();
 }
 
@@ -725,7 +751,7 @@ noticeDismissBtn.addEventListener("click", () => {
 
 // 對象只要有任何一個預設隱藏的標籤（例：團內幹部），整張卡片就不顯示（除非開關開啟）
 function hasHiddenTag(entry) {
-  return (entry.tags || []).some((t) => HIDDEN_TAGS.includes(t));
+  return (entry.tags || []).some((t) => hiddenTags.has(t));
 }
 
 // 目前名單上出現過的所有標籤，常用的排前面（標籤輸入框的搜尋來源）
@@ -894,7 +920,7 @@ function renderEntries() {
 
   const filtered = allEntries.filter((entry) => {
     if (scopeVal && (entry._scope || "team") !== scopeVal) return false;
-    if (!showHiddenTags && hasHiddenTag(entry)) return false;
+    if (hasHiddenTag(entry)) return false;
     if (statusVal && entry.status !== statusVal) return false;
     if (searchTerm) {
       const haystack = [
@@ -1081,8 +1107,22 @@ async function runHeatAssessment(entries, statusEl, btn) {
 }
 
 aiHeatBtn.addEventListener("click", async () => {
-  // 只評估目前看得到的人（被「團內幹部」開關藏起來的不評估）
-  const visible = allEntries.filter((en) => showHiddenTags || !hasHiddenTag(en));
+  // 只評估目前看得到的人（被標籤篩選藏起來的不評估）
+  const visible = allEntries.filter((en) => !hasHiddenTag(en));
+  if (visible.length === 0) {
+    alert("目前沒有可以評估的對象。");
+    return;
+  }
+  // 會把每個人的紀錄都送去給 AI，跑起來要一點時間也要花錢，先問過再說
+  if (
+    !confirm(
+      `要用 AI 重新評估這 ${visible.length} 位的成全熱度嗎？\n\n` +
+        "系統會把他們的活動紀錄與聯絡紀錄（去識別化後）送給 AI 判斷，人數多的話要等一下子。\n" +
+        "已經手動設定過熱度的人也會被重新評估。"
+    )
+  ) {
+    return;
+  }
   // 沒有獨立的狀態列，就借按鈕本身顯示進度，結束後再恢復原本文字
   const statusEl = {
     set textContent(v) {
@@ -1397,9 +1437,44 @@ toggleViewBtn.addEventListener("click", () => {
   renderEntries();
 });
 
-toggleHiddenTagsBtn.addEventListener("click", () => {
-  showHiddenTags = !showHiddenTags;
-  toggleHiddenTagsBtn.textContent = showHiddenTags ? "隱藏團內幹部" : "顯示團內幹部";
+// ---------- 標籤篩選 ----------
+function renderTagFilter() {
+  const tags = [...new Set([...knownTags(), ...hiddenTags])];
+  tagFilterList.innerHTML =
+    tags.length === 0
+      ? `<p class="hint-text">名單上還沒有任何標籤。</p>`
+      : tags
+          .map(
+            (t) => `
+        <label class="tag-filter-item">
+          <input type="checkbox" value="${escapeHtml(t)}" ${hiddenTags.has(t) ? "" : "checked"} />
+          ${escapeHtml(t)}
+        </label>`
+          )
+          .join("");
+  const off = tags.filter((t) => hiddenTags.has(t)).length;
+  tagFilterBtn.textContent = off > 0 ? `標籤篩選（隱藏 ${off}）` : "標籤篩選";
+}
+
+tagFilterBtn.addEventListener("click", () => {
+  tagFilterPanel.classList.toggle("hidden");
+  if (!tagFilterPanel.classList.contains("hidden")) renderTagFilter();
+});
+
+tagFilterList.addEventListener("change", (e) => {
+  const box = e.target.closest("input[type=checkbox]");
+  if (!box) return;
+  if (box.checked) hiddenTags.delete(box.value);
+  else hiddenTags.add(box.value);
+  saveHiddenTags();
+  renderTagFilter();
+  renderEntries();
+});
+
+tagFilterAll.addEventListener("click", () => {
+  hiddenTags.clear();
+  saveHiddenTags();
+  renderTagFilter();
   renderEntries();
 });
 
@@ -1639,8 +1714,34 @@ const TREND_METRICS = [
 let trendSnapshots = []; // [{ date, label, buckets: { heat: [[id...] x4], act: …, part: … } }]
 let trendSelection = null; // { metricKey, level, index }
 
+// 趨勢分析自己的標籤篩選：不選＝全部，選了就只統計帶有其中任一標籤的人
+let trendTagFilter = new Set();
+
 function trendEntries() {
-  return allEntries.filter((en) => showHiddenTags || !hasHiddenTag(en));
+  return allEntries
+    .filter((en) => !hasHiddenTag(en))
+    .filter(
+      (en) =>
+        trendTagFilter.size === 0 || (en.tags || []).some((t) => trendTagFilter.has(t))
+    );
+}
+
+function renderTrendTagFilter() {
+  const tags = knownTags().filter((t) => !hiddenTags.has(t));
+  // 選過但現在已經沒人用的標籤也留著，不然使用者會找不到自己剛才勾的那個
+  const all = [...new Set([...tags, ...trendTagFilter])];
+  trendTagFilterList.innerHTML =
+    all.length === 0
+      ? `<p class="hint-text">名單上還沒有任何標籤。</p>`
+      : all
+          .map(
+            (t) => `
+        <label class="tag-filter-item">
+          <input type="checkbox" value="${escapeHtml(t)}" ${trendTagFilter.has(t) ? "checked" : ""} />
+          ${escapeHtml(t)}
+        </label>`
+          )
+          .join("");
 }
 
 function buildTrendData() {
@@ -1675,7 +1776,7 @@ function renderTrendCharts() {
   buildTrendData();
   const total = trendEntries().length;
   if (total === 0) {
-    trendCharts.innerHTML = `<p class="hint-text">名單裡還沒有資料。</p>`;
+    trendCharts.innerHTML = `<p class="hint-text">沒有符合的對象，可以調整上面的「只看標籤」。</p>`;
     return;
   }
   trendCharts.innerHTML = TREND_METRICS.map((m) => renderTrendChart(m, total)).join("");
@@ -1859,9 +1960,20 @@ async function addTagToSelected() {
 function openTrendModal() {
   trendSelection = null;
   trendDetail.classList.add("hidden");
+  renderTrendTagFilter();
   renderTrendCharts();
   trendModal.classList.remove("hidden");
 }
+
+trendTagFilterList.addEventListener("change", (e) => {
+  const box = e.target.closest("input[type=checkbox]");
+  if (!box) return;
+  if (box.checked) trendTagFilter.add(box.value);
+  else trendTagFilter.delete(box.value);
+  trendSelection = null;
+  trendDetail.classList.add("hidden");
+  renderTrendCharts();
+});
 
 trendBtn.addEventListener("click", openTrendModal);
 trendCloseBtn.addEventListener("click", () => trendModal.classList.add("hidden"));

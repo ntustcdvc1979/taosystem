@@ -62,10 +62,20 @@
           </select>
           <button id="toggle-view-btn" class="btn-secondary">切換詳細模式</button>
           <button id="ai-heat-btn" class="btn-secondary hidden">AI 評估熱度</button>
-          <button id="toggle-hidden-tags-btn" class="btn-secondary">顯示團內幹部</button>
+          <button id="tag-filter-btn" class="btn-secondary">標籤篩選</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
           <button id="trend-btn" class="btn-secondary">趨勢分析</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
+        </div>
+
+        <!-- 標籤篩選：打勾的標籤才顯示，取消打勾就把帶該標籤的對象整張卡片藏起來 -->
+        <div id="tag-filter-panel" class="tag-filter-panel hidden">
+          <div class="tag-filter-head">
+            <span class="field-label">標籤篩選</span>
+            <span class="hint-text">打勾＝帶有該標籤的對象要顯示；取消打勾就整張卡片隱藏。沒有標籤的對象一律顯示。</span>
+            <button type="button" id="tag-filter-all" class="btn-link-plain">全部顯示</button>
+          </div>
+          <div id="tag-filter-list" class="tag-filter-list"></div>
         </div>
 
         <!-- 近兩週活動提醒：提示該安排邀約了 -->
@@ -280,6 +290,12 @@
                 <option value="14">每兩週</option>
               </select>
             </label>
+          </div>
+
+          <div class="trend-filter">
+            <span class="field-label">只看標籤</span>
+            <span class="hint-text">不選＝名單上所有人（仍受工具列的標籤篩選影響）。選了就只統計帶有其中任一標籤的人。</span>
+            <div id="trend-tag-filter" class="tag-filter-list"></div>
           </div>
 
           <div id="trend-charts" class="trend-charts"></div>
