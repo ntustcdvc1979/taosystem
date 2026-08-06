@@ -208,6 +208,13 @@ button {
   display: inline-block;
 }
 
+/* 選單打開時按鈕保持按下的樣子（按鈕文字固定就四個字，狀態靠外觀表示） */
+#tag-filter-btn.is-open {
+  background: #e8f0fe;
+  border-color: #b9cdf7;
+  color: #2559c4;
+}
+
 .tag-filter-panel {
   position: absolute;
   top: calc(100% + 4px);

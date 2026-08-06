@@ -1452,18 +1452,18 @@ function renderTagFilter() {
         </label>`
           )
           .join("");
-  const off = tags.filter((t) => hiddenTags.has(t)).length;
-  tagFilterBtn.textContent = off > 0 ? `標籤篩選（隱藏 ${off}）▾` : "標籤篩選 ▾";
 }
 
 function closeTagFilter() {
   tagFilterPanel.classList.add("hidden");
+  tagFilterBtn.classList.remove("is-open");
   tagFilterBtn.setAttribute("aria-expanded", "false");
 }
 
 tagFilterBtn.addEventListener("click", (e) => {
   e.stopPropagation();
   const open = tagFilterPanel.classList.toggle("hidden") === false;
+  tagFilterBtn.classList.toggle("is-open", open);
   tagFilterBtn.setAttribute("aria-expanded", String(open));
   if (open) renderTagFilter();
 });
@@ -1735,21 +1735,20 @@ let trendSelection = null; // { metricKey, level, index }
 let trendTagFilter = new Set();
 
 function trendEntries() {
-  return allEntries
-    .filter((en) => !hasHiddenTag(en))
-    .filter(
-      (en) =>
-        trendTagFilter.size === 0 || (en.tags || []).some((t) => trendTagFilter.has(t))
-    );
+  // 有指定標籤時就以它為準（包含被工具列藏起來的標籤，例如想單獨看團內幹部）；
+  // 沒指定才套用工具列的標籤篩選。
+  if (trendTagFilter.size > 0) {
+    return allEntries.filter((en) => (en.tags || []).some((t) => trendTagFilter.has(t)));
+  }
+  return allEntries.filter((en) => !hasHiddenTag(en));
 }
 
 function renderTrendTagFilter() {
-  const tags = knownTags().filter((t) => !hiddenTags.has(t));
-  // 選過但現在已經沒人用的標籤也留著，不然使用者會找不到自己剛才點的那個
-  const all = [...new Set([...tags, ...trendTagFilter])];
+  // 名單上用過的標籤全部列出來（含工具列藏起來的），這裡才看得到有哪些可以分析
+  const all = [...new Set([...knownTags(), ...trendTagFilter])];
   trendTagFilterList.innerHTML =
     all.length === 0
-      ? `<p class="hint-text">名單上還沒有任何標籤。</p>`
+      ? `<p class="hint-text">名單上還沒有人被貼標籤；在名單編輯的「標籤」欄加上之後就會出現在這裡。</p>`
       : all
           .map(
             (t) => `
