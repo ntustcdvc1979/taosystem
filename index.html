@@ -64,6 +64,7 @@
           <button id="ai-heat-btn" class="btn-secondary hidden">AI 評估熱度</button>
           <button id="toggle-hidden-tags-btn" class="btn-secondary">顯示團內幹部</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
+          <button id="trend-btn" class="btn-secondary">趨勢分析</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
 
@@ -249,6 +250,53 @@
           </p>
           <div class="modal-actions">
             <button type="button" id="bind-close-btn" class="btn-secondary">關閉</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 趨勢分析 頁面（熱度／互動度／參與度隨時間的變化） -->
+      <div id="trend-modal" class="modal hidden">
+        <div class="modal-content trend-modal-content">
+          <button type="button" id="trend-close-btn" class="modal-close" aria-label="關閉">×</button>
+          <h2>趨勢分析</h2>
+          <p class="hint-text">
+            用現有的活動紀錄與聯絡紀錄往回推算每個時間點的指標，所以補登舊紀錄後趨勢會跟著更新。
+            點圖上的色塊（或下方圖例）可以看到那個時間點屬於該分類的名單，並直接幫他們加標籤。
+          </p>
+
+          <div class="trend-controls">
+            <label>
+              期間
+              <select id="trend-range">
+                <option value="8">近 8 週</option>
+                <option value="12" selected>近 12 週</option>
+                <option value="26">近半年</option>
+              </select>
+            </label>
+            <label>
+              取樣間隔
+              <select id="trend-step">
+                <option value="7" selected>每週</option>
+                <option value="14">每兩週</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="trend-charts" class="trend-charts"></div>
+
+          <div id="trend-detail" class="trend-detail hidden">
+            <div class="trend-detail-head">
+              <span id="trend-detail-title" class="field-label"></span>
+              <button type="button" id="trend-detail-close" class="btn-link-plain">收起</button>
+            </div>
+            <div class="trend-detail-actions">
+              <button type="button" id="trend-select-all" class="btn-secondary btn-small">全選</button>
+              <button type="button" id="trend-select-none" class="btn-secondary btn-small">全不選</button>
+              <input type="text" id="trend-tag-input" placeholder="要加上的標籤，例：需關心" autocomplete="off" />
+              <button type="button" id="trend-tag-btn" class="btn-primary btn-small">加標籤</button>
+            </div>
+            <p id="trend-detail-status" class="hint-text"></p>
+            <div id="trend-detail-list" class="trend-detail-list"></div>
           </div>
         </div>
       </div>

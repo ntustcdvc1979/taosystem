@@ -762,6 +762,181 @@ button {
   margin-top: 1rem;
 }
 
+/* 趨勢分析 */
+.trend-modal-content {
+  max-width: 860px;
+}
+
+.trend-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0.6rem 0 0.4rem;
+}
+
+.trend-controls label {
+  flex: 0 0 auto;
+  font-size: 0.85rem;
+}
+
+.trend-chart {
+  margin-bottom: 1.1rem;
+}
+
+.trend-chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.trend-svg {
+  width: 100%;
+  height: 190px;
+  overflow: visible;
+}
+
+.trend-grid {
+  stroke: #e8ebee;
+  stroke-width: 1;
+}
+
+.trend-axis {
+  fill: #999;
+  font-size: 11px;
+}
+
+.trend-bar {
+  cursor: pointer;
+  stroke: #fff;
+  stroke-width: 0.5;
+}
+
+.trend-bar:hover {
+  opacity: 0.75;
+}
+
+.trend-bar.is-selected {
+  stroke: #333;
+  stroke-width: 2;
+}
+
+/* 堆疊圖的顏色跟卡片上的徽章同一套：熱度 灰→藍→琥珀→紅，互動度藍階，參與度綠階 */
+.bar-heat-0 { fill: #dfe5ec; }
+.bar-heat-1 { fill: #7cc4f5; }
+.bar-heat-2 { fill: #f2c14e; }
+.bar-heat-3 { fill: #dc2626; }
+.bar-act-0 { fill: #e6e9ec; }
+.bar-act-1 { fill: #a8cbe4; }
+.bar-act-2 { fill: #5a9bc4; }
+.bar-act-3 { fill: #1f6a99; }
+.bar-part-0 { fill: #e6e9ec; }
+.bar-part-1 { fill: #a9dcbe; }
+.bar-part-2 { fill: #57b880; }
+.bar-part-3 { fill: #1e8a4c; }
+
+.trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+
+.trend-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #e3e6ea;
+  border-radius: 999px;
+  background: #fff;
+  color: #555;
+  font-size: 0.78rem;
+}
+
+.trend-legend-item:hover {
+  border-color: #b9c2cc;
+}
+
+/* 圖例色塊借用上面的 fill，所以用 background 另外指定同一色 */
+.trend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.trend-swatch.bar-heat-0 { background: #dfe5ec; }
+.trend-swatch.bar-heat-1 { background: #7cc4f5; }
+.trend-swatch.bar-heat-2 { background: #f2c14e; }
+.trend-swatch.bar-heat-3 { background: #dc2626; }
+.trend-swatch.bar-act-0 { background: #e6e9ec; }
+.trend-swatch.bar-act-1 { background: #a8cbe4; }
+.trend-swatch.bar-act-2 { background: #5a9bc4; }
+.trend-swatch.bar-act-3 { background: #1f6a99; }
+.trend-swatch.bar-part-0 { background: #e6e9ec; }
+.trend-swatch.bar-part-1 { background: #a9dcbe; }
+.trend-swatch.bar-part-2 { background: #57b880; }
+.trend-swatch.bar-part-3 { background: #1e8a4c; }
+
+.trend-detail {
+  border-top: 1px solid #eee;
+  padding-top: 0.7rem;
+}
+
+.trend-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.trend-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.2rem;
+}
+
+.trend-detail-actions input {
+  flex: 1 1 180px;
+}
+
+.trend-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.trend-person {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.2rem;
+  border-bottom: 1px solid #f2f2f2;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.trend-person input {
+  width: auto;
+  margin: 0;
+}
+
+.trend-person-name {
+  font-weight: 600;
+}
+
+.trend-person-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
 /* 使用者管理（道務組組長） */
 .member-add-row {
   display: flex;

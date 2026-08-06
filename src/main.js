@@ -67,6 +67,23 @@ const filterScope = document.getElementById("filter-scope");
 const unitNameLabel = document.getElementById("unit-name");
 const bindMeBtn = document.getElementById("bind-me-btn");
 
+// 趨勢分析
+const trendBtn = document.getElementById("trend-btn");
+const trendModal = document.getElementById("trend-modal");
+const trendCloseBtn = document.getElementById("trend-close-btn");
+const trendRange = document.getElementById("trend-range");
+const trendStep = document.getElementById("trend-step");
+const trendCharts = document.getElementById("trend-charts");
+const trendDetail = document.getElementById("trend-detail");
+const trendDetailTitle = document.getElementById("trend-detail-title");
+const trendDetailClose = document.getElementById("trend-detail-close");
+const trendDetailList = document.getElementById("trend-detail-list");
+const trendDetailStatus = document.getElementById("trend-detail-status");
+const trendSelectAll = document.getElementById("trend-select-all");
+const trendSelectNone = document.getElementById("trend-select-none");
+const trendTagInput = document.getElementById("trend-tag-input");
+const trendTagBtn = document.getElementById("trend-tag-btn");
+
 // 使用者管理（只有道務組組長看得到）
 const membersBtn = document.getElementById("members-btn");
 const membersModal = document.getElementById("members-modal");
@@ -706,19 +723,19 @@ function hasHiddenTag(entry) {
 // ---------- 參與度與成全熱度（簡覽模式用） ----------
 // 兩個指標都由既有紀錄推算，不另外儲存，所以永遠跟著資料自動更新。
 
-function daysSince(dateStr) {
+// asOf 讓同一套指標可以回推到過去某一天（趨勢分析用），不給就是今天。
+function daysSince(dateStr, asOf = null) {
   if (!dateStr) return null;
   const then = new Date(dateStr + "T00:00:00");
   if (Number.isNaN(then.getTime())) return null;
-  const today = new Date();
-  return Math.floor((today - then) / 86400000);
+  return Math.floor(((asOf || new Date()) - then) / 86400000);
 }
 
 // 近一個月「辦過的活動」清單：活動管理登錄的活動，加上大家在活動紀錄裡寫到、
 // 但沒登錄在活動管理的活動（例如臨時的聚會）。以活動名稱辨識，避免同一場算兩次。
-function recentActivityPool() {
+function recentActivityPool(asOf = null) {
   const inWindow = (dateStr) => {
-    const d = daysSince(dateStr);
+    const d = daysSince(dateStr, asOf);
     return d !== null && d >= 0 && d <= 30;
   };
   const pool = new Map(); // 名稱 → { name, event }
@@ -741,8 +758,8 @@ function recentActivityPool() {
 }
 
 // 參與度：近一個月辦過的活動裡，這個人出席了幾成
-function participation(entry) {
-  const pool = recentActivityPool();
+function participation(entry, asOf = null) {
+  const pool = recentActivityPool(asOf);
   if (pool.length === 0) {
     return { level: null, label: "—", text: "近一個月沒有活動" };
   }
@@ -750,7 +767,7 @@ function participation(entry) {
   const myActivityNames = new Set(
     (entry.activities || [])
       .filter((a) => {
-        const d = daysSince(a.date);
+        const d = daysSince(a.date, asOf);
         return d !== null && d >= 0 && d <= 30;
       })
       .map((a) => (a.activity || "").trim())
@@ -785,12 +802,12 @@ const INTERACTION_RULE =
   `${INTERACTION_MID_DAYS}–${INTERACTION_HIGH_DAYS - 1} 天＝中、1 天＝低、0 天＝無。` +
   `同一天多筆只算一天。`;
 
-function interaction(entry) {
+function interaction(entry, asOf = null) {
   const days = new Set(
     [...(entry.activities || []), ...(entry.talks || [])]
       .map((r) => r.date)
       .filter((d) => {
-        const n = daysSince(d);
+        const n = daysSince(d, asOf);
         return n !== null && n >= 0 && n < INTERACTION_DAYS;
       })
   );
@@ -809,19 +826,28 @@ const HEAT_LABELS = ["冷", "涼", "溫", "熱"];
 const HEAT_DECAY_DAYS = 7;
 
 // 最近一次互動（活動紀錄或聯絡紀錄）距今幾天
-function lastTouchDays(entry) {
+function lastTouchDays(entry, asOf = null) {
   const dates = [...(entry.activities || []), ...(entry.talks || [])]
     .map((r) => r.date)
     .filter(Boolean)
+    .filter((d) => {
+      const n = daysSince(d, asOf);
+      return n !== null && n >= 0; // 回推時不看那一天之後才發生的紀錄
+    })
     .sort();
   if (dates.length === 0) return null;
-  return daysSince(dates[dates.length - 1]);
+  return daysSince(dates[dates.length - 1], asOf);
 }
 
-function heat(entry) {
+function heat(entry, asOf = null) {
   const h = entry.heat || {};
-  const base = typeof h.level === "number" ? h.level : 0;
-  const days = lastTouchDays(entry);
+  let base = typeof h.level === "number" ? h.level : 0;
+  const days = lastTouchDays(entry, asOf);
+  // 回推過去某一天時，若那時候還沒有任何紀錄，就不能套用之後才評出來的熱度
+  if (asOf && days === null) {
+    const hasAnyRecord = [...(entry.activities || []), ...(entry.talks || [])].some((r) => r.date);
+    if (hasAnyRecord) base = 0;
+  }
   const weeks = days === null ? 0 : Math.floor(days / HEAT_DECAY_DAYS);
   const level = Math.max(0, base - weeks);
   return {
@@ -1564,6 +1590,302 @@ addTalkBtn.addEventListener("click", async () => {
 talkCloseBtn.addEventListener("click", closeTalkModal);
 talkModal.addEventListener("click", (e) => {
   if (e.target === talkModal) closeTalkModal();
+});
+
+// ---------- 趨勢分析 ----------
+// 三個指標都是從紀錄推算出來的，所以可以把「今天」換成過去某一天重算一次，
+// 不需要另外存歷史資料；補登舊紀錄之後，過去的趨勢也會跟著修正。
+const TREND_METRICS = [
+  {
+    key: "heat",
+    title: "成全熱度",
+    labels: HEAT_LABELS, // 冷 涼 溫 熱
+    compute: (entry, asOf) => heat(entry, asOf).level,
+  },
+  {
+    key: "act",
+    title: "互動度",
+    labels: ["無", "低", "中", "高"],
+    compute: (entry, asOf) => interaction(entry, asOf).level,
+  },
+  {
+    key: "part",
+    title: "參與度",
+    labels: ["無", "低", "中", "高"],
+    compute: (entry, asOf) => participation(entry, asOf).level,
+  },
+];
+
+let trendSnapshots = []; // [{ date, label, buckets: { heat: [[id...] x4], act: …, part: … } }]
+let trendSelection = null; // { metricKey, level, index }
+
+function trendEntries() {
+  return allEntries.filter((en) => showHiddenTags || !hasHiddenTag(en));
+}
+
+function buildTrendData() {
+  const weeks = Number(trendRange.value);
+  const step = Number(trendStep.value);
+  const entries = trendEntries();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const snapshots = [];
+  for (let daysBack = weeks * 7; daysBack >= 0; daysBack -= step) {
+    const asOf = new Date(today.getTime() - daysBack * 86400000);
+    const buckets = {};
+    TREND_METRICS.forEach((m) => {
+      buckets[m.key] = [[], [], [], []];
+      entries.forEach((en) => {
+        const level = m.compute(en, asOf);
+        // 參與度在「那一個月完全沒有活動」時是 null，歸到「無」那一格
+        buckets[m.key][level === null ? 0 : level].push(en.id);
+      });
+    });
+    snapshots.push({
+      date: asOf,
+      label: `${asOf.getMonth() + 1}/${asOf.getDate()}`,
+      buckets,
+    });
+  }
+  trendSnapshots = snapshots;
+}
+
+function renderTrendCharts() {
+  buildTrendData();
+  const total = trendEntries().length;
+  if (total === 0) {
+    trendCharts.innerHTML = `<p class="hint-text">名單裡還沒有資料。</p>`;
+    return;
+  }
+  trendCharts.innerHTML = TREND_METRICS.map((m) => renderTrendChart(m, total)).join("");
+  highlightTrendSelection();
+}
+
+function renderTrendChart(metric, total) {
+  const n = trendSnapshots.length;
+  const W = 720;
+  const H = 200;
+  const padL = 34;
+  const padR = 8;
+  const padT = 10;
+  const padB = 26;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const slot = plotW / n;
+  const barW = Math.max(6, Math.min(38, slot * 0.68));
+  // y 軸最高就是總人數（堆疊起來一定等於總人數），刻度取 0 / 一半 / 全部
+  const yOf = (count) => padT + plotH - (count / total) * plotH;
+
+  const grid = [0, Math.round(total / 2), total]
+    .map(
+      (v) => `
+        <line x1="${padL}" y1="${yOf(v)}" x2="${W - padR}" y2="${yOf(v)}" class="trend-grid" />
+        <text x="${padL - 6}" y="${yOf(v) + 4}" class="trend-axis" text-anchor="end">${v}</text>`
+    )
+    .join("");
+
+  const bars = trendSnapshots
+    .map((snap, i) => {
+      const x = padL + slot * i + (slot - barW) / 2;
+      let y = padT + plotH;
+      // 由下往上堆：無/冷 在最下面
+      return metric.labels
+        .map((label, level) => {
+          const count = snap.buckets[metric.key][level].length;
+          if (count === 0) return "";
+          const h = (count / total) * plotH;
+          y -= h;
+          return `<rect class="trend-bar bar-${metric.key}-${level}" x="${x.toFixed(1)}" y="${y.toFixed(1)}"
+            width="${barW.toFixed(1)}" height="${h.toFixed(1)}"
+            data-metric="${metric.key}" data-level="${level}" data-index="${i}"
+            role="button" tabindex="0"><title>${snap.label} ${label} ${count} 人</title></rect>`;
+        })
+        .join("");
+    })
+    .join("");
+
+  // x 軸標籤太多會擠在一起，超過 9 個就隔一個標一次
+  const everyOther = n > 9 ? 2 : 1;
+  const xLabels = trendSnapshots
+    .map((snap, i) =>
+      i % everyOther === 0
+        ? `<text x="${(padL + slot * i + slot / 2).toFixed(1)}" y="${H - 8}" class="trend-axis" text-anchor="middle">${snap.label}</text>`
+        : ""
+    )
+    .join("");
+
+  const legend = metric.labels
+    .map(
+      (label, level) =>
+        `<button type="button" class="trend-legend-item" data-metric="${metric.key}" data-level="${level}" data-index="${n - 1}">
+           <span class="trend-swatch bar-${metric.key}-${level}"></span>${label}
+         </button>`
+    )
+    .join("");
+
+  return `
+    <div class="trend-chart" data-metric="${metric.key}">
+      <div class="trend-chart-head">
+        <span class="field-label">${metric.title}</span>
+        <span class="hint-text">y 軸＝人數（共 ${total} 人）</span>
+      </div>
+      <svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="none">
+        ${grid}${bars}${xLabels}
+      </svg>
+      <div class="trend-legend">${legend}</div>
+    </div>`;
+}
+
+function highlightTrendSelection() {
+  trendCharts.querySelectorAll(".trend-bar").forEach((rect) => {
+    const on =
+      trendSelection &&
+      rect.dataset.metric === trendSelection.metricKey &&
+      Number(rect.dataset.level) === trendSelection.level &&
+      Number(rect.dataset.index) === trendSelection.index;
+    rect.classList.toggle("is-selected", !!on);
+  });
+}
+
+function selectTrendBucket(metricKey, level, index) {
+  const snap = trendSnapshots[index];
+  const metric = TREND_METRICS.find((m) => m.key === metricKey);
+  if (!snap || !metric) return;
+  trendSelection = { metricKey, level, index };
+  highlightTrendSelection();
+
+  const ids = snap.buckets[metricKey][level];
+  const dateText = `${snap.date.getFullYear()}/${snap.date.getMonth() + 1}/${snap.date.getDate()}`;
+  trendDetailTitle.textContent = `${metric.title}「${metric.labels[level]}」 · ${dateText} · ${ids.length} 人`;
+  trendDetailStatus.textContent = "";
+  trendTagInput.value = "";
+  trendDetail.classList.remove("hidden");
+
+  if (ids.length === 0) {
+    trendDetailList.innerHTML = `<p class="hint-text">這個時間點沒有人在這一級。</p>`;
+    return;
+  }
+  trendDetailList.innerHTML = ids
+    .map((id) => {
+      const en = allEntries.find((e) => e.id === id);
+      if (!en) return "";
+      const dept = en.department ? `<span class="hint-text">${escapeHtml(en.department)}</span>` : "";
+      const tags = (en.tags || [])
+        .map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`)
+        .join("");
+      return `
+        <label class="trend-person">
+          <input type="checkbox" value="${id}" checked />
+          <span class="trend-person-name">${escapeHtml(en.name)}</span>
+          ${dept}
+          <span class="trend-person-tags">${tags}</span>
+        </label>`;
+    })
+    .join("");
+}
+
+// 幫選起來的人加同一個標籤（已經有這個標籤的就跳過）
+async function addTagToSelected() {
+  const tag = trendTagInput.value.trim();
+  if (!tag) {
+    trendDetailStatus.textContent = "請先填要加上的標籤。";
+    return;
+  }
+  const ids = [...trendDetailList.querySelectorAll("input[type=checkbox]:checked")].map(
+    (c) => c.value
+  );
+  if (ids.length === 0) {
+    trendDetailStatus.textContent = "沒有勾選任何人。";
+    return;
+  }
+  trendTagBtn.disabled = true;
+  trendDetailStatus.textContent = "處理中...";
+  let updated = 0;
+  let skipped = 0;
+  const failures = [];
+  for (const id of ids) {
+    const entry = allEntries.find((e) => e.id === id);
+    const ref = entryRef(entry);
+    if (!entry || !ref) continue;
+    const tags = entry.tags || [];
+    if (tags.includes(tag)) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      await updateDoc(ref, { tags: [...tags, tag] });
+      updated += 1;
+    } catch (err) {
+      failures.push(`${entry.name}：${err.code || err.message}`);
+    }
+  }
+  const parts = [`已幫 ${updated} 人加上「${tag}」`];
+  if (skipped > 0) parts.push(`${skipped} 人本來就有`);
+  if (failures.length > 0) parts.push(`${failures.length} 人失敗（${failures[0]}）`);
+  trendDetailStatus.textContent = parts.join("，") + "。";
+  trendTagBtn.disabled = false;
+  trendTagInput.value = "";
+}
+
+function openTrendModal() {
+  trendSelection = null;
+  trendDetail.classList.add("hidden");
+  renderTrendCharts();
+  trendModal.classList.remove("hidden");
+}
+
+trendBtn.addEventListener("click", openTrendModal);
+trendCloseBtn.addEventListener("click", () => trendModal.classList.add("hidden"));
+trendModal.addEventListener("click", (e) => {
+  if (e.target === trendModal) trendModal.classList.add("hidden");
+});
+[trendRange, trendStep].forEach((sel) =>
+  sel.addEventListener("change", () => {
+    trendSelection = null;
+    trendDetail.classList.add("hidden");
+    renderTrendCharts();
+  })
+);
+
+trendCharts.addEventListener("click", (e) => {
+  const target = e.target.closest(".trend-bar, .trend-legend-item");
+  if (!target) return;
+  selectTrendBucket(
+    target.dataset.metric,
+    Number(target.dataset.level),
+    Number(target.dataset.index)
+  );
+});
+trendCharts.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const target = e.target.closest(".trend-bar");
+  if (!target) return;
+  e.preventDefault();
+  selectTrendBucket(
+    target.dataset.metric,
+    Number(target.dataset.level),
+    Number(target.dataset.index)
+  );
+});
+
+trendDetailClose.addEventListener("click", () => {
+  trendDetail.classList.add("hidden");
+  trendSelection = null;
+  highlightTrendSelection();
+});
+trendSelectAll.addEventListener("click", () => {
+  trendDetailList.querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = true));
+});
+trendSelectNone.addEventListener("click", () => {
+  trendDetailList.querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = false));
+});
+trendTagBtn.addEventListener("click", addTagToSelected);
+trendTagInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    addTagToSelected();
+  }
 });
 
 // ---------- Modal open/close ----------
