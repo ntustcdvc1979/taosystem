@@ -1453,12 +1453,29 @@ function renderTagFilter() {
           )
           .join("");
   const off = tags.filter((t) => hiddenTags.has(t)).length;
-  tagFilterBtn.textContent = off > 0 ? `標籤篩選（隱藏 ${off}）` : "標籤篩選";
+  tagFilterBtn.textContent = off > 0 ? `標籤篩選（隱藏 ${off}）▾` : "標籤篩選 ▾";
 }
 
-tagFilterBtn.addEventListener("click", () => {
-  tagFilterPanel.classList.toggle("hidden");
-  if (!tagFilterPanel.classList.contains("hidden")) renderTagFilter();
+function closeTagFilter() {
+  tagFilterPanel.classList.add("hidden");
+  tagFilterBtn.setAttribute("aria-expanded", "false");
+}
+
+tagFilterBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const open = tagFilterPanel.classList.toggle("hidden") === false;
+  tagFilterBtn.setAttribute("aria-expanded", String(open));
+  if (open) renderTagFilter();
+});
+
+// 下拉選單：點到別的地方或按 Esc 就收起來
+document.addEventListener("click", (e) => {
+  if (tagFilterPanel.classList.contains("hidden")) return;
+  if (e.target.closest(".tag-filter-wrap")) return;
+  closeTagFilter();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeTagFilter();
 });
 
 tagFilterList.addEventListener("change", (e) => {
@@ -1728,7 +1745,7 @@ function trendEntries() {
 
 function renderTrendTagFilter() {
   const tags = knownTags().filter((t) => !hiddenTags.has(t));
-  // 選過但現在已經沒人用的標籤也留著，不然使用者會找不到自己剛才勾的那個
+  // 選過但現在已經沒人用的標籤也留著，不然使用者會找不到自己剛才點的那個
   const all = [...new Set([...tags, ...trendTagFilter])];
   trendTagFilterList.innerHTML =
     all.length === 0
@@ -1736,12 +1753,13 @@ function renderTrendTagFilter() {
       : all
           .map(
             (t) => `
-        <label class="tag-filter-item">
-          <input type="checkbox" value="${escapeHtml(t)}" ${trendTagFilter.has(t) ? "checked" : ""} />
-          ${escapeHtml(t)}
-        </label>`
+        <button type="button" class="tag-toggle${trendTagFilter.has(t) ? " is-on" : ""}"
+          data-tag="${escapeHtml(t)}" aria-pressed="${trendTagFilter.has(t)}">${escapeHtml(t)}</button>`
           )
-          .join("");
+          .join("") +
+        (trendTagFilter.size > 0
+          ? `<button type="button" class="btn-link-plain" data-clear="1">清除</button>`
+          : "");
 }
 
 function buildTrendData() {
@@ -1965,13 +1983,16 @@ function openTrendModal() {
   trendModal.classList.remove("hidden");
 }
 
-trendTagFilterList.addEventListener("change", (e) => {
-  const box = e.target.closest("input[type=checkbox]");
-  if (!box) return;
-  if (box.checked) trendTagFilter.add(box.value);
-  else trendTagFilter.delete(box.value);
+trendTagFilterList.addEventListener("click", (e) => {
+  const clear = e.target.closest("[data-clear]");
+  const chip = e.target.closest(".tag-toggle");
+  if (!clear && !chip) return;
+  if (clear) trendTagFilter.clear();
+  else if (trendTagFilter.has(chip.dataset.tag)) trendTagFilter.delete(chip.dataset.tag);
+  else trendTagFilter.add(chip.dataset.tag);
   trendSelection = null;
   trendDetail.classList.add("hidden");
+  renderTrendTagFilter();
   renderTrendCharts();
 });
 

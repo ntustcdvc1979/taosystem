@@ -202,55 +202,94 @@ button {
   color: #999;
 }
 
-/* 標籤篩選面板 */
+/* 標籤篩選：工具列上的下拉選單 */
+.tag-filter-wrap {
+  position: relative;
+  display: inline-block;
+}
+
 .tag-filter-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  width: max-content;
+  min-width: 240px;
+  max-width: min(320px, 90vw);
+  max-height: 320px;
+  overflow-y: auto;
   background: #fff;
+  border: 1px solid #d5d8dd;
   border-radius: 8px;
-  padding: 0.7rem 0.9rem;
-  margin-bottom: 0.6rem;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  padding: 0.6rem 0.7rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  text-align: left;
 }
 
-.tag-filter-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin-bottom: 0.4rem;
+.tag-filter-panel .hint-text {
+  display: block;
+  margin-bottom: 0.5rem;
 }
 
-.tag-filter-head .hint-text {
-  flex: 1 1 240px;
+.tag-filter-foot {
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid #eee;
+  text-align: right;
 }
 
+/* 選單裡一列一個標籤，比較好點（尤其手機） */
 .tag-filter-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  flex-direction: column;
+  gap: 0.1rem;
 }
 
 .tag-filter-item {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid #e2e5ea;
-  border-radius: 999px;
-  background: #f7f8fa;
-  color: #555;
-  font-size: 0.8rem;
+  gap: 0.45rem;
+  padding: 0.35rem 0.3rem;
+  border-radius: 6px;
+  color: #444;
+  font-size: 0.85rem;
   cursor: pointer;
 }
 
-.tag-filter-item:has(input:checked) {
-  background: #e8f0fe;
-  border-color: #d3e0fb;
-  color: #2559c4;
+.tag-filter-item:hover {
+  background: #f4f6f9;
 }
 
 .tag-filter-item input {
   width: auto;
   margin: 0;
+}
+
+/* 趨勢分析：直接點的標籤按鈕 */
+.tag-toggle-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.tag-toggle {
+  padding: 0.25rem 0.7rem;
+  border: 1px solid #e2e5ea;
+  border-radius: 999px;
+  background: #f7f8fa;
+  color: #555;
+  font-size: 0.8rem;
+}
+
+.tag-toggle:hover {
+  border-color: #b9c2cc;
+}
+
+.tag-toggle.is-on {
+  background: #2f6fed;
+  border-color: #2f6fed;
+  color: #fff;
 }
 
 /* 近兩週活動提醒 */
