@@ -1,5 +1,6 @@
 import "./style.css";
 import { handleInAppBrowser } from "./inapp.js";
+import { createTagEditor } from "./tageditor.js";
 import { auth, db } from "./firebase.js";
 import {
   getSharedApiKey,
@@ -81,7 +82,10 @@ const trendDetailList = document.getElementById("trend-detail-list");
 const trendDetailStatus = document.getElementById("trend-detail-status");
 const trendSelectAll = document.getElementById("trend-select-all");
 const trendSelectNone = document.getElementById("trend-select-none");
-const trendTagInput = document.getElementById("trend-tag-input");
+const trendTagInput = createTagEditor(document.getElementById("trend-tag-input"), {
+  suggest: () => knownTags(),
+  placeholder: "要加上的標籤，例：需關心",
+});
 const trendTagBtn = document.getElementById("trend-tag-btn");
 
 // 使用者管理（只有道務組組長看得到）
@@ -144,7 +148,11 @@ const scopeHint = document.getElementById("scope-hint");
 const fieldName = document.getElementById("field-name");
 const fieldGender = document.getElementById("field-gender");
 const fieldDepartment = document.getElementById("field-department");
-const fieldTags = document.getElementById("field-tags");
+// 名單編輯的標籤欄：圓角標籤 + 打字搜尋既有標籤
+const fieldTags = createTagEditor(document.getElementById("field-tags"), {
+  suggest: () => knownTags(),
+  placeholder: "輸入標籤，例：需關心",
+});
 const fieldBackground = document.getElementById("field-background");
 const fieldContact = document.getElementById("field-contact");
 const fieldStatus = document.getElementById("field-status");
@@ -718,6 +726,18 @@ noticeDismissBtn.addEventListener("click", () => {
 // 對象只要有任何一個預設隱藏的標籤（例：團內幹部），整張卡片就不顯示（除非開關開啟）
 function hasHiddenTag(entry) {
   return (entry.tags || []).some((t) => HIDDEN_TAGS.includes(t));
+}
+
+// 目前名單上出現過的所有標籤，常用的排前面（標籤輸入框的搜尋來源）
+function knownTags() {
+  const counts = new Map();
+  allEntries.forEach((en) =>
+    (en.tags || []).forEach((t) => {
+      const tag = (t || "").trim();
+      if (tag) counts.set(tag, (counts.get(tag) || 0) + 1);
+    })
+  );
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t);
 }
 
 // ---------- 參與度與成全熱度（簡覽模式用） ----------
@@ -1754,12 +1774,11 @@ function selectTrendBucket(metricKey, level, index) {
   if (!snap || !metric) return;
   trendSelection = { metricKey, level, index };
   highlightTrendSelection();
+  trendDetailStatus.textContent = "";
 
   const ids = snap.buckets[metricKey][level];
   const dateText = `${snap.date.getFullYear()}/${snap.date.getMonth() + 1}/${snap.date.getDate()}`;
   trendDetailTitle.textContent = `${metric.title}「${metric.labels[level]}」 · ${dateText} · ${ids.length} 人`;
-  trendDetailStatus.textContent = "";
-  trendTagInput.value = "";
   trendDetail.classList.remove("hidden");
 
   if (ids.length === 0) {
@@ -1785,10 +1804,11 @@ function selectTrendBucket(metricKey, level, index) {
     .join("");
 }
 
-// 幫選起來的人加同一個標籤（已經有這個標籤的就跳過）
+// 幫選起來的人加上標籤（可以一次加好幾個；已經有的就跳過）
 async function addTagToSelected() {
-  const tag = trendTagInput.value.trim();
-  if (!tag) {
+  trendTagInput.commitPending();
+  const newTags = trendTagInput.getTags();
+  if (newTags.length === 0) {
     trendDetailStatus.textContent = "請先填要加上的標籤。";
     return;
   }
@@ -1809,23 +1829,31 @@ async function addTagToSelected() {
     const ref = entryRef(entry);
     if (!entry || !ref) continue;
     const tags = entry.tags || [];
-    if (tags.includes(tag)) {
+    const toAdd = newTags.filter(
+      (t) => !tags.some((existing) => existing.toLowerCase() === t.toLowerCase())
+    );
+    if (toAdd.length === 0) {
       skipped += 1;
       continue;
     }
     try {
-      await updateDoc(ref, { tags: [...tags, tag] });
+      await updateDoc(ref, { tags: [...tags, ...toAdd] });
       updated += 1;
     } catch (err) {
       failures.push(`${entry.name}：${err.code || err.message}`);
     }
   }
-  const parts = [`已幫 ${updated} 人加上「${tag}」`];
+  const label = newTags.map((t) => `「${t}」`).join("");
+  const parts = [`已幫 ${updated} 人加上${label}`];
   if (skipped > 0) parts.push(`${skipped} 人本來就有`);
   if (failures.length > 0) parts.push(`${failures.length} 人失敗（${failures[0]}）`);
-  trendDetailStatus.textContent = parts.join("，") + "。";
   trendTagBtn.disabled = false;
-  trendTagInput.value = "";
+  trendTagInput.clear();
+  // 重畫一次名單，剛加上的標籤才會出現在每個人旁邊（狀態訊息要留在最後設）
+  if (trendSelection) {
+    selectTrendBucket(trendSelection.metricKey, trendSelection.level, trendSelection.index);
+  }
+  trendDetailStatus.textContent = parts.join("，") + "。";
 }
 
 function openTrendModal() {
@@ -1881,12 +1909,6 @@ trendSelectNone.addEventListener("click", () => {
   trendDetailList.querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = false));
 });
 trendTagBtn.addEventListener("click", addTagToSelected);
-trendTagInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    addTagToSelected();
-  }
-});
 
 // ---------- Modal open/close ----------
 function openModal(entry = null) {
@@ -1904,7 +1926,7 @@ function openModal(entry = null) {
     fieldName.value = entry.name || "";
     fieldGender.value = entry.gender || "";
     fieldDepartment.value = entry.department || "";
-    fieldTags.value = (entry.tags || []).join(", ");
+    fieldTags.setTags(entry.tags || []);
     fieldBackground.value = getBackground(entry);
     fieldContact.readOnly = false;
     fieldContact.value = entry.contact || "";
@@ -1920,6 +1942,7 @@ function openModal(entry = null) {
     scopeHint.textContent = "個人名單只有你自己看得到，之後可以再轉為團隊名單。";
     fieldContact.readOnly = false;
     teamContactDraft = "";
+    fieldTags.clear(); // form.reset() 清不到自訂的標籤欄
   }
   applyScopeToContactField();
   entryModal.classList.remove("hidden");
@@ -1959,16 +1982,14 @@ entryModal.addEventListener("click", (e) => {
 // ---------- Create / Update / Delete ----------
 entryForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  fieldTags.commitPending(); // 打了字卻沒按 Enter 的標籤也算數
   // 注意：activities / talks 不在這裡處理，改由各自的對話框獨立新增/編輯，
   // 這裡不能帶入這些欄位，否則 updateDoc 會把既有紀錄整個蓋掉。
   const data = {
     name: fieldName.value.trim(),
     gender: fieldGender.value,
     department: fieldDepartment.value.trim(),
-    tags: fieldTags.value
-      .split(/[,，、]/)
-      .map((t) => t.trim())
-      .filter(Boolean),
+    tags: fieldTags.getTags(),
     background: fieldBackground.value.trim(),
     // 個人名單的聯絡人固定是自己
     contact: fieldScope.value === "personal" ? myDisplayName() : fieldContact.value.trim(),

@@ -599,6 +599,96 @@ button {
   border: 1px solid #e2e5ea;
 }
 
+/* 標籤輸入元件：圓角標籤 + 打字搜尋既有標籤 */
+.tag-editor {
+  position: relative;
+}
+
+.tag-editor-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  background: #fff;
+  cursor: text;
+}
+
+.tag-editor-box:focus-within {
+  border-color: #2f6fed;
+}
+
+.tag-pills {
+  display: contents;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.3rem 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: #e8f0fe;
+  color: #2559c4;
+  border: 1px solid #d3e0fb;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.tag-remove {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #6f8dc7;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.tag-remove:hover {
+  background: #d3e0fb;
+  color: #1b3f8f;
+}
+
+.tag-editor-input {
+  flex: 1 1 8rem;
+  min-width: 6rem;
+  border: none;
+  outline: none;
+  padding: 0.2rem 0.1rem;
+  margin: 0;
+  font-size: 0.9rem;
+  background: transparent;
+}
+
+.tag-suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 2px;
+}
+
+.tag-suggest-item {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tag-suggest-item:hover {
+  background: #f2f6ff;
+}
+
 .person-meta {
   color: #777;
   font-size: 0.85rem;
@@ -899,8 +989,8 @@ button {
   margin: 0.5rem 0 0.2rem;
 }
 
-.trend-detail-actions input {
-  flex: 1 1 180px;
+.trend-tag-editor {
+  flex: 1 1 200px;
 }
 
 .trend-detail-list {

@@ -115,8 +115,8 @@
             </label>
             <label>
               標籤
-              <input type="text" id="field-tags" placeholder="用逗號分隔，例：熱心,有意願,需關心" />
-              <span class="hint-text">多個標籤用逗號分隔；會顯示在卡片上，也可用搜尋框搜到。</span>
+              <div id="field-tags"></div>
+              <span class="hint-text">打字會搜尋用過的標籤，按 Enter 或點選就變成一個標籤；標籤會顯示在卡片上，也可用搜尋框搜到。</span>
             </label>
             <label>
               背景
@@ -292,7 +292,7 @@
             <div class="trend-detail-actions">
               <button type="button" id="trend-select-all" class="btn-secondary btn-small">全選</button>
               <button type="button" id="trend-select-none" class="btn-secondary btn-small">全不選</button>
-              <input type="text" id="trend-tag-input" placeholder="要加上的標籤，例：需關心" autocomplete="off" />
+              <div id="trend-tag-input" class="trend-tag-editor"></div>
               <button type="button" id="trend-tag-btn" class="btn-primary btn-small">加標籤</button>
             </div>
             <p id="trend-detail-status" class="hint-text"></p>
