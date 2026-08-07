@@ -141,14 +141,11 @@ const entriesList = document.getElementById("entries-list");
 // 名單與趨勢分析共用這一組設定。
 // 每個道務單位一律有「團內幹部」這個標籤（就算還沒人用），預設不點亮；
 // 其他標籤預設點亮。使用者調過之後依帳號記在這台裝置上。
-const BUILTIN_TAGS = ["團內幹部"];
-const DEFAULT_HIDDEN_TAGS = ["團內幹部"];
 const TAG_FILTER_KEY = "tagFilter";
 
-// 只記「使用者自己動過的標籤」，沒動過的一律套用預設值。
-// 這樣新出現的標籤預設是亮的，而「團內幹部」預設一直是暗的——
-// 不會因為某次按過「全部點亮」就把預設值永久洗掉。
-let tagOverrides = { shown: new Set(), hidden: new Set() };
+// 選起來的標籤才顯示：有選＝只顯示帶有其中任一標籤的人；一個都沒選＝全部顯示。
+// 選擇依帳號記在這台裝置上。
+let selectedTags = new Set();
 
 // 依登入帳號分開存，共用電腦時不會互相蓋掉
 function tagFilterKey() {
@@ -156,39 +153,19 @@ function tagFilterKey() {
   return uid ? `${TAG_FILTER_KEY}:${uid}` : TAG_FILTER_KEY;
 }
 
-function isTagOn(tag) {
-  if (tagOverrides.shown.has(tag)) return true;
-  if (tagOverrides.hidden.has(tag)) return false;
-  return !DEFAULT_HIDDEN_TAGS.includes(tag);
-}
-
-function setTagOn(tag, on) {
-  tagOverrides.shown.delete(tag);
-  tagOverrides.hidden.delete(tag);
-  (on ? tagOverrides.shown : tagOverrides.hidden).add(tag);
-  saveTagFilter();
-}
-
 function loadTagFilter() {
-  tagOverrides = { shown: new Set(), hidden: new Set() };
+  selectedTags = new Set();
   try {
     const raw = localStorage.getItem(tagFilterKey());
-    if (raw) {
-      const saved = JSON.parse(raw);
-      tagOverrides.shown = new Set(saved.shown || []);
-      tagOverrides.hidden = new Set(saved.hidden || []);
-    }
+    if (raw) selectedTags = new Set(JSON.parse(raw).selected || []);
   } catch {
-    // 存壞了就當作沒設定過，回到預設
+    // 存壞了就當作沒選
   }
 }
 
 function saveTagFilter() {
   try {
-    localStorage.setItem(
-      tagFilterKey(),
-      JSON.stringify({ shown: [...tagOverrides.shown], hidden: [...tagOverrides.hidden] })
-    );
+    localStorage.setItem(tagFilterKey(), JSON.stringify({ selected: [...selectedTags] }));
   } catch {
     // 無痕模式之類寫不進去就算了，只是這次不會記住
   }
@@ -999,9 +976,10 @@ noticeDismissBtn.addEventListener("click", () => {
   upcomingNotice.classList.add("hidden");
 });
 
-// 對象只要有任何一個預設隱藏的標籤（例：團內幹部），整張卡片就不顯示（除非開關開啟）
-function hasHiddenTag(entry) {
-  return (entry.tags || []).some((t) => !isTagOn(t));
+// 標籤篩選：一個都沒選就全部顯示；有選就只留帶有其中任一標籤的人
+function matchesTagFilter(entry) {
+  if (selectedTags.size === 0) return true;
+  return (entry.tags || []).some((t) => selectedTags.has(t));
 }
 
 // 目前名單上出現過的所有標籤，常用的排前面（標籤輸入框的搜尋來源）
@@ -1163,10 +1141,10 @@ function heat(entry, asOf = null) {
 // 把三個指標合成一個總分：熱度佔六成（談得多深最重要），參與度、互動度各佔兩成。
 // 每個指標都是 0–3 級，換算成 0–100 分。
 const SPIRIT_WEIGHTS = { heat: 0.6, participation: 0.2, interaction: 0.2 };
-const SPIRIT_LABELS = ["弱", "普", "佳", "旺"];
+const SPIRIT_LABELS = ["弱", "普", "佳", "強"];
 const SPIRIT_RULE =
   `道氣＝熱度 ×${SPIRIT_WEIGHTS.heat} ＋ 參與度 ×${SPIRIT_WEIGHTS.participation} ＋ 互動度 ×${SPIRIT_WEIGHTS.interaction}，` +
-  `每項 0–3 級換算成 0–100 分：73 分以上＝旺、47 分以上＝佳、1 分以上＝普、0 分＝弱。`;
+  `每項 0–3 級換算成 0–100 分：73 分以上＝強、47 分以上＝佳、1 分以上＝普、0 分＝弱。`;
 
 function spirit(entry, asOf = null) {
   const h = heat(entry, asOf).level;
@@ -1195,7 +1173,7 @@ function renderEntries() {
 
   const filtered = allEntries.filter((entry) => {
     if (scopeVal && (entry._scope || "team") !== scopeVal) return false;
-    if (hasHiddenTag(entry)) return false;
+    if (!matchesTagFilter(entry)) return false;
     // 點了趨勢圖上的色塊之後，名單卡只留那一群人
     if (trendFilterIds && !trendFilterIds.has(entry.id)) return false;
     if (statusVal && entry.status !== statusVal) return false;
@@ -1386,7 +1364,7 @@ async function runHeatAssessment(entries, statusEl, btn) {
 
 aiHeatBtn.addEventListener("click", async () => {
   // 只評估目前看得到的人（被標籤篩選藏起來的不評估）
-  const visible = allEntries.filter((en) => !hasHiddenTag(en));
+  const visible = allEntries.filter(matchesTagFilter);
   if (visible.length === 0) {
     alert("目前沒有可以評估的對象。");
     return;
@@ -1720,22 +1698,23 @@ toggleViewBtn.addEventListener("click", () => {
 });
 
 // ---------- 標籤篩選（名單與趨勢分析共用） ----------
-// 點亮的標籤才會顯示；一個對象只要帶有沒點亮的標籤，整張卡片就不出現。
-// 沒有任何標籤的對象一律顯示。
+// 選起來的標籤才顯示：有選＝只留帶有其中任一標籤的人；一個都沒選＝全部顯示。
 function allTagNames() {
-  return [...new Set([...BUILTIN_TAGS, ...knownTags(), ...tagOverrides.hidden])];
+  return [...new Set([...knownTags(), ...selectedTags])];
 }
 
 function renderTagFilter() {
   const tags = allTagNames();
-  tagFilterList.innerHTML = tags
-    .map((t) => {
-      const on = isTagOn(t);
-      return `<button type="button" class="tag-toggle${on ? " is-on" : ""}"
-        data-tag="${escapeHtml(t)}" aria-pressed="${on}">${escapeHtml(t)}</button>`;
-    })
-    .join("");
-  tagFilterAll.classList.toggle("hidden", tags.every((t) => isTagOn(t)));
+  tagFilterList.innerHTML = tags.length
+    ? tags
+        .map((t) => {
+          const on = selectedTags.has(t);
+          return `<button type="button" class="tag-toggle${on ? " is-on" : ""}"
+            data-tag="${escapeHtml(t)}" aria-pressed="${on}">${escapeHtml(t)}</button>`;
+        })
+        .join("")
+    : `<span class="hint-text">名單上還沒有人被貼標籤。</span>`;
+  tagFilterAll.classList.toggle("hidden", selectedTags.size === 0);
 }
 
 // 標籤篩選改變後，名單與趨勢圖都要重畫
@@ -1751,12 +1730,16 @@ function applyTagFilter() {
 tagFilterList.addEventListener("click", (e) => {
   const chip = e.target.closest(".tag-toggle");
   if (!chip) return;
-  setTagOn(chip.dataset.tag, !isTagOn(chip.dataset.tag));
+  const tag = chip.dataset.tag;
+  if (selectedTags.has(tag)) selectedTags.delete(tag);
+  else selectedTags.add(tag);
+  saveTagFilter();
   applyTagFilter();
 });
 
 tagFilterAll.addEventListener("click", () => {
-  allTagNames().forEach((t) => setTagOn(t, true));
+  selectedTags.clear();
+  saveTagFilter();
   applyTagFilter();
 });
 
@@ -2036,7 +2019,7 @@ let trendFilterIds = null; // 點了圖表之後，名單卡只顯示這些 id
 
 // 統計範圍就是名單頁篩選之後看得到的人，兩邊共用同一組標籤設定
 function trendEntries() {
-  return allEntries.filter((en) => !hasHiddenTag(en));
+  return allEntries.filter(matchesTagFilter);
 }
 
 function buildTrendData() {
@@ -2294,8 +2277,8 @@ function renderPersonChart(series, labels) {
 }
 
 // ---------- 匯出 CSV ----------
-// 每個人 × 每個時間點一列（長格式），所以匯出來的就是一份有時間軸的紀錄，
-// 丟進 Excel 直接做樞紐分析或折線圖都可以。時間點跟畫面上的單位一致（週／月／年）。
+// 一個人一組列，每個指標一列，欄位是各個時間點——所以一列橫著看就是那個人的走勢：
+// 哪一週是「涼」、哪一週轉「熱」一眼就看得出來。時間單位跟畫面上一致（週／月／年）。
 function exportTrendCsv() {
   const entries = trendEntries();
   if (entries.length === 0) {
@@ -2305,70 +2288,27 @@ function exportTrendCsv() {
   const { dates, unit } = trendDates();
   const unitLabel = { week: "週", month: "月", year: "年" }[trendUnit.value] || "週";
 
-  const header = [
-    "時間點",
-    "期間標籤",
-    "姓名",
-    "系級",
-    "性別",
-    "歸屬",
-    "成全狀況",
-    "標籤",
-    "聯絡人",
-    "道氣分數",
-    "道氣",
-    "熱度",
-    "熱度基準",
-    "參與度",
-    "互動度",
-    "近兩週互動天數",
-    "最近互動距今天數",
-    "累計活動紀錄筆數",
-    "累計聯絡紀錄筆數",
+  const metrics = [
+    { title: "道氣分數", value: (en, d) => spirit(en, d).score },
+    { title: "道氣", value: (en, d) => spirit(en, d).label },
+    { title: "成全熱度", value: (en, d) => heat(en, d).label },
+    { title: "參與度", value: (en, d) => participation(en, d).label },
+    { title: "互動度", value: (en, d) => interaction(en, d).label },
   ];
 
+  const header = ["姓名", "系級", "歸屬", "成全狀況", "標籤", "指標", ...dates.map(unit.label)];
+
   const rows = [];
-  dates.forEach((asOf) => {
-    const iso = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}-${String(asOf.getDate()).padStart(2, "0")}`;
-    entries.forEach((en) => {
-      const s = spirit(en, asOf);
-      const h = heat(en, asOf);
-      const p = participation(en, asOf);
-      const a = interaction(en, asOf);
-      const touch = lastTouchDays(en, asOf);
-      const countUpTo = (list) =>
-        (list || []).filter((r) => {
-          const days = daysSince(r.date, asOf);
-          return days !== null && days >= 0;
-        }).length;
-      const actDays = new Set(
-        [...(en.activities || []), ...(en.talks || [])]
-          .map((r) => r.date)
-          .filter((d) => {
-            const days = daysSince(d, asOf);
-            return days !== null && days >= 0 && days < INTERACTION_DAYS;
-          })
-      ).size;
+  entries.forEach((en) => {
+    metrics.forEach((m) => {
       rows.push([
-        iso,
-        unit.label(asOf),
         en.name || "",
         en.department || "",
-        en.gender || "",
         en._scope === "personal" ? "個人名單" : "團隊名單",
         en.status || "",
         (en.tags || []).join("、"),
-        en.contact || "",
-        s.score,
-        s.label,
-        h.label,
-        HEAT_LABELS[h.base] || "",
-        p.label,
-        a.label,
-        actDays,
-        touch === null ? "" : touch,
-        countUpTo(en.activities),
-        countUpTo(en.talks),
+        m.title,
+        ...dates.map((d) => m.value(en, d)),
       ]);
     });
   });
@@ -2383,7 +2323,8 @@ function exportTrendCsv() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `名單趨勢_${myUnitName || "名單"}_${unitLabel}_${today}.csv`;
+  const scope = selectedTags.size > 0 ? `_${[...selectedTags].join("+")}` : "";
+  link.download = `名單趨勢_${myUnitName || "名單"}${scope}_${unitLabel}_${today}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
