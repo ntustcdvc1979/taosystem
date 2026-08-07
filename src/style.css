@@ -952,9 +952,10 @@ button {
   gap: 0.5rem;
 }
 
+/* 等比例縮放：固定高度＋preserveAspectRatio="none" 會把文字橫向拉長，改成寬高一起縮 */
 .trend-svg {
   width: 100%;
-  height: 190px;
+  height: auto;
   overflow: visible;
 }
 

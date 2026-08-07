@@ -19,15 +19,7 @@ service cloud.firestore {
     function inUnit(unitId) {
       return hasMember() && myUnit() == unitId;
     }
-    // 道務組組長：寫在 units/{unitId}.leaderEmails（陣列），只能從 Console 指定。
-    // 組長可以增減「自己單位」的使用者 Email，但不能指派組長、也碰不到別的單位。
-    function isLeader() {
-      return hasMember() &&
-             get(/databases/$(database)/documents/units/$(myUnit()))
-               .data.get('leaderEmails', []).hasAny([request.auth.token.email]);
-    }
-
-    // 身分階梯：忠義字班講師 3 ＞ 成全組長 2 ＞ 組員 1 ＞ 非組員 0。
+    // 身分階梯：點傳師 4 ＞ 忠義字班講師 3 ＞ 成全組長 2 ＞ 組員 1 ＞ 非組員 0。
     // 帳號的身分寫在 memberEmails/{gmail}.roleRank（沒寫就當組員），由講師或道務組組長設定；
     // 名單每一筆也有 roleRank，一個人只看得到「比自己目前檢視身分更低階」的名單，
     // 所以同階之間互相看不到。
@@ -35,12 +27,12 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email))
                .data.get('roleRank', 1);
     }
+    // 忠義字班講師以上（含點傳師）：可以設定名單的身分，也是唯一能管理使用者的人
     function isTeacher() {
       return hasMember() && myRank() >= 3;
     }
-    // 可以管理使用者與身分的人：道務組組長（Console 指定）或忠義字班講師
     function canManageMembers() {
-      return isLeader() || isTeacher();
+      return isTeacher();
     }
 
     // 帳號歸屬：本人讀得到自己那一份；組長／講師讀得到（也管得到）同單位的每一份
@@ -104,6 +96,12 @@ service cloud.firestore {
       match /memberLinks/{userId} {
         allow read: if inUnit(unitId);
         allow write: if inUnit(unitId) && request.auth.uid == userId;
+      }
+
+      // 綁定用的姓名索引：只有姓名、系級、身分，同單位都讀得到，
+      // 身分階梯不擋這裡——不然看不到高階名單的人就永遠綁不到自己那一筆。
+      match /rosterIndex/{entryId} {
+        allow read, write: if inUnit(unitId);
       }
     }
 

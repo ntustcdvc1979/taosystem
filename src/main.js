@@ -41,11 +41,13 @@ const PERSONAL_COLLECTION = "personalEntries"; // 個人名單，只有建立者
 const CHAT_COLLECTION = "chatHistories"; // 每位使用者一份，文件 ID = 使用者 uid
 const EVENTS_COLLECTION = "events"; // 近期活動（名稱、日期、類型）
 const LINKS_COLLECTION = "memberLinks"; // 帳號 ↔ 名單對應
+// 綁定用的姓名索引：只放姓名與系級，同單位都讀得到（身分階梯不擋這裡），
+// 這樣看不到高階名單的人也能找到自己那一筆來綁定。
+const ROSTER_INDEX_COLLECTION = "rosterIndex";
 
 let myUnitId = null;
 let myUnitName = "";
 let myEntryId = null; // 這支帳號綁定到名單中的哪一位
-let iAmLeader = false; // 道務組組長，可以增減本單位的使用者
 let myRank = 1; // 自己的身分（3 講師／2 成全組長／1 組員／0 非組員）
 let viewRank = 1; // 目前用哪個身分在看名單（不會超過 myRank）
 
@@ -334,7 +336,8 @@ onAuthStateChanged(auth, async (user) => {
       unsubscribeMembers();
       unsubscribeMembers = null;
     }
-    iAmLeader = false;
+    myRank = 1;
+    viewRank = 1;
     membersBtn.classList.add("hidden");
     membersModal.classList.add("hidden");
     allEntries = [];
@@ -360,7 +363,7 @@ async function loadMyUnit() {
       return false;
     }
     myUnitId = unitId;
-    // 身分（忠義字班講師 3 ／成全組長 2 ／組員 1 ／非組員 0），沒設定就當組員
+    // 身分（點傳師 4 ／忠義字班講師 3 ／成全組長 2 ／組員 1 ／非組員 0），沒設定就當組員
     const rank = memberSnap.data().roleRank;
     myRank = typeof rank === "number" ? rank : 1;
     viewRank = myRank;
@@ -368,21 +371,19 @@ async function loadMyUnit() {
     const unitSnap = await getDoc(doc(db, "units", myUnitId));
     myUnitName = (unitSnap.exists() ? unitSnap.data().name : "") || myUnitId;
     teamName = myUnitName;
-    // 道務組組長寫在單位資料裡，只有 Console 改得動；組長才看得到「使用者管理」
-    const leaders = (unitSnap.exists() ? unitSnap.data().leaderEmails : null) || [];
-    iAmLeader = leaders.some((e) => (e || "").toLowerCase() === (email || "").toLowerCase());
   } catch (err) {
     loginError.textContent = "讀取帳號歸屬失敗：" + err.message;
     return false;
   }
   applyUnitName();
   applyMyRank();
-  membersBtn.classList.toggle("hidden", !iAmLeader && myRank < 3);
+  membersBtn.classList.toggle("hidden", myRank < MANAGE_MEMBERS_RANK);
   return true;
 }
 
 // 身分階梯：只看得到比「目前檢視身分」更低階的名單，所以同階彼此看不到
-const ROLE_LABELS = ["非組員", "組員", "成全組長", "忠義字班講師"];
+const ROLE_LABELS = ["非組員", "組員", "成全組長", "忠義字班講師", "點傳師"];
+const MANAGE_MEMBERS_RANK = 3; // 忠義字班講師以上才能管理使用者與身分
 
 function applyMyRank() {
   // 可以切換檢視身分的人（組長以上）才需要那個下拉選單
@@ -395,8 +396,8 @@ function applyMyRank() {
   }
   viewRankSelect.value = String(viewRank);
   viewRankWrap.classList.toggle("hidden", myRank < 2);
-  // 只有講師能設定名單上的身分
-  fieldRoleWrap.classList.toggle("hidden", myRank < 3);
+  // 只有忠義字班講師以上能設定名單上的身分
+  fieldRoleWrap.classList.toggle("hidden", myRank < MANAGE_MEMBERS_RANK);
   // 加使用者時也只能設到自己這一階以下
   [...newMemberRole.options].forEach((opt) => {
     opt.hidden = Number(opt.value) > myRank;
@@ -419,28 +420,37 @@ viewRankSelect.addEventListener("change", () => {
 // 舊名單沒有這個欄位，會被「roleRank < 檢視身分」的查詢整批漏掉，
 // 所以在還沒套用新規則之前，先由組長／講師按一次把每筆補成 0（非組員）。
 async function backfillRoleRank() {
-  if (!confirm("要幫還沒有身分欄位的名單補上「非組員」嗎？\n\n補完之後才看得到那些舊資料。")) {
+  if (
+    !confirm(
+      "要幫還沒有身分欄位的名單補上「非組員」，並建立綁定用的姓名索引嗎？\n\n補完之後才看得到那些舊資料。"
+    )
+  ) {
     return;
   }
   backfillRoleBtn.disabled = true;
   backfillRoleBtn.textContent = "補齊中...";
   let done = 0;
+  let indexed = 0;
   const failures = [];
   try {
     const snap = await getDocs(unitCol(ENTRIES_COLLECTION));
     for (const d of snap.docs) {
-      if (typeof d.data().roleRank === "number") continue;
+      const data = d.data();
       try {
-        await updateDoc(unitDoc(ENTRIES_COLLECTION, d.id), { roleRank: 0 });
-        done += 1;
+        if (typeof data.roleRank !== "number") {
+          await updateDoc(unitDoc(ENTRIES_COLLECTION, d.id), { roleRank: 0 });
+          done += 1;
+        }
+        await writeRosterIndex(d.id, data);
+        indexed += 1;
       } catch (err) {
-        failures.push(`${d.data().name || d.id}：${err.code || err.message}`);
+        failures.push(`${data.name || d.id}：${err.code || err.message}`);
       }
     }
     alert(
       failures.length === 0
-        ? `已補齊 ${done} 筆。`
-        : `已補齊 ${done} 筆，${failures.length} 筆失敗：\n${failures.slice(0, 5).join("\n")}`
+        ? `已補齊 ${done} 筆身分、建立 ${indexed} 筆索引。`
+        : `已補齊 ${done} 筆身分、${indexed} 筆索引，${failures.length} 筆失敗：\n${failures.slice(0, 5).join("\n")}`
     );
   } catch (err) {
     alert("補齊失敗：" + (err.code === "permission-denied" ? "沒有權限讀取整份名單（新規則已生效時就不能再補了）。" : err.message));
@@ -451,13 +461,19 @@ async function backfillRoleRank() {
   }
 }
 
-// 只有組長／講師、而且真的還有沒補的資料時才顯示按鈕
+// 只有組長以上、而且真的還有沒補的資料時才顯示按鈕
 async function refreshBackfillBtn() {
   if (myRank < 2) return backfillRoleBtn.classList.add("hidden");
   try {
-    const snap = await getDocs(unitCol(ENTRIES_COLLECTION));
-    const missing = snap.docs.filter((d) => typeof d.data().roleRank !== "number").length;
-    backfillRoleBtn.textContent = missing > 0 ? `補齊身分欄位（${missing} 筆）` : "補齊身分欄位";
+    const [entriesSnap, indexSnap] = await Promise.all([
+      getDocs(unitCol(ENTRIES_COLLECTION)),
+      getDocs(unitCol(ROSTER_INDEX_COLLECTION)),
+    ]);
+    const indexed = new Set(indexSnap.docs.map((d) => d.id));
+    const missing = entriesSnap.docs.filter(
+      (d) => typeof d.data().roleRank !== "number" || !indexed.has(d.id)
+    ).length;
+    backfillRoleBtn.textContent = missing > 0 ? `補齊身分／索引（${missing} 筆）` : "補齊身分／索引";
     backfillRoleBtn.classList.toggle("hidden", missing === 0);
   } catch {
     // 新規則生效後這個整份查詢本來就會被拒絕，代表不需要再補了
@@ -512,16 +528,61 @@ function refreshBindPrompt() {
   updateUserLabel();
 }
 
+// 綁定用的索引：只有姓名與系級，同單位的人都讀得到，
+// 這樣即使身分階梯擋住了名單本身，每個人還是找得到自己那一筆來綁。
+let bindIndex = [];
+
+// 團隊名單有異動就同步索引（只寫姓名、系級、身分，不含成全內容）
+async function writeRosterIndex(entryId, data) {
+  try {
+    await setDoc(unitDoc(ROSTER_INDEX_COLLECTION, entryId), {
+      name: data.name || "",
+      department: data.department || "",
+      roleRank: Number(data.roleRank) || 0,
+    });
+  } catch (err) {
+    // 索引壞掉不該擋住存檔，頂多是綁定時找不到人
+    console.error("寫入綁定索引失敗", err);
+  }
+}
+
+async function removeRosterIndex(entryId) {
+  try {
+    await deleteDoc(unitDoc(ROSTER_INDEX_COLLECTION, entryId));
+  } catch (err) {
+    console.error("刪除綁定索引失敗", err);
+  }
+}
+
+async function loadBindIndex() {
+  try {
+    const snap = await getDocs(unitCol(ROSTER_INDEX_COLLECTION));
+    bindIndex = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.error(err);
+    bindIndex = [];
+  }
+  // 索引還沒建立時，至少用自己看得到的名單頂著
+  if (bindIndex.length === 0) {
+    bindIndex = teamEntries.map((en) => ({
+      id: en.id,
+      name: en.name,
+      department: en.department,
+    }));
+  }
+  renderBindResults();
+}
+
 function renderBindResults() {
   const q = bindSearch.value.trim().toLowerCase();
-  const matches = teamEntries
+  const matches = bindIndex
     .filter((en) => !q || (en.name || "").toLowerCase().includes(q))
     .slice(0, 10);
   bindResults.innerHTML = matches.length
     ? matches
         .map(
           (en) =>
-            `<button type="button" class="bind-result" data-id="${en.id}">${escapeHtml(en.name)}${
+            `<button type="button" class="bind-result" data-id="${en.id}" data-name="${escapeHtml(en.name || "")}">${escapeHtml(en.name)}${
               en.department ? `<span class="suggestion-meta">${escapeHtml(en.department)}</span>` : ""
             }</button>`
         )
@@ -542,7 +603,8 @@ bindResults.addEventListener("click", async (e) => {
       linkedAt: serverTimestamp(),
     });
     myEntryId = btn.dataset.id;
-    bindStatus.textContent = `已綁定為「${allEntries.find((en) => en.id === myEntryId)?.name || ""}」。`;
+    // 綁到的那一筆自己不一定看得到（身分比自己高），所以名字用索引上的
+    bindStatus.textContent = `已綁定為「${allEntries.find((en) => en.id === myEntryId)?.name || btn.dataset.name || ""}」。`;
     refreshBindPrompt();
     renderEntries();
   } catch (err) {
@@ -553,9 +615,10 @@ bindResults.addEventListener("click", async (e) => {
 bindMeBtn.addEventListener("click", () => {
   bindSearch.value = "";
   bindStatus.textContent = "";
-  renderBindResults();
+  bindResults.innerHTML = `<p class="hint-text">載入中...</p>`;
   bindModal.classList.remove("hidden");
   bindSearch.focus();
+  loadBindIndex();
 });
 bindCloseBtn.addEventListener("click", () => bindModal.classList.add("hidden"));
 bindModal.addEventListener("click", (e) => {
@@ -613,7 +676,7 @@ function renderMembers() {
       const roleCell = isMe
         ? `<span class="member-role-label">${ROLE_LABELS[rank]}</span>`
         : `<select class="member-role" data-email="${escapeHtml(m.email)}">
-             ${[1, 2, 3]
+             ${[1, 2, 3, 4]
                .filter((r) => r <= myRank)
                .map((r) => `<option value="${r}" ${r === rank ? "selected" : ""}>${ROLE_LABELS[r]}</option>`)
                .join("")}
@@ -1393,13 +1456,16 @@ function renderHeatList(entries) {
 async function transferToTeam(entry) {
   const { id, _scope, _col, ownerUid, ...data } = entry;
   try {
-    await setDoc(unitDoc(ENTRIES_COLLECTION, id), {
+    const teamData = {
       ...data,
+      roleRank: Number(data.roleRank) || 0, // 個人名單轉過來的一律是非組員
       transferredBy: auth.currentUser?.email || null,
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
-    });
+    };
+    await setDoc(unitDoc(ENTRIES_COLLECTION, id), teamData);
     await deleteDoc(unitDoc(PERSONAL_COLLECTION, id));
+    await writeRosterIndex(id, teamData);
   } catch (err) {
     alert("轉移失敗：" + err.message);
   }
@@ -2046,7 +2112,7 @@ function renderTrendChart(metric, total) {
         <span class="field-label" ${metric.note ? `title="${escapeHtml(metric.note)}"` : ""}>${metric.title}</span>
         <span class="hint-text">y 軸＝人數（共 ${total} 人）${extra}</span>
       </div>
-      <svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="none">
+      <svg viewBox="0 0 ${W} ${H}" class="trend-svg">
         ${grid}${bars}${xLabels}
       </svg>
       <div class="trend-legend">${legend}</div>
@@ -2194,7 +2260,7 @@ function renderPersonChart(series, labels) {
     .join("");
 
   return `
-    <svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="none">${grid}${lines}${xLabels}</svg>
+    <svg viewBox="0 0 ${W} ${H}" class="trend-svg">${grid}${lines}${xLabels}</svg>
     <div class="trend-legend">${legend}<span class="hint-text">刻度 0–3 級；道氣是 0–100 分等比例縮到同一把尺上。</span></div>`;
 }
 
@@ -2432,7 +2498,8 @@ entryForm.addEventListener("submit", async (e) => {
     strategy: fieldStrategy.value.trim(),
     method: fieldMethod.value.trim(),
     // 身分決定誰看得到這一筆；只有講師的表單上有這個欄位，其他人一律存 0（非組員）
-    roleRank: myRank >= 3 ? Number(fieldRole.value) || 0 : Number(editingRoleRank) || 0,
+    roleRank:
+      myRank >= MANAGE_MEMBERS_RANK ? Number(fieldRole.value) || 0 : Number(editingRoleRank) || 0,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.email || null,
   };
@@ -2442,9 +2509,11 @@ entryForm.addEventListener("submit", async (e) => {
     if (id) {
       // 編輯時不動歸屬（要換歸屬請用卡片上的「轉為團隊名單」）
       await updateDoc(entryRef(id), data);
+      const edited = allEntries.find((en) => en.id === id);
+      if (edited?._scope !== "personal") await writeRosterIndex(id, data);
     } else {
       const personal = fieldScope.value === "personal";
-      await addDoc(unitCol(personal ? PERSONAL_COLLECTION : ENTRIES_COLLECTION), {
+      const ref = await addDoc(unitCol(personal ? PERSONAL_COLLECTION : ENTRIES_COLLECTION), {
         ...data,
         ...(personal ? { ownerUid: auth.currentUser?.uid || null } : {}),
         activities: [],
@@ -2452,6 +2521,7 @@ entryForm.addEventListener("submit", async (e) => {
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.email || null,
       });
+      if (!personal) await writeRosterIndex(ref.id, data);
     }
     closeModal();
   } catch (err) {
@@ -2494,6 +2564,7 @@ entriesList.addEventListener("click", async (e) => {
     if (confirm(`確定要刪除「${entry.name}」的資料嗎？此動作無法復原。`)) {
       try {
         await deleteDoc(entryRef(entry));
+        if (entry._scope !== "personal") await removeRosterIndex(entry.id);
       } catch (err) {
         alert("刪除失敗：" + err.message);
       }
