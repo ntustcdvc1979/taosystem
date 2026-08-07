@@ -433,56 +433,91 @@ async function backfillRoleRank() {
   }
   backfillRoleBtn.disabled = true;
   backfillRoleBtn.textContent = "補齊中...";
-  let done = 0;
+  let ranked = 0;
   let indexed = 0;
-  const failures = [];
+  const rankFails = [];
+  const indexFails = [];
   try {
     const snap = await getDocs(unitCol(ENTRIES_COLLECTION));
     for (const d of snap.docs) {
       const data = d.data();
-      try {
-        if (typeof data.roleRank !== "number") {
+      // 身分與索引分開算：一邊失敗不該讓另一邊也停下來
+      if (typeof data.roleRank !== "number") {
+        try {
           await updateDoc(unitDoc(ENTRIES_COLLECTION, d.id), { roleRank: 0 });
-          done += 1;
+          ranked += 1;
+        } catch (err) {
+          rankFails.push(`${data.name || d.id}：${err.code || err.message}`);
         }
-        await writeRosterIndex(d.id, data);
+      }
+      try {
+        await setDoc(unitDoc(ROSTER_INDEX_COLLECTION, d.id), {
+          name: data.name || "",
+          department: data.department || "",
+          roleRank: Number(data.roleRank) || 0,
+        });
         indexed += 1;
       } catch (err) {
-        failures.push(`${data.name || d.id}：${err.code || err.message}`);
+        indexFails.push(`${data.name || d.id}：${err.code || err.message}`);
       }
     }
-    alert(
-      failures.length === 0
-        ? `已補齊 ${done} 筆身分、建立 ${indexed} 筆索引。`
-        : `已補齊 ${done} 筆身分、${indexed} 筆索引，${failures.length} 筆失敗：\n${failures.slice(0, 5).join("\n")}`
-    );
+
+    const lines = [`已補齊 ${ranked} 筆身分、${indexed} 筆索引。`];
+    if (rankFails.length > 0) {
+      lines.push(`\n身分有 ${rankFails.length} 筆失敗：\n${rankFails.slice(0, 3).join("\n")}`);
+    }
+    if (indexFails.length > 0) {
+      lines.push(
+        `\n索引有 ${indexFails.length} 筆失敗。` +
+          (indexFails[0].includes("permission-denied")
+            ? "\n看起來是 Firestore 規則還沒更新到含 rosterIndex 那一段——請到 Firebase Console 發布最新的 firestore.rules 再按一次。"
+            : `\n${indexFails.slice(0, 3).join("\n")}`)
+      );
+    }
+    alert(lines.join("\n"));
   } catch (err) {
-    alert("補齊失敗：" + (err.code === "permission-denied" ? "沒有權限讀取整份名單（新規則已生效時就不能再補了）。" : err.message));
+    alert(
+      "補齊失敗：" +
+        (err.code === "permission-denied"
+          ? "讀不到整份名單。名單裡若有身分跟你同階或更高的人就會這樣，請改用單位裡身分最高的帳號來按。"
+          : err.message)
+    );
   } finally {
     backfillRoleBtn.disabled = false;
-    backfillRoleBtn.textContent = "補齊身分欄位";
     refreshBackfillBtn();
   }
 }
 
-// 只有組長以上、而且真的還有沒補的資料時才顯示按鈕
+// 只有組長以上、而且真的還有沒補的資料時才顯示按鈕。
+// 兩個集合分開讀：索引讀不到（規則還沒發布）時不能連按鈕都藏起來，
+// 不然就會卡在「沒有索引 → 按鈕不出現 → 補不了索引」的死結。
 async function refreshBackfillBtn() {
   if (myRank < 2) return backfillRoleBtn.classList.add("hidden");
+
+  let entriesSnap = null;
   try {
-    const [entriesSnap, indexSnap] = await Promise.all([
-      getDocs(unitCol(ENTRIES_COLLECTION)),
-      getDocs(unitCol(ROSTER_INDEX_COLLECTION)),
-    ]);
-    const indexed = new Set(indexSnap.docs.map((d) => d.id));
-    const missing = entriesSnap.docs.filter(
-      (d) => typeof d.data().roleRank !== "number" || !indexed.has(d.id)
-    ).length;
-    backfillRoleBtn.textContent = missing > 0 ? `補齊身分／索引（${missing} 筆）` : "補齊身分／索引";
-    backfillRoleBtn.classList.toggle("hidden", missing === 0);
-  } catch {
-    // 新規則生效後這個整份查詢本來就會被拒絕，代表不需要再補了
+    entriesSnap = await getDocs(unitCol(ENTRIES_COLLECTION));
+  } catch (err) {
+    // 整份名單都讀不到（有人的身分比自己高），這裡就幫不上忙了
+    console.warn("補齊檢查：讀不到整份名單", err.code || err.message);
     backfillRoleBtn.classList.add("hidden");
+    return;
   }
+
+  let indexed = new Set();
+  try {
+    const indexSnap = await getDocs(unitCol(ROSTER_INDEX_COLLECTION));
+    indexed = new Set(indexSnap.docs.map((d) => d.id));
+  } catch (err) {
+    // 讀不到就當作一筆索引都沒有，按鈕照樣出現，按下去會說清楚是規則的問題
+    console.warn("補齊檢查：讀不到綁定索引", err.code || err.message);
+  }
+
+  const missing = entriesSnap.docs.filter(
+    (d) => typeof d.data().roleRank !== "number" || !indexed.has(d.id)
+  ).length;
+  backfillRoleBtn.textContent = missing > 0 ? `補齊身分／索引（${missing} 筆）` : "補齊身分／索引";
+  backfillRoleBtn.classList.toggle("hidden", missing === 0);
 }
 
 backfillRoleBtn.addEventListener("click", backfillRoleRank);
@@ -550,7 +585,8 @@ function refreshBindPrompt() {
 // 這樣即使身分階梯擋住了名單本身，每個人還是找得到自己那一筆來綁。
 let bindIndex = [];
 
-// 團隊名單有異動就同步索引（只寫姓名、系級、身分，不含成全內容）
+// 團隊名單有異動就同步索引（只寫姓名、系級、身分，不含成全內容）。
+// 寫不進去不該擋住存檔，但一定要講出來——不然使用者只會發現「綁定時找不到人」卻不知道為什麼。
 async function writeRosterIndex(entryId, data) {
   try {
     await setDoc(unitDoc(ROSTER_INDEX_COLLECTION, entryId), {
@@ -558,9 +594,17 @@ async function writeRosterIndex(entryId, data) {
       department: data.department || "",
       roleRank: Number(data.roleRank) || 0,
     });
+    return true;
   } catch (err) {
-    // 索引壞掉不該擋住存檔，頂多是綁定時找不到人
     console.error("寫入綁定索引失敗", err);
+    if (err.code === "permission-denied") {
+      alert(
+        "名單已儲存，但綁定用的姓名索引寫不進去。\n\n" +
+          "多半是 Firestore 安全規則還沒更新到含 rosterIndex 那一段。請到 Firebase Console 發布最新的 firestore.rules，" +
+          "再按工具列的「補齊身分／索引」把缺的補上。"
+      );
+    }
+    return false;
   }
 }
 
