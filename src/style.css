@@ -1160,6 +1160,18 @@ button {
   word-break: break-all;
 }
 
+.member-role {
+  width: auto;
+  margin: 0;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.3rem;
+}
+
+.member-role-label {
+  color: #888;
+  font-size: 0.8rem;
+}
+
 .member-self {
   margin-left: 0.4rem;
   padding: 0.05rem 0.4rem;

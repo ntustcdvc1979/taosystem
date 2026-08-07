@@ -22,6 +22,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   setDoc,
   onSnapshot,
   serverTimestamp,
@@ -45,6 +46,8 @@ let myUnitId = null;
 let myUnitName = "";
 let myEntryId = null; // 這支帳號綁定到名單中的哪一位
 let iAmLeader = false; // 道務組組長，可以增減本單位的使用者
+let myRank = 1; // 自己的身分（3 講師／2 成全組長／1 組員／0 非組員）
+let viewRank = 1; // 目前用哪個身分在看名單（不會超過 myRank）
 
 // units/{unitId}/{name} 的集合參考
 function unitCol(name) {
@@ -93,7 +96,15 @@ const membersUnitName = document.getElementById("members-unit-name");
 const membersList = document.getElementById("members-list");
 const membersStatus = document.getElementById("members-status");
 const newMemberEmail = document.getElementById("new-member-email");
+const newMemberRole = document.getElementById("new-member-role");
 const addMemberBtn = document.getElementById("add-member-btn");
+
+// 身分（權限階梯）
+const viewRankWrap = document.getElementById("view-rank-wrap");
+const viewRankSelect = document.getElementById("view-rank");
+const backfillRoleBtn = document.getElementById("backfill-role-btn");
+const fieldRoleWrap = document.getElementById("field-role-wrap");
+const fieldRole = document.getElementById("field-role");
 
 // 綁定自己的對話框
 const bindModal = document.getElementById("bind-modal");
@@ -301,6 +312,7 @@ onAuthStateChanged(auth, async (user) => {
     subscribeEvents();
     loadMyLink();
     loadChatHistory();
+    refreshBackfillBtn();
   } else {
     appView.classList.add("hidden");
     loginView.classList.remove("hidden");
@@ -348,6 +360,10 @@ async function loadMyUnit() {
       return false;
     }
     myUnitId = unitId;
+    // 身分（忠義字班講師 3 ／成全組長 2 ／組員 1 ／非組員 0），沒設定就當組員
+    const rank = memberSnap.data().roleRank;
+    myRank = typeof rank === "number" ? rank : 1;
+    viewRank = myRank;
 
     const unitSnap = await getDoc(doc(db, "units", myUnitId));
     myUnitName = (unitSnap.exists() ? unitSnap.data().name : "") || myUnitId;
@@ -360,9 +376,96 @@ async function loadMyUnit() {
     return false;
   }
   applyUnitName();
-  membersBtn.classList.toggle("hidden", !iAmLeader);
+  applyMyRank();
+  membersBtn.classList.toggle("hidden", !iAmLeader && myRank < 3);
   return true;
 }
+
+// 身分階梯：只看得到比「目前檢視身分」更低階的名單，所以同階彼此看不到
+const ROLE_LABELS = ["非組員", "組員", "成全組長", "忠義字班講師"];
+
+function applyMyRank() {
+  // 可以切換檢視身分的人（組長以上）才需要那個下拉選單
+  viewRankSelect.innerHTML = "";
+  for (let r = myRank; r >= 1; r -= 1) {
+    const opt = document.createElement("option");
+    opt.value = String(r);
+    opt.textContent = `${ROLE_LABELS[r]}模式（看得到${ROLE_LABELS[r - 1]}${r > 1 ? "以下" : ""}）`;
+    viewRankSelect.appendChild(opt);
+  }
+  viewRankSelect.value = String(viewRank);
+  viewRankWrap.classList.toggle("hidden", myRank < 2);
+  // 只有講師能設定名單上的身分
+  fieldRoleWrap.classList.toggle("hidden", myRank < 3);
+  // 加使用者時也只能設到自己這一階以下
+  [...newMemberRole.options].forEach((opt) => {
+    opt.hidden = Number(opt.value) > myRank;
+  });
+  if (Number(newMemberRole.value) > myRank) newMemberRole.value = "1";
+}
+
+// 換一個身分檢視：重新訂閱（查詢條件要跟安全規則一致）
+viewRankSelect.addEventListener("change", () => {
+  viewRank = Math.min(Number(viewRankSelect.value) || 1, myRank);
+  if (unsubscribeEntries) {
+    unsubscribeEntries();
+    unsubscribeEntries = null;
+  }
+  teamEntries = [];
+  subscribeEntries();
+});
+
+// ---------- 一次性：幫舊資料補上 roleRank ----------
+// 舊名單沒有這個欄位，會被「roleRank < 檢視身分」的查詢整批漏掉，
+// 所以在還沒套用新規則之前，先由組長／講師按一次把每筆補成 0（非組員）。
+async function backfillRoleRank() {
+  if (!confirm("要幫還沒有身分欄位的名單補上「非組員」嗎？\n\n補完之後才看得到那些舊資料。")) {
+    return;
+  }
+  backfillRoleBtn.disabled = true;
+  backfillRoleBtn.textContent = "補齊中...";
+  let done = 0;
+  const failures = [];
+  try {
+    const snap = await getDocs(unitCol(ENTRIES_COLLECTION));
+    for (const d of snap.docs) {
+      if (typeof d.data().roleRank === "number") continue;
+      try {
+        await updateDoc(unitDoc(ENTRIES_COLLECTION, d.id), { roleRank: 0 });
+        done += 1;
+      } catch (err) {
+        failures.push(`${d.data().name || d.id}：${err.code || err.message}`);
+      }
+    }
+    alert(
+      failures.length === 0
+        ? `已補齊 ${done} 筆。`
+        : `已補齊 ${done} 筆，${failures.length} 筆失敗：\n${failures.slice(0, 5).join("\n")}`
+    );
+  } catch (err) {
+    alert("補齊失敗：" + (err.code === "permission-denied" ? "沒有權限讀取整份名單（新規則已生效時就不能再補了）。" : err.message));
+  } finally {
+    backfillRoleBtn.disabled = false;
+    backfillRoleBtn.textContent = "補齊身分欄位";
+    refreshBackfillBtn();
+  }
+}
+
+// 只有組長／講師、而且真的還有沒補的資料時才顯示按鈕
+async function refreshBackfillBtn() {
+  if (myRank < 2) return backfillRoleBtn.classList.add("hidden");
+  try {
+    const snap = await getDocs(unitCol(ENTRIES_COLLECTION));
+    const missing = snap.docs.filter((d) => typeof d.data().roleRank !== "number").length;
+    backfillRoleBtn.textContent = missing > 0 ? `補齊身分欄位（${missing} 筆）` : "補齊身分欄位";
+    backfillRoleBtn.classList.toggle("hidden", missing === 0);
+  } catch {
+    // 新規則生效後這個整份查詢本來就會被拒絕，代表不需要再補了
+    backfillRoleBtn.classList.add("hidden");
+  }
+}
+
+backfillRoleBtn.addEventListener("click", backfillRoleRank);
 
 function applyUnitName() {
   unitNameLabel.textContent = myUnitName;
@@ -505,9 +608,20 @@ function renderMembers() {
   membersList.innerHTML = unitMembers
     .map((m) => {
       const isMe = m.email.toLowerCase() === me;
+      const rank = typeof m.roleRank === "number" ? m.roleRank : 1;
+      // 身分只能設到自己這一階以下，也不能改自己的（規則也擋著）
+      const roleCell = isMe
+        ? `<span class="member-role-label">${ROLE_LABELS[rank]}</span>`
+        : `<select class="member-role" data-email="${escapeHtml(m.email)}">
+             ${[1, 2, 3]
+               .filter((r) => r <= myRank)
+               .map((r) => `<option value="${r}" ${r === rank ? "selected" : ""}>${ROLE_LABELS[r]}</option>`)
+               .join("")}
+           </select>`;
       return `
         <div class="member-row">
           <span class="member-email">${escapeHtml(m.email)}${isMe ? '<span class="member-self">你</span>' : ""}</span>
+          ${roleCell}
           ${
             isMe
               ? `<span class="hint-text">不能移除自己</span>`
@@ -516,6 +630,25 @@ function renderMembers() {
         </div>`;
     })
     .join("");
+}
+
+// 改某支帳號的身分（決定他登入後看得到哪一階以下的名單）
+async function setMemberRole(email, rank) {
+  membersStatus.textContent = "";
+  try {
+    await setDoc(
+      doc(db, "memberEmails", email),
+      { unitId: myUnitId, roleRank: rank },
+      { merge: true }
+    );
+    membersStatus.textContent = `已把 ${email} 設為「${ROLE_LABELS[rank]}」。`;
+  } catch (err) {
+    membersStatus.textContent =
+      err.code === "permission-denied"
+        ? "沒有權限設定這個身分（只能設到自己這一階以下，也不能改自己的）。"
+        : "設定失敗：" + err.message;
+    renderMembers();
+  }
 }
 
 async function addMember() {
@@ -531,13 +664,15 @@ async function addMember() {
   }
   addMemberBtn.disabled = true;
   try {
+    const rank = Math.min(Number(newMemberRole.value) || 1, myRank);
     await setDoc(doc(db, "memberEmails", email), {
       unitId: myUnitId,
+      roleRank: rank,
       addedBy: auth.currentUser?.email || null,
       addedAt: serverTimestamp(),
     });
     newMemberEmail.value = "";
-    membersStatus.textContent = `已加入 ${email}，他用這個 Google 帳號登入就進得來。`;
+    membersStatus.textContent = `已加入 ${email}（${ROLE_LABELS[rank]}），他用這個 Google 帳號登入就進得來。`;
   } catch (err) {
     membersStatus.textContent =
       err.code === "permission-denied"
@@ -578,6 +713,12 @@ membersList.addEventListener("click", async (e) => {
   }
 });
 
+membersList.addEventListener("change", (e) => {
+  const sel = e.target.closest("select.member-role");
+  if (!sel) return;
+  setMemberRole(sel.dataset.email, Number(sel.value) || 1);
+});
+
 const googleProvider = new GoogleAuthProvider();
 
 googleLoginBtn.addEventListener("click", async () => {
@@ -616,9 +757,10 @@ function mergeEntries() {
 }
 
 function subscribeEntries() {
-  // 團隊名單：同一個道務單位的成員都看得到
+  // 團隊名單：同單位，且只看得到比目前檢視身分更低階的人。
+  // 查詢條件必須跟安全規則一致，否則整批查詢會被拒絕。
   unsubscribeEntries = onSnapshot(
-    unitCol(ENTRIES_COLLECTION),
+    query(unitCol(ENTRIES_COLLECTION), where("roleRank", "<", viewRank)),
     (snapshot) => {
       teamEntries = snapshot.docs.map((d) => ({
         id: d.id,
@@ -2221,6 +2363,8 @@ function openModal(entry = null) {
     fieldStatus.value = entry.status || "";
     fieldStrategy.value = entry.strategy || "";
     fieldMethod.value = entry.method || "";
+    editingRoleRank = Number(entry.roleRank) || 0;
+    fieldRole.value = String(editingRoleRank);
   } else {
     modalTitle.textContent = "新增名單";
     fieldId.value = "";
@@ -2230,6 +2374,8 @@ function openModal(entry = null) {
     fieldContact.readOnly = false;
     teamContactDraft = "";
     fieldTags.clear(); // form.reset() 清不到自訂的標籤欄
+    editingRoleRank = 0;
+    fieldRole.value = "0";
   }
   applyScopeToContactField();
   entryModal.classList.remove("hidden");
@@ -2238,6 +2384,8 @@ function openModal(entry = null) {
 
 // 個人名單的聯絡人一定是自己：欄位照樣顯示，但填好自己的名字並鎖成唯讀
 let teamContactDraft = "";
+// 編輯中那一筆原本的身分：非講師沒有那個欄位，儲存時要原封不動寫回去
+let editingRoleRank = 0;
 
 function applyScopeToContactField() {
   const personal = fieldScope.value === "personal";
@@ -2283,6 +2431,8 @@ entryForm.addEventListener("submit", async (e) => {
     status: fieldStatus.value,
     strategy: fieldStrategy.value.trim(),
     method: fieldMethod.value.trim(),
+    // 身分決定誰看得到這一筆；只有講師的表單上有這個欄位，其他人一律存 0（非組員）
+    roleRank: myRank >= 3 ? Number(fieldRole.value) || 0 : Number(editingRoleRank) || 0,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.email || null,
   };

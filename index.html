@@ -60,6 +60,11 @@
             <option value="team">團隊名單</option>
             <option value="personal">我的個人名單</option>
           </select>
+          <!-- 檢視身分：只看得到比它更低階的名單；只有成全組長以上才需要切換 -->
+          <span id="view-rank-wrap" class="hidden">
+            <select id="view-rank" title="用哪個身分檢視名單"></select>
+          </span>
+          <button id="backfill-role-btn" class="btn-secondary hidden">補齊身分欄位</button>
           <button id="toggle-view-btn" class="btn-secondary">切換詳細模式</button>
           <button id="ai-heat-btn" class="btn-secondary hidden">AI 評估熱度</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
@@ -154,6 +159,17 @@
                 <option value="personal">個人名單（只有我看得到）</option>
               </select>
               <span id="scope-hint" class="hint-text"></span>
+            </label>
+            <!-- 身分：決定誰看得到這一筆，只有忠義字班講師改得動 -->
+            <label id="field-role-wrap" class="hidden">
+              身分
+              <select id="field-role">
+                <option value="0">非組員</option>
+                <option value="1">組員</option>
+                <option value="2">成全組長</option>
+                <option value="3">忠義字班講師</option>
+              </select>
+              <span class="hint-text">只有比這個身分更高階的人看得到這一筆；同階看不到彼此。</span>
             </label>
             <label>
               性別
@@ -320,6 +336,11 @@
 
           <div class="member-add-row">
             <input type="email" id="new-member-email" placeholder="對方的 Gmail" autocomplete="off" />
+            <select id="new-member-role">
+              <option value="1">組員</option>
+              <option value="2">成全組長</option>
+              <option value="3">忠義字班講師</option>
+            </select>
             <button type="button" id="add-member-btn" class="btn-primary btn-small">加入</button>
           </div>
           <p id="members-status" class="hint-text"></p>

@@ -27,16 +27,37 @@ service cloud.firestore {
                .data.get('leaderEmails', []).hasAny([request.auth.token.email]);
     }
 
-    // 帳號歸屬：本人讀得到自己那一份；組長讀得到（也管得到）同單位的每一份
+    // 身分階梯：忠義字班講師 3 ＞ 成全組長 2 ＞ 組員 1 ＞ 非組員 0。
+    // 帳號的身分寫在 memberEmails/{gmail}.roleRank（沒寫就當組員），由講師或道務組組長設定；
+    // 名單每一筆也有 roleRank，一個人只看得到「比自己目前檢視身分更低階」的名單，
+    // 所以同階之間互相看不到。
+    function myRank() {
+      return get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email))
+               .data.get('roleRank', 1);
+    }
+    function isTeacher() {
+      return hasMember() && myRank() >= 3;
+    }
+    // 可以管理使用者與身分的人：道務組組長（Console 指定）或忠義字班講師
+    function canManageMembers() {
+      return isLeader() || isTeacher();
+    }
+
+    // 帳號歸屬：本人讀得到自己那一份；組長／講師讀得到（也管得到）同單位的每一份
     match /memberEmails/{email} {
       allow read: if isSignedIn() &&
                      (request.auth.token.email == email ||
-                      (isLeader() && resource.data.unitId == myUnit()));
-      allow create: if isLeader() && request.resource.data.unitId == myUnit();
-      allow update: if isLeader() && resource.data.unitId == myUnit()
-                    && request.resource.data.unitId == myUnit();
-      // 組長不能把自己刪掉，免得整個單位沒人管得動
-      allow delete: if isLeader() && resource.data.unitId == myUnit()
+                      (canManageMembers() && resource.data.unitId == myUnit()));
+      allow create: if canManageMembers() && request.resource.data.unitId == myUnit()
+                    && request.resource.data.get('roleRank', 1) <= myRank();
+      // 身分只能設到自己這一階以下，也不能改自己的身分（免得自我升等）
+      allow update: if canManageMembers() && resource.data.unitId == myUnit()
+                    && request.resource.data.unitId == myUnit()
+                    && request.resource.data.get('roleRank', 1) <= myRank()
+                    && (request.auth.token.email != email
+                        || request.resource.data.get('roleRank', 1) == resource.data.get('roleRank', 1));
+      // 不能把自己刪掉，免得整個單位沒人管得動
+      allow delete: if canManageMembers() && resource.data.unitId == myUnit()
                     && request.auth.token.email != email;
     }
 
@@ -46,9 +67,18 @@ service cloud.firestore {
       allow read: if inUnit(unitId);
       allow write: if false;
 
-      // 團隊名單：同單位成員共管
+      // 團隊名單：同單位共管，但只看得到比自己低階的人（roleRank 沒寫就當 0＝非組員）
       match /entries/{entryId} {
-        allow read, write: if inUnit(unitId);
+        allow read: if inUnit(unitId) && resource.data.get('roleRank', 0) < myRank();
+        // 一般成員只能建立／維護非組員；要把某一筆標成組員以上，得是講師
+        allow create: if inUnit(unitId)
+                      && (request.resource.data.get('roleRank', 0) == 0 || isTeacher());
+        allow update: if inUnit(unitId)
+                      && resource.data.get('roleRank', 0) < myRank()
+                      && (request.resource.data.get('roleRank', 0)
+                            == resource.data.get('roleRank', 0)
+                          || isTeacher());
+        allow delete: if inUnit(unitId) && resource.data.get('roleRank', 0) < myRank();
       }
 
       // 個人名單：同單位、且只有建立者本人存取得到
