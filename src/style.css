@@ -572,6 +572,21 @@ button {
 .spirit-2 { background: #d9cdf7; color: #4a2aa8; border-color: #c8b8f0; }
 .spirit-3 { background: #5b34c4; color: #fff; border-color: #5b34c4; }
 
+/* 目前綁定到哪一位＋解除綁定 */
+.bind-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.3rem 0 0.6rem;
+}
+
+/* 已經綁好時，按鈕低調一點（還是點得到，綁錯要能改） */
+#bind-me-btn.is-bound {
+  color: #888;
+}
+
 /* 綁定帳號的搜尋結果 */
 .bind-results {
   display: flex;

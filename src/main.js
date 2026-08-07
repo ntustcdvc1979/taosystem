@@ -113,6 +113,9 @@ const bindSearch = document.getElementById("bind-search");
 const bindResults = document.getElementById("bind-results");
 const bindStatus = document.getElementById("bind-status");
 const bindCloseBtn = document.getElementById("bind-close-btn");
+const bindCurrent = document.getElementById("bind-current");
+const bindCurrentName = document.getElementById("bind-current-name");
+const bindUnbindBtn = document.getElementById("bind-unbind-btn");
 const toggleViewBtn = document.getElementById("toggle-view-btn");
 const aiHeatBtn = document.getElementById("ai-heat-btn");
 aiHeatBtn.classList.remove("hidden"); // 預設就是熱度模式
@@ -534,10 +537,12 @@ function updateUserLabel() {
 }
 
 function refreshBindPrompt() {
-  // 綁到的那一筆看不看得到都算綁好了（身分階梯本來就會擋住同階的人）
+  // 綁到的那一筆看不看得到都算綁好了（身分階梯本來就會擋住同階的人）。
+  // 綁好之後按鈕不會消失，只是換個字，因為綁錯了要能改回來。
   const bound = !!myEntryId;
-  bindMeBtn.classList.toggle("hidden", bound);
-  bindMeBtn.textContent = myEntryId && !bound ? "重新綁定我的資料" : "綁定我的資料";
+  bindMeBtn.classList.remove("hidden");
+  bindMeBtn.textContent = bound ? "重新綁定" : "綁定我的資料";
+  bindMeBtn.classList.toggle("is-bound", bound);
   updateUserLabel();
 }
 
@@ -617,11 +622,35 @@ bindResults.addEventListener("click", async (e) => {
     });
     myEntryId = btn.dataset.id;
     // 綁到的那一筆自己不一定看得到（身分比自己高），所以名字用索引上的
-    bindStatus.textContent = `已綁定為「${allEntries.find((en) => en.id === myEntryId)?.name || btn.dataset.name || ""}」。`;
+    myEntryName = allEntries.find((en) => en.id === myEntryId)?.name || btn.dataset.name || "";
+    bindStatus.textContent = `已綁定為「${myEntryName}」。`;
     refreshBindPrompt();
+    refreshBindCurrent();
     renderEntries();
   } catch (err) {
     bindStatus.textContent = "綁定失敗：" + err.message;
+  }
+});
+
+// 綁錯了要能解除，重綁只要再選一次（memberLinks 一個帳號就一份，會直接覆蓋）
+function refreshBindCurrent() {
+  bindCurrent.classList.toggle("hidden", !myEntryId);
+  bindCurrentName.textContent = myEntryId ? `目前綁定：${myEntryName || myEntryId}` : "";
+}
+
+bindUnbindBtn.addEventListener("click", async () => {
+  const uid = auth.currentUser?.uid;
+  if (!uid || !confirm("要解除目前的綁定嗎？解除後可以重新選一位。")) return;
+  try {
+    await deleteDoc(unitDoc(LINKS_COLLECTION, uid));
+    myEntryId = null;
+    myEntryName = "";
+    bindStatus.textContent = "已解除綁定，請重新選一位。";
+    refreshBindPrompt();
+    refreshBindCurrent();
+    renderEntries();
+  } catch (err) {
+    bindStatus.textContent = "解除失敗：" + err.message;
   }
 });
 
@@ -629,6 +658,7 @@ bindMeBtn.addEventListener("click", () => {
   bindSearch.value = "";
   bindStatus.textContent = "";
   bindResults.innerHTML = `<p class="hint-text">載入中...</p>`;
+  refreshBindCurrent();
   bindModal.classList.remove("hidden");
   bindSearch.focus();
   loadBindIndex();
