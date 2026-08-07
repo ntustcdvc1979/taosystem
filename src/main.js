@@ -72,21 +72,18 @@ const bindMeBtn = document.getElementById("bind-me-btn");
 const trendBtn = document.getElementById("trend-btn");
 const rosterView = document.getElementById("roster-view");
 const trendView = document.getElementById("trend-view");
-const trendRange = document.getElementById("trend-range");
-const trendStep = document.getElementById("trend-step");
+const trendUnit = document.getElementById("trend-unit");
+const trendExportBtn = document.getElementById("trend-export-btn");
 const trendCharts = document.getElementById("trend-charts");
 const trendDetail = document.getElementById("trend-detail");
 const trendDetailTitle = document.getElementById("trend-detail-title");
 const trendDetailClose = document.getElementById("trend-detail-close");
 const trendDetailList = document.getElementById("trend-detail-list");
-const trendDetailStatus = document.getElementById("trend-detail-status");
-const trendSelectAll = document.getElementById("trend-select-all");
-const trendSelectNone = document.getElementById("trend-select-none");
-const trendTagInput = createTagEditor(document.getElementById("trend-tag-input"), {
-  suggest: () => knownTags(),
-  placeholder: "要加上的標籤，例：需關心",
-});
-const trendTagBtn = document.getElementById("trend-tag-btn");
+const trendPersonPanel = document.getElementById("trend-person");
+const trendPersonTitle = document.getElementById("trend-person-title");
+const trendPersonClose = document.getElementById("trend-person-close");
+const trendPersonChart = document.getElementById("trend-person-chart");
+const trendPersonNow = document.getElementById("trend-person-now");
 
 // 使用者管理（只有道務組組長看得到）
 const membersBtn = document.getElementById("members-btn");
@@ -920,6 +917,31 @@ function heat(entry, asOf = null) {
   };
 }
 
+// ---------- 道氣 ----------
+// 把三個指標合成一個總分：熱度佔六成（談得多深最重要），參與度、互動度各佔兩成。
+// 每個指標都是 0–3 級，換算成 0–100 分。
+const SPIRIT_WEIGHTS = { heat: 0.6, participation: 0.2, interaction: 0.2 };
+const SPIRIT_LABELS = ["弱", "普", "佳", "旺"];
+const SPIRIT_RULE =
+  `道氣＝熱度 ×${SPIRIT_WEIGHTS.heat} ＋ 參與度 ×${SPIRIT_WEIGHTS.participation} ＋ 互動度 ×${SPIRIT_WEIGHTS.interaction}，` +
+  `每項 0–3 級換算成 0–100 分：73 分以上＝旺、47 分以上＝佳、1 分以上＝普、0 分＝弱。`;
+
+function spirit(entry, asOf = null) {
+  const h = heat(entry, asOf).level;
+  const p = participation(entry, asOf).level ?? 0; // 那段期間沒活動就當 0
+  const a = interaction(entry, asOf).level;
+  const raw =
+    h * SPIRIT_WEIGHTS.heat + p * SPIRIT_WEIGHTS.participation + a * SPIRIT_WEIGHTS.interaction;
+  const score = Math.round((raw / 3) * 100);
+  const level = score >= 73 ? 3 : score >= 47 ? 2 : score > 0 ? 1 : 0;
+  return {
+    level,
+    score,
+    label: SPIRIT_LABELS[level],
+    text: `道氣 ${score} 分（熱度 ${HEAT_LABELS[h]}、參與 ${["無", "低", "中", "高"][p]}、互動 ${["無", "低", "中", "高"][a]}）\n${SPIRIT_RULE}`,
+  };
+}
+
 // ---------- Render（卡片式名單） ----------
 function renderEntries() {
   const searchTerm = searchInput.value.trim().toLowerCase();
@@ -1703,6 +1725,14 @@ talkModal.addEventListener("click", (e) => {
 // 不需要另外存歷史資料；補登舊紀錄之後，過去的趨勢也會跟著修正。
 const TREND_METRICS = [
   {
+    key: "spirit",
+    title: "道氣",
+    labels: SPIRIT_LABELS, // 弱 普 佳 旺
+    note: SPIRIT_RULE,
+    compute: (entry, asOf) => spirit(entry, asOf).level,
+    score: (entry, asOf) => spirit(entry, asOf).score,
+  },
+  {
     key: "heat",
     title: "成全熱度",
     labels: HEAT_LABELS, // 冷 涼 溫 熱
@@ -1722,6 +1752,35 @@ const TREND_METRICS = [
   },
 ];
 
+// 時間單位：週看近 12 週、月看近 12 個月、年看近 5 年
+const TREND_UNITS = {
+  week: {
+    points: 12,
+    back: (d, i) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - i * 7),
+    label: (d) => `${d.getMonth() + 1}/${d.getDate()}`,
+  },
+  month: {
+    points: 12,
+    back: (d, i) => new Date(d.getFullYear(), d.getMonth() - i, d.getDate()),
+    label: (d) => `${d.getFullYear() % 100}/${d.getMonth() + 1}`,
+  },
+  year: {
+    points: 5,
+    back: (d, i) => new Date(d.getFullYear() - i, d.getMonth(), d.getDate()),
+    label: (d) => `${d.getFullYear()}`,
+  },
+};
+
+// 每個取樣時間點（由舊到新）
+function trendDates() {
+  const unit = TREND_UNITS[trendUnit.value] || TREND_UNITS.week;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dates = [];
+  for (let i = unit.points - 1; i >= 0; i -= 1) dates.push(unit.back(today, i));
+  return { dates, unit };
+}
+
 let trendSnapshots = []; // [{ date, label, buckets: { heat: [[id...] x4], act: …, part: … } }]
 let trendSelection = null; // { metricKey, level, index }
 
@@ -1734,38 +1793,37 @@ function trendEntries() {
 }
 
 function buildTrendData() {
-  const weeks = Number(trendRange.value);
-  const step = Number(trendStep.value);
   const entries = trendEntries();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const { dates, unit } = trendDates();
 
-  const snapshots = [];
-  for (let daysBack = weeks * 7; daysBack >= 0; daysBack -= step) {
-    const asOf = new Date(today.getTime() - daysBack * 86400000);
+  trendSnapshots = dates.map((asOf) => {
     const buckets = {};
+    let spiritTotal = 0;
     TREND_METRICS.forEach((m) => {
       buckets[m.key] = [[], [], [], []];
       entries.forEach((en) => {
         const level = m.compute(en, asOf);
-        // 參與度在「那一個月完全沒有活動」時是 null，歸到「無」那一格
+        // 參與度在「那段期間完全沒有活動」時是 null，歸到「無」那一格
         buckets[m.key][level === null ? 0 : level].push(en.id);
       });
     });
-    snapshots.push({
-      date: asOf,
-      label: `${asOf.getMonth() + 1}/${asOf.getDate()}`,
-      buckets,
+    entries.forEach((en) => {
+      spiritTotal += spirit(en, asOf).score;
     });
-  }
-  trendSnapshots = snapshots;
+    return {
+      date: asOf,
+      label: unit.label(asOf),
+      buckets,
+      avgSpirit: entries.length ? Math.round(spiritTotal / entries.length) : 0,
+    };
+  });
 }
 
 function renderTrendCharts() {
   buildTrendData();
   const total = trendEntries().length;
   if (total === 0) {
-    trendCharts.innerHTML = `<p class="hint-text">沒有符合的對象，可以調整上面的「只看標籤」。</p>`;
+    trendCharts.innerHTML = `<p class="hint-text">沒有符合的對象，可以調整上面的標籤篩選。</p>`;
     return;
   }
   trendCharts.innerHTML = TREND_METRICS.map((m) => renderTrendChart(m, total)).join("");
@@ -1834,11 +1892,17 @@ function renderTrendChart(metric, total) {
     )
     .join("");
 
+  // 道氣多報一個平均分數，看整體氣氛的升降
+  const extra =
+    metric.key === "spirit"
+      ? `　平均 ${trendSnapshots[n - 1]?.avgSpirit ?? 0} 分`
+      : "";
+
   return `
     <div class="trend-chart" data-metric="${metric.key}">
       <div class="trend-chart-head">
-        <span class="field-label">${metric.title}</span>
-        <span class="hint-text">y 軸＝人數（共 ${total} 人）</span>
+        <span class="field-label" ${metric.note ? `title="${escapeHtml(metric.note)}"` : ""}>${metric.title}</span>
+        <span class="hint-text">y 軸＝人數（共 ${total} 人）${extra}</span>
       </div>
       <svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="none">
         ${grid}${bars}${xLabels}
@@ -1864,7 +1928,6 @@ function selectTrendBucket(metricKey, level, index) {
   if (!snap || !metric) return;
   trendSelection = { metricKey, level, index };
   highlightTrendSelection();
-  trendDetailStatus.textContent = "";
 
   const ids = snap.buckets[metricKey][level];
   const dateText = `${snap.date.getFullYear()}/${snap.date.getMonth() + 1}/${snap.date.getDate()}`;
@@ -1884,66 +1947,191 @@ function selectTrendBucket(metricKey, level, index) {
         .map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`)
         .join("");
       return `
-        <label class="trend-person">
-          <input type="checkbox" value="${id}" checked />
+        <button type="button" class="trend-person" data-id="${id}">
           <span class="trend-person-name">${escapeHtml(en.name)}</span>
           ${dept}
           <span class="trend-person-tags">${tags}</span>
-        </label>`;
+        </button>`;
     })
     .join("");
 }
 
-// 幫選起來的人加上標籤（可以一次加好幾個；已經有的就跳過）
-async function addTagToSelected() {
-  trendTagInput.commitPending();
-  const newTags = trendTagInput.getTags();
-  if (newTags.length === 0) {
-    trendDetailStatus.textContent = "請先填要加上的標籤。";
+// ---------- 單人分析：一個人自己的四條指標曲線 ----------
+const PERSON_SERIES = [
+  { key: "spirit", title: "道氣", color: "#7c4dff" },
+  { key: "heat", title: "熱度", color: "#dc2626" },
+  { key: "act", title: "互動度", color: "#1f6a99" },
+  { key: "part", title: "參與度", color: "#1e8a4c" },
+];
+
+function showPersonTrend(entryId) {
+  const entry = allEntries.find((e) => e.id === entryId);
+  if (!entry) return;
+  const { dates, unit } = trendDates();
+
+  const series = PERSON_SERIES.map((s) => {
+    const metric = TREND_METRICS.find((m) => m.key === s.key);
+    return {
+      ...s,
+      // 四條線都畫在 0–3 的刻度上；道氣本來是 0–100 分，等比例縮到 0–3
+      values: dates.map((d) =>
+        s.key === "spirit" ? (spirit(entry, d).score / 100) * 3 : metric.compute(entry, d) ?? 0
+      ),
+      levels: dates.map((d) => metric.compute(entry, d) ?? 0),
+    };
+  });
+
+  trendPersonTitle.textContent = `${entry.name}${entry.department ? `（${entry.department}）` : ""}的走勢`;
+  trendPersonChart.innerHTML = renderPersonChart(series, dates.map(unit.label));
+
+  const now = {
+    spirit: spirit(entry),
+    heat: heat(entry),
+    act: interaction(entry),
+    part: participation(entry),
+  };
+  trendPersonNow.innerHTML = `
+    <span class="metric spirit-${now.spirit.level}" title="${escapeHtml(now.spirit.text)}">道氣 ${now.spirit.score} 分</span>
+    <span class="metric heat-${now.heat.level}">熱度 ${now.heat.label}</span>
+    <span class="metric act-${now.act.level}" title="${escapeHtml(now.act.text)}">互動 ${now.act.label}</span>
+    <span class="metric ${now.part.level === null ? "part-na" : `part-${now.part.level}`}" title="${escapeHtml(now.part.text)}">參與 ${now.part.label}</span>`;
+
+  trendPersonPanel.classList.remove("hidden");
+  trendPersonPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function renderPersonChart(series, labels) {
+  const n = labels.length;
+  const W = 720;
+  const H = 210;
+  const padL = 34;
+  const padR = 8;
+  const padT = 10;
+  const padB = 26;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const xOf = (i) => padL + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
+  const yOf = (v) => padT + plotH - (v / 3) * plotH;
+
+  const grid = [0, 1, 2, 3]
+    .map(
+      (v) => `
+        <line x1="${padL}" y1="${yOf(v)}" x2="${W - padR}" y2="${yOf(v)}" class="trend-grid" />
+        <text x="${padL - 6}" y="${yOf(v) + 4}" class="trend-axis" text-anchor="end">${v}</text>`
+    )
+    .join("");
+
+  const lines = series
+    .map((s) => {
+      const points = s.values.map((v, i) => `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(" ");
+      const dots = s.values
+        .map(
+          (v, i) =>
+            `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="2.5" fill="${s.color}" />`
+        )
+        .join("");
+      return `<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2"
+        stroke-linejoin="round" stroke-linecap="round" />${dots}`;
+    })
+    .join("");
+
+  const everyOther = n > 9 ? 2 : 1;
+  const xLabels = labels
+    .map((label, i) =>
+      i % everyOther === 0
+        ? `<text x="${xOf(i).toFixed(1)}" y="${H - 8}" class="trend-axis" text-anchor="middle">${label}</text>`
+        : ""
+    )
+    .join("");
+
+  const legend = series
+    .map(
+      (s) =>
+        `<span class="trend-legend-item"><span class="trend-swatch" style="background:${s.color}"></span>${s.title}</span>`
+    )
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" class="trend-svg" preserveAspectRatio="none">${grid}${lines}${xLabels}</svg>
+    <div class="trend-legend">${legend}<span class="hint-text">刻度 0–3 級；道氣是 0–100 分等比例縮到同一把尺上。</span></div>`;
+}
+
+// ---------- 匯出 CSV ----------
+// 匯出目前標籤篩選之後看得到的所有人，以及他們現在的各項指標
+function exportTrendCsv() {
+  const entries = trendEntries();
+  if (entries.length === 0) {
+    alert("目前沒有可以匯出的對象。");
     return;
   }
-  const ids = [...trendDetailList.querySelectorAll("input[type=checkbox]:checked")].map(
-    (c) => c.value
-  );
-  if (ids.length === 0) {
-    trendDetailStatus.textContent = "沒有勾選任何人。";
-    return;
-  }
-  trendTagBtn.disabled = true;
-  trendDetailStatus.textContent = "處理中...";
-  let updated = 0;
-  let skipped = 0;
-  const failures = [];
-  for (const id of ids) {
-    const entry = allEntries.find((e) => e.id === id);
-    const ref = entryRef(entry);
-    if (!entry || !ref) continue;
-    const tags = entry.tags || [];
-    const toAdd = newTags.filter(
-      (t) => !tags.some((existing) => existing.toLowerCase() === t.toLowerCase())
-    );
-    if (toAdd.length === 0) {
-      skipped += 1;
-      continue;
-    }
-    try {
-      await updateDoc(ref, { tags: [...tags, ...toAdd] });
-      updated += 1;
-    } catch (err) {
-      failures.push(`${entry.name}：${err.code || err.message}`);
-    }
-  }
-  const label = newTags.map((t) => `「${t}」`).join("");
-  const parts = [`已幫 ${updated} 人加上${label}`];
-  if (skipped > 0) parts.push(`${skipped} 人本來就有`);
-  if (failures.length > 0) parts.push(`${failures.length} 人失敗（${failures[0]}）`);
-  trendTagBtn.disabled = false;
-  trendTagInput.clear();
-  // 重畫一次名單，剛加上的標籤才會出現在每個人旁邊（狀態訊息要留在最後設）
-  if (trendSelection) {
-    selectTrendBucket(trendSelection.metricKey, trendSelection.level, trendSelection.index);
-  }
-  trendDetailStatus.textContent = parts.join("，") + "。";
+  const header = [
+    "姓名",
+    "系級",
+    "性別",
+    "歸屬",
+    "成全狀況",
+    "標籤",
+    "聯絡人",
+    "道氣分數",
+    "道氣",
+    "熱度",
+    "熱度基準",
+    "參與度",
+    "互動度",
+    "近兩週互動天數",
+    "最近互動距今天數",
+    "活動紀錄筆數",
+    "聯絡紀錄筆數",
+  ];
+
+  const rows = entries.map((en) => {
+    const s = spirit(en);
+    const h = heat(en);
+    const p = participation(en);
+    const a = interaction(en);
+    const touch = lastTouchDays(en);
+    const actDays = new Set(
+      [...(en.activities || []), ...(en.talks || [])]
+        .map((r) => r.date)
+        .filter((d) => {
+          const days = daysSince(d);
+          return days !== null && days >= 0 && days < INTERACTION_DAYS;
+        })
+    ).size;
+    return [
+      en.name || "",
+      en.department || "",
+      en.gender || "",
+      en._scope === "personal" ? "個人名單" : "團隊名單",
+      en.status || "",
+      (en.tags || []).join("、"),
+      en.contact || "",
+      s.score,
+      s.label,
+      h.label,
+      HEAT_LABELS[h.base] || "",
+      p.label,
+      a.label,
+      actDays,
+      touch === null ? "" : touch,
+      (en.activities || []).length,
+      (en.talks || []).length,
+    ];
+  });
+
+  const csv = [header, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .join("\r\n");
+
+  const today = new Date().toISOString().slice(0, 10);
+  // 前面加 BOM，Excel 打開才不會變亂碼
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `名單分析_${myUnitName || "名單"}_${today}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 // 趨勢分析是頁面的一部分，不是彈出視窗：跟名單頁互相切換，標籤篩選那排照樣留著
@@ -1958,21 +2146,25 @@ function showPage(mode) {
   ROSTER_ONLY_CONTROLS.forEach((el) => el.classList.toggle("hidden", trend));
   aiHeatBtn.classList.toggle("hidden", trend || viewMode !== "heat");
   if (trend) {
-    trendSelection = null;
-    trendDetail.classList.add("hidden");
+    closeTrendDetail();
     renderTrendCharts();
   }
   window.scrollTo({ top: 0 });
 }
 
+function closeTrendDetail() {
+  trendSelection = null;
+  trendDetail.classList.add("hidden");
+  trendPersonPanel.classList.add("hidden");
+  highlightTrendSelection();
+}
+
 trendBtn.addEventListener("click", () => showPage(pageMode === "trend" ? "roster" : "trend"));
-[trendRange, trendStep].forEach((sel) =>
-  sel.addEventListener("change", () => {
-    trendSelection = null;
-    trendDetail.classList.add("hidden");
-    renderTrendCharts();
-  })
-);
+trendUnit.addEventListener("change", () => {
+  closeTrendDetail();
+  renderTrendCharts();
+});
+trendExportBtn.addEventListener("click", exportTrendCsv);
 
 trendCharts.addEventListener("click", (e) => {
   const target = e.target.closest(".trend-bar, .trend-legend-item");
@@ -1995,18 +2187,15 @@ trendCharts.addEventListener("keydown", (e) => {
   );
 });
 
-trendDetailClose.addEventListener("click", () => {
-  trendDetail.classList.add("hidden");
-  trendSelection = null;
-  highlightTrendSelection();
+trendDetailClose.addEventListener("click", closeTrendDetail);
+
+// 點名單裡的某一位＝看他自己的走勢
+trendDetailList.addEventListener("click", (e) => {
+  const btn = e.target.closest(".trend-person");
+  if (!btn) return;
+  showPersonTrend(btn.dataset.id);
 });
-trendSelectAll.addEventListener("click", () => {
-  trendDetailList.querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = true));
-});
-trendSelectNone.addEventListener("click", () => {
-  trendDetailList.querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = false));
-});
-trendTagBtn.addEventListener("click", addTagToSelected);
+trendPersonClose.addEventListener("click", () => trendPersonPanel.classList.add("hidden"));
 
 // ---------- Modal open/close ----------
 function openModal(entry = null) {

@@ -566,6 +566,12 @@ button {
 .act-2 { background: #d9ebf8; color: #1f6a99; border-color: #c2dff2; }
 .act-3 { background: #1f6a99; color: #fff; border-color: #1f6a99; }
 
+/* 道氣：熱度 0.6 ＋ 參與度 0.2 ＋ 互動度 0.2 的合成分數（紫階） */
+.spirit-0 { background: #f1eff7; color: #9a92b5; border-color: #e8e5f2; }
+.spirit-1 { background: #ece6fb; color: #6b4fc0; border-color: #ddd2f6; }
+.spirit-2 { background: #d9cdf7; color: #4a2aa8; border-color: #c8b8f0; }
+.spirit-3 { background: #5b34c4; color: #fff; border-color: #5b34c4; }
+
 /* 綁定帳號的搜尋結果 */
 .bind-results {
   display: flex;
@@ -986,6 +992,10 @@ button {
 .bar-act-1 { fill: #a8cbe4; }
 .bar-act-2 { fill: #5a9bc4; }
 .bar-act-3 { fill: #1f6a99; }
+.bar-spirit-0 { fill: #e8e5f2; }
+.bar-spirit-1 { fill: #b9a8e8; }
+.bar-spirit-2 { fill: #8d6fdd; }
+.bar-spirit-3 { fill: #5b34c4; }
 .bar-part-0 { fill: #e6e9ec; }
 .bar-part-1 { fill: #a9dcbe; }
 .bar-part-2 { fill: #57b880; }
@@ -1029,6 +1039,10 @@ button {
 .trend-swatch.bar-act-1 { background: #a8cbe4; }
 .trend-swatch.bar-act-2 { background: #5a9bc4; }
 .trend-swatch.bar-act-3 { background: #1f6a99; }
+.trend-swatch.bar-spirit-0 { background: #e8e5f2; }
+.trend-swatch.bar-spirit-1 { background: #b9a8e8; }
+.trend-swatch.bar-spirit-2 { background: #8d6fdd; }
+.trend-swatch.bar-spirit-3 { background: #5b34c4; }
 .trend-swatch.bar-part-0 { background: #e6e9ec; }
 .trend-swatch.bar-part-1 { background: #a9dcbe; }
 .trend-swatch.bar-part-2 { background: #57b880; }
@@ -1071,15 +1085,33 @@ button {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.35rem 0.2rem;
+  width: 100%;
+  padding: 0.4rem 0.4rem;
+  border: none;
   border-bottom: 1px solid #f2f2f2;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
   font-size: 0.88rem;
   cursor: pointer;
 }
 
-.trend-person input {
-  width: auto;
-  margin: 0;
+.trend-person:hover {
+  background: #f4f6f9;
+}
+
+/* 單人分析 */
+.trend-person-panel {
+  margin-top: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid #eee;
+}
+
+.trend-person-now {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
 }
 
 .trend-person-name {

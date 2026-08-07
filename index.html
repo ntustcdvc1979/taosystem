@@ -103,20 +103,14 @@
 
           <div class="trend-controls">
             <label>
-              期間
-              <select id="trend-range">
-                <option value="8">近 8 週</option>
-                <option value="12" selected>近 12 週</option>
-                <option value="26">近半年</option>
+              時間單位
+              <select id="trend-unit">
+                <option value="week" selected>週（近 12 週）</option>
+                <option value="month">月（近 12 個月）</option>
+                <option value="year">年（近 5 年）</option>
               </select>
             </label>
-            <label>
-              取樣間隔
-              <select id="trend-step">
-                <option value="7" selected>每週</option>
-                <option value="14">每兩週</option>
-              </select>
-            </label>
+            <button type="button" id="trend-export-btn" class="btn-secondary btn-small">匯出 CSV</button>
           </div>
 
           <div id="trend-charts" class="trend-charts"></div>
@@ -126,14 +120,18 @@
               <span id="trend-detail-title" class="field-label"></span>
               <button type="button" id="trend-detail-close" class="btn-link-plain">收起</button>
             </div>
-            <div class="trend-detail-actions">
-              <button type="button" id="trend-select-all" class="btn-secondary btn-small">全選</button>
-              <button type="button" id="trend-select-none" class="btn-secondary btn-small">全不選</button>
-              <div id="trend-tag-input" class="trend-tag-editor"></div>
-              <button type="button" id="trend-tag-btn" class="btn-primary btn-small">加標籤</button>
-            </div>
-            <p id="trend-detail-status" class="hint-text"></p>
+            <p class="hint-text">點名字可以看這一位自己的走勢。</p>
             <div id="trend-detail-list" class="trend-detail-list"></div>
+          </div>
+
+          <!-- 單人分析：點名單裡的某個人之後，畫他自己的四條指標曲線 -->
+          <div id="trend-person" class="trend-person-panel hidden">
+            <div class="trend-detail-head">
+              <span id="trend-person-title" class="field-label"></span>
+              <button type="button" id="trend-person-close" class="btn-link-plain">收起</button>
+            </div>
+            <div id="trend-person-chart"></div>
+            <div id="trend-person-now" class="trend-person-now"></div>
           </div>
         </div>
       </section>
