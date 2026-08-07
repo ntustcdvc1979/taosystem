@@ -62,37 +62,79 @@
           </select>
           <button id="toggle-view-btn" class="btn-secondary">切換詳細模式</button>
           <button id="ai-heat-btn" class="btn-secondary hidden">AI 評估熱度</button>
-          <!-- 標籤篩選：下拉選單，打勾的標籤才顯示 -->
-          <div class="tag-filter-wrap">
-            <button id="tag-filter-btn" class="btn-secondary" aria-haspopup="true" aria-expanded="false">
-              標籤篩選
-            </button>
-            <div id="tag-filter-panel" class="tag-filter-panel hidden">
-              <p class="hint-text">
-                打勾＝帶有該標籤的對象要顯示；取消打勾就整張卡片隱藏。沒有標籤的對象一律顯示。
-              </p>
-              <div id="tag-filter-list" class="tag-filter-list"></div>
-              <div class="tag-filter-foot">
-                <button type="button" id="tag-filter-all" class="btn-link-plain">全部顯示</button>
-              </div>
-            </div>
-          </div>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
           <button id="trend-btn" class="btn-secondary">趨勢分析</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
 
-        <!-- 近兩週活動提醒：提示該安排邀約了 -->
-        <div id="upcoming-notice" class="upcoming-notice hidden">
-          <div class="notice-head">
-            <span class="notice-title">近兩週的活動</span>
-            <button type="button" id="notice-dismiss" class="btn-link-plain">今天不再顯示</button>
-          </div>
-          <div id="notice-list"></div>
+        <!-- 標籤篩選：點亮的標籤才會顯示，名單與趨勢分析共用同一組設定 -->
+        <div class="tag-bar">
+          <span class="tag-bar-label">標籤篩選</span>
+          <div id="tag-filter-list" class="tag-toggle-list"></div>
+          <button type="button" id="tag-filter-all" class="btn-link-plain">全部點亮</button>
         </div>
 
-        <div id="entries-list" class="cards-wrap">
-          <p class="empty-text">尚無資料</p>
+        <!-- 名單頁 -->
+        <div id="roster-view">
+          <!-- 近兩週活動提醒：提示該安排邀約了 -->
+          <div id="upcoming-notice" class="upcoming-notice hidden">
+            <div class="notice-head">
+              <span class="notice-title">近兩週的活動</span>
+              <button type="button" id="notice-dismiss" class="btn-link-plain">今天不再顯示</button>
+            </div>
+            <div id="notice-list"></div>
+          </div>
+
+          <div id="entries-list" class="cards-wrap">
+            <p class="empty-text">尚無資料</p>
+          </div>
+        </div>
+
+        <!-- 趨勢分析頁 -->
+        <div id="trend-view" class="trend-view hidden">
+          <div class="trend-head">
+            <h2>趨勢分析</h2>
+            <p class="hint-text">
+              用現有的活動紀錄與聯絡紀錄往回推算每個時間點的指標，所以補登舊紀錄後趨勢會跟著更新。
+              統計範圍就是上面標籤篩選之後看得到的人。
+              點圖上的色塊（或下方圖例）可以看到那個時間點屬於該分類的名單，並直接幫他們加標籤。
+            </p>
+          </div>
+
+          <div class="trend-controls">
+            <label>
+              期間
+              <select id="trend-range">
+                <option value="8">近 8 週</option>
+                <option value="12" selected>近 12 週</option>
+                <option value="26">近半年</option>
+              </select>
+            </label>
+            <label>
+              取樣間隔
+              <select id="trend-step">
+                <option value="7" selected>每週</option>
+                <option value="14">每兩週</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="trend-charts" class="trend-charts"></div>
+
+          <div id="trend-detail" class="trend-detail hidden">
+            <div class="trend-detail-head">
+              <span id="trend-detail-title" class="field-label"></span>
+              <button type="button" id="trend-detail-close" class="btn-link-plain">收起</button>
+            </div>
+            <div class="trend-detail-actions">
+              <button type="button" id="trend-select-all" class="btn-secondary btn-small">全選</button>
+              <button type="button" id="trend-select-none" class="btn-secondary btn-small">全不選</button>
+              <div id="trend-tag-input" class="trend-tag-editor"></div>
+              <button type="button" id="trend-tag-btn" class="btn-primary btn-small">加標籤</button>
+            </div>
+            <p id="trend-detail-status" class="hint-text"></p>
+            <div id="trend-detail-list" class="trend-detail-list"></div>
+          </div>
         </div>
       </section>
 
@@ -264,62 +306,6 @@
           </p>
           <div class="modal-actions">
             <button type="button" id="bind-close-btn" class="btn-secondary">關閉</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 趨勢分析 頁面（熱度／互動度／參與度隨時間的變化） -->
-      <div id="trend-modal" class="modal hidden">
-        <div class="modal-content trend-modal-content">
-          <button type="button" id="trend-close-btn" class="modal-close" aria-label="關閉">×</button>
-          <h2>趨勢分析</h2>
-          <p class="hint-text">
-            用現有的活動紀錄與聯絡紀錄往回推算每個時間點的指標，所以補登舊紀錄後趨勢會跟著更新。
-            點圖上的色塊（或下方圖例）可以看到那個時間點屬於該分類的名單，並直接幫他們加標籤。
-          </p>
-
-          <div class="trend-controls">
-            <label>
-              期間
-              <select id="trend-range">
-                <option value="8">近 8 週</option>
-                <option value="12" selected>近 12 週</option>
-                <option value="26">近半年</option>
-              </select>
-            </label>
-            <label>
-              取樣間隔
-              <select id="trend-step">
-                <option value="7" selected>每週</option>
-                <option value="14">每兩週</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="trend-filter">
-            <span class="field-label">只看標籤</span>
-            <span class="hint-text">
-              點標籤就只統計帶有它的人（可複選，任一符合即列入）；再點一次取消。
-              全不選＝目前名單上看得到的人；選了標籤就以標籤為準，連工具列藏起來的（例如團內幹部）也能單獨分析。
-            </span>
-            <div id="trend-tag-filter" class="tag-toggle-list"></div>
-          </div>
-
-          <div id="trend-charts" class="trend-charts"></div>
-
-          <div id="trend-detail" class="trend-detail hidden">
-            <div class="trend-detail-head">
-              <span id="trend-detail-title" class="field-label"></span>
-              <button type="button" id="trend-detail-close" class="btn-link-plain">收起</button>
-            </div>
-            <div class="trend-detail-actions">
-              <button type="button" id="trend-select-all" class="btn-secondary btn-small">全選</button>
-              <button type="button" id="trend-select-none" class="btn-secondary btn-small">全不選</button>
-              <div id="trend-tag-input" class="trend-tag-editor"></div>
-              <button type="button" id="trend-tag-btn" class="btn-primary btn-small">加標籤</button>
-            </div>
-            <p id="trend-detail-status" class="hint-text"></p>
-            <div id="trend-detail-list" class="trend-detail-list"></div>
           </div>
         </div>
       </div>

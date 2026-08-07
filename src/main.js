@@ -70,12 +70,11 @@ const bindMeBtn = document.getElementById("bind-me-btn");
 
 // 趨勢分析
 const trendBtn = document.getElementById("trend-btn");
-const trendModal = document.getElementById("trend-modal");
-const trendCloseBtn = document.getElementById("trend-close-btn");
+const rosterView = document.getElementById("roster-view");
+const trendView = document.getElementById("trend-view");
 const trendRange = document.getElementById("trend-range");
 const trendStep = document.getElementById("trend-step");
 const trendCharts = document.getElementById("trend-charts");
-const trendTagFilterList = document.getElementById("trend-tag-filter");
 const trendDetail = document.getElementById("trend-detail");
 const trendDetailTitle = document.getElementById("trend-detail-title");
 const trendDetailClose = document.getElementById("trend-detail-close");
@@ -108,8 +107,6 @@ const bindCloseBtn = document.getElementById("bind-close-btn");
 const toggleViewBtn = document.getElementById("toggle-view-btn");
 const aiHeatBtn = document.getElementById("ai-heat-btn");
 aiHeatBtn.classList.remove("hidden"); // 預設就是熱度模式
-const tagFilterBtn = document.getElementById("tag-filter-btn");
-const tagFilterPanel = document.getElementById("tag-filter-panel");
 const tagFilterList = document.getElementById("tag-filter-list");
 const tagFilterAll = document.getElementById("tag-filter-all");
 
@@ -131,26 +128,34 @@ const NOTICE_DISMISS_KEY = "taosystem_notice_dismissed";
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
 
-// 預設隱藏的標籤（例：內部幹部身分不宜隨手就看到）。如需增減，直接編輯這個陣列。
-// 標籤篩選：沒有打勾的標籤，帶有該標籤的對象整張卡片就不顯示。
-// 預設只有「團內幹部」沒打勾；使用者調過之後記在這台裝置上。
+// 標籤篩選：點亮的標籤才會顯示，沒點亮的標籤帶有它的對象整張卡片就不出現。
+// 名單與趨勢分析共用這一組設定。
+// 每個道務單位一律有「團內幹部」這個標籤（就算還沒人用），預設不點亮；
+// 其他標籤預設點亮。使用者調過之後依帳號記在這台裝置上。
+const BUILTIN_TAGS = ["團內幹部"];
 const DEFAULT_HIDDEN_TAGS = ["團內幹部"];
 const HIDDEN_TAGS_KEY = "hiddenTags";
-let hiddenTags = loadHiddenTags();
+let hiddenTags = new Set(DEFAULT_HIDDEN_TAGS);
+
+// 依登入帳號分開存，共用電腦時不會互相蓋掉
+function hiddenTagsKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `${HIDDEN_TAGS_KEY}:${uid}` : HIDDEN_TAGS_KEY;
+}
 
 function loadHiddenTags() {
   try {
-    const raw = localStorage.getItem(HIDDEN_TAGS_KEY);
-    if (raw) return new Set(JSON.parse(raw));
+    const raw = localStorage.getItem(hiddenTagsKey());
+    hiddenTags = raw ? new Set(JSON.parse(raw)) : new Set(DEFAULT_HIDDEN_TAGS);
   } catch {
     // 存壞了就當作沒設定過
+    hiddenTags = new Set(DEFAULT_HIDDEN_TAGS);
   }
-  return new Set(DEFAULT_HIDDEN_TAGS);
 }
 
 function saveHiddenTags() {
   try {
-    localStorage.setItem(HIDDEN_TAGS_KEY, JSON.stringify([...hiddenTags]));
+    localStorage.setItem(hiddenTagsKey(), JSON.stringify([...hiddenTags]));
   } catch {
     // 無痕模式之類寫不進去就算了，只是這次不會記住
   }
@@ -161,6 +166,9 @@ const RECORD_PREVIEW_COUNT = 2;
 
 // 名單檢視模式："heat"（成全熱度・參與度，預設）／"detail"（詳細卡片）
 let viewMode = "heat";
+
+// 目前在哪一頁："roster"（名單，預設）／"trend"（趨勢分析）
+let pageMode = "roster";
 
 const entryModal = document.getElementById("entry-modal");
 const entryForm = document.getElementById("entry-form");
@@ -289,6 +297,9 @@ onAuthStateChanged(auth, async (user) => {
     loginView.classList.add("hidden");
     appView.classList.remove("hidden");
     chatFab.classList.remove("hidden");
+    loadHiddenTags(); // 這個帳號上次點亮了哪些標籤
+    showPage("roster");
+    renderTagFilter();
     subscribeEntries();
     subscribeEvents();
     loadMyLink();
@@ -1433,66 +1444,49 @@ filterScope.addEventListener("change", renderEntries);
 toggleViewBtn.addEventListener("click", () => {
   viewMode = viewMode === "detail" ? "heat" : "detail";
   toggleViewBtn.textContent = viewMode === "heat" ? "切換詳細模式" : "切換熱度模式";
-  aiHeatBtn.classList.toggle("hidden", viewMode !== "heat");
+  aiHeatBtn.classList.toggle("hidden", pageMode === "trend" || viewMode !== "heat");
   renderEntries();
 });
 
-// ---------- 標籤篩選 ----------
+// ---------- 標籤篩選（名單與趨勢分析共用） ----------
+// 點亮的標籤才會顯示；一個對象只要帶有沒點亮的標籤，整張卡片就不出現。
+// 沒有任何標籤的對象一律顯示。
 function renderTagFilter() {
-  const tags = [...new Set([...knownTags(), ...hiddenTags])];
-  tagFilterList.innerHTML =
-    tags.length === 0
-      ? `<p class="hint-text">名單上還沒有任何標籤。</p>`
-      : tags
-          .map(
-            (t) => `
-        <label class="tag-filter-item">
-          <input type="checkbox" value="${escapeHtml(t)}" ${hiddenTags.has(t) ? "" : "checked"} />
-          ${escapeHtml(t)}
-        </label>`
-          )
-          .join("");
+  const tags = [...new Set([...BUILTIN_TAGS, ...knownTags(), ...hiddenTags])];
+  tagFilterList.innerHTML = tags
+    .map((t) => {
+      const on = !hiddenTags.has(t);
+      return `<button type="button" class="tag-toggle${on ? " is-on" : ""}"
+        data-tag="${escapeHtml(t)}" aria-pressed="${on}">${escapeHtml(t)}</button>`;
+    })
+    .join("");
+  tagFilterAll.classList.toggle("hidden", hiddenTags.size === 0);
 }
 
-function closeTagFilter() {
-  tagFilterPanel.classList.add("hidden");
-  tagFilterBtn.classList.remove("is-open");
-  tagFilterBtn.setAttribute("aria-expanded", "false");
-}
-
-tagFilterBtn.addEventListener("click", (e) => {
-  e.stopPropagation();
-  const open = tagFilterPanel.classList.toggle("hidden") === false;
-  tagFilterBtn.classList.toggle("is-open", open);
-  tagFilterBtn.setAttribute("aria-expanded", String(open));
-  if (open) renderTagFilter();
-});
-
-// 下拉選單：點到別的地方或按 Esc 就收起來
-document.addEventListener("click", (e) => {
-  if (tagFilterPanel.classList.contains("hidden")) return;
-  if (e.target.closest(".tag-filter-wrap")) return;
-  closeTagFilter();
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeTagFilter();
-});
-
-tagFilterList.addEventListener("change", (e) => {
-  const box = e.target.closest("input[type=checkbox]");
-  if (!box) return;
-  if (box.checked) hiddenTags.delete(box.value);
-  else hiddenTags.add(box.value);
+// 標籤篩選改變後，名單與趨勢圖都要重畫
+function applyTagFilter() {
   saveHiddenTags();
   renderTagFilter();
   renderEntries();
+  if (pageMode === "trend") {
+    trendSelection = null;
+    trendDetail.classList.add("hidden");
+    renderTrendCharts();
+  }
+}
+
+tagFilterList.addEventListener("click", (e) => {
+  const chip = e.target.closest(".tag-toggle");
+  if (!chip) return;
+  const tag = chip.dataset.tag;
+  if (hiddenTags.has(tag)) hiddenTags.delete(tag);
+  else hiddenTags.add(tag);
+  applyTagFilter();
 });
 
 tagFilterAll.addEventListener("click", () => {
   hiddenTags.clear();
-  saveHiddenTags();
-  renderTagFilter();
-  renderEntries();
+  applyTagFilter();
 });
 
 // ---------- 活動紀錄對話框（每個人獨立新增/編輯，與新增名單表單分開） ----------
@@ -1731,34 +1725,12 @@ const TREND_METRICS = [
 let trendSnapshots = []; // [{ date, label, buckets: { heat: [[id...] x4], act: …, part: … } }]
 let trendSelection = null; // { metricKey, level, index }
 
-// 趨勢分析自己的標籤篩選：不選＝全部，選了就只統計帶有其中任一標籤的人
-let trendTagFilter = new Set();
+// 名單頁 ↔ 趨勢分析頁；這些控制項只在名單頁有用
+const ROSTER_ONLY_CONTROLS = [searchInput, filterStatus, filterScope, toggleViewBtn, addEntryBtn];
 
+// 統計範圍就是名單頁篩選之後看得到的人，兩邊共用同一組標籤設定
 function trendEntries() {
-  // 有指定標籤時就以它為準（包含被工具列藏起來的標籤，例如想單獨看團內幹部）；
-  // 沒指定才套用工具列的標籤篩選。
-  if (trendTagFilter.size > 0) {
-    return allEntries.filter((en) => (en.tags || []).some((t) => trendTagFilter.has(t)));
-  }
   return allEntries.filter((en) => !hasHiddenTag(en));
-}
-
-function renderTrendTagFilter() {
-  // 名單上用過的標籤全部列出來（含工具列藏起來的），這裡才看得到有哪些可以分析
-  const all = [...new Set([...knownTags(), ...trendTagFilter])];
-  trendTagFilterList.innerHTML =
-    all.length === 0
-      ? `<p class="hint-text">名單上還沒有人被貼標籤；在名單編輯的「標籤」欄加上之後就會出現在這裡。</p>`
-      : all
-          .map(
-            (t) => `
-        <button type="button" class="tag-toggle${trendTagFilter.has(t) ? " is-on" : ""}"
-          data-tag="${escapeHtml(t)}" aria-pressed="${trendTagFilter.has(t)}">${escapeHtml(t)}</button>`
-          )
-          .join("") +
-        (trendTagFilter.size > 0
-          ? `<button type="button" class="btn-link-plain" data-clear="1">清除</button>`
-          : "");
 }
 
 function buildTrendData() {
@@ -1974,32 +1946,26 @@ async function addTagToSelected() {
   trendDetailStatus.textContent = parts.join("，") + "。";
 }
 
-function openTrendModal() {
-  trendSelection = null;
-  trendDetail.classList.add("hidden");
-  renderTrendTagFilter();
-  renderTrendCharts();
-  trendModal.classList.remove("hidden");
+// 趨勢分析是頁面的一部分，不是彈出視窗：跟名單頁互相切換，標籤篩選那排照樣留著
+function showPage(mode) {
+  pageMode = mode;
+  const trend = mode === "trend";
+  rosterView.classList.toggle("hidden", trend);
+  trendView.classList.toggle("hidden", !trend);
+  trendBtn.textContent = trend ? "回到名單" : "趨勢分析";
+  trendBtn.classList.toggle("is-on", trend);
+  // 名單專用的控制項在趨勢頁沒有意義，收起來
+  ROSTER_ONLY_CONTROLS.forEach((el) => el.classList.toggle("hidden", trend));
+  aiHeatBtn.classList.toggle("hidden", trend || viewMode !== "heat");
+  if (trend) {
+    trendSelection = null;
+    trendDetail.classList.add("hidden");
+    renderTrendCharts();
+  }
+  window.scrollTo({ top: 0 });
 }
 
-trendTagFilterList.addEventListener("click", (e) => {
-  const clear = e.target.closest("[data-clear]");
-  const chip = e.target.closest(".tag-toggle");
-  if (!clear && !chip) return;
-  if (clear) trendTagFilter.clear();
-  else if (trendTagFilter.has(chip.dataset.tag)) trendTagFilter.delete(chip.dataset.tag);
-  else trendTagFilter.add(chip.dataset.tag);
-  trendSelection = null;
-  trendDetail.classList.add("hidden");
-  renderTrendTagFilter();
-  renderTrendCharts();
-});
-
-trendBtn.addEventListener("click", openTrendModal);
-trendCloseBtn.addEventListener("click", () => trendModal.classList.add("hidden"));
-trendModal.addEventListener("click", (e) => {
-  if (e.target === trendModal) trendModal.classList.add("hidden");
-});
+trendBtn.addEventListener("click", () => showPage(pageMode === "trend" ? "roster" : "trend"));
 [trendRange, trendStep].forEach((sel) =>
   sel.addEventListener("change", () => {
     trendSelection = null;
