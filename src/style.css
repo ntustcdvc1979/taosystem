@@ -915,7 +915,23 @@ button {
   margin-top: 1rem;
 }
 
-/* 趨勢分析（頁面的一部分，不是彈出視窗） */
+/* 圖表篩選中的提示條（名單卡只顯示那一群） */
+.trend-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: #eef4ff;
+  border: 1px solid #d3e0fb;
+  border-radius: 8px;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.6rem;
+  color: #2559c4;
+  font-size: 0.85rem;
+}
+
+/* 趨勢分析（夾在工具列與名單卡之間） */
 .trend-view {
   background: #fff;
   border-radius: 10px;

@@ -79,30 +79,13 @@
           <button type="button" id="tag-filter-all" class="btn-link-plain">全部點亮</button>
         </div>
 
-        <!-- 名單頁 -->
-        <div id="roster-view">
-          <!-- 近兩週活動提醒：提示該安排邀約了 -->
-          <div id="upcoming-notice" class="upcoming-notice hidden">
-            <div class="notice-head">
-              <span class="notice-title">近兩週的活動</span>
-              <button type="button" id="notice-dismiss" class="btn-link-plain">今天不再顯示</button>
-            </div>
-            <div id="notice-list"></div>
-          </div>
-
-          <div id="entries-list" class="cards-wrap">
-            <p class="empty-text">尚無資料</p>
-          </div>
-        </div>
-
-        <!-- 趨勢分析頁 -->
+        <!-- 趨勢分析：夾在工具列與名單卡之間，點圖表就篩選下面的名單卡 -->
         <div id="trend-view" class="trend-view hidden">
           <div class="trend-head">
             <h2>趨勢分析</h2>
             <p class="hint-text">
               用現有的活動紀錄與聯絡紀錄往回推算每個時間點的指標，所以補登舊紀錄後趨勢會跟著更新。
-              統計範圍就是上面標籤篩選之後看得到的人。
-              點圖上的色塊（或下方圖例）可以看到那個時間點屬於該分類的名單，並直接幫他們加標籤。
+              統計範圍就是標籤篩選之後看得到的人。點圖上的色塊（或下方圖例）就會把下面的名單卡篩成那一群人。
             </p>
           </div>
 
@@ -120,16 +103,7 @@
 
           <div id="trend-charts" class="trend-charts"></div>
 
-          <div id="trend-detail" class="trend-detail hidden">
-            <div class="trend-detail-head">
-              <span id="trend-detail-title" class="field-label"></span>
-              <button type="button" id="trend-detail-close" class="btn-link-plain">收起</button>
-            </div>
-            <p class="hint-text">點名字可以看這一位自己的走勢。</p>
-            <div id="trend-detail-list" class="trend-detail-list"></div>
-          </div>
-
-          <!-- 單人分析：點名單裡的某個人之後，畫他自己的四條指標曲線 -->
+          <!-- 單人分析：點名單卡上的「走勢」之後，畫他自己的四條指標曲線 -->
           <div id="trend-person" class="trend-person-panel hidden">
             <div class="trend-detail-head">
               <span id="trend-person-title" class="field-label"></span>
@@ -138,6 +112,25 @@
             <div id="trend-person-chart"></div>
             <div id="trend-person-now" class="trend-person-now"></div>
           </div>
+        </div>
+
+        <!-- 目前套用的圖表篩選：下面的名單卡只顯示這一群 -->
+        <div id="trend-filter-bar" class="trend-filter-bar hidden">
+          <span id="trend-filter-label"></span>
+          <button type="button" id="trend-filter-clear" class="btn-link-plain">清除篩選</button>
+        </div>
+
+        <!-- 近兩週活動提醒：提示該安排邀約了 -->
+        <div id="upcoming-notice" class="upcoming-notice hidden">
+          <div class="notice-head">
+            <span class="notice-title">近兩週的活動</span>
+            <button type="button" id="notice-dismiss" class="btn-link-plain">今天不再顯示</button>
+          </div>
+          <div id="notice-list"></div>
+        </div>
+
+        <div id="entries-list" class="cards-wrap">
+          <p class="empty-text">尚無資料</p>
         </div>
       </section>
 

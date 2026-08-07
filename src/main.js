@@ -48,6 +48,7 @@ const ROSTER_INDEX_COLLECTION = "rosterIndex";
 let myUnitId = null;
 let myUnitName = "";
 let myEntryId = null; // 這支帳號綁定到名單中的哪一位
+let myEntryName = ""; // 那一筆的名字（自己那筆常常因為同階而讀不到，名字改從索引取）
 let myRank = 1; // 自己的身分（3 講師／2 成全組長／1 組員／0 非組員）
 let viewRank = 1; // 目前用哪個身分在看名單（不會超過 myRank）
 
@@ -75,15 +76,13 @@ const bindMeBtn = document.getElementById("bind-me-btn");
 
 // 趨勢分析
 const trendBtn = document.getElementById("trend-btn");
-const rosterView = document.getElementById("roster-view");
 const trendView = document.getElementById("trend-view");
+const trendFilterBar = document.getElementById("trend-filter-bar");
+const trendFilterLabel = document.getElementById("trend-filter-label");
+const trendFilterClear = document.getElementById("trend-filter-clear");
 const trendUnit = document.getElementById("trend-unit");
 const trendExportBtn = document.getElementById("trend-export-btn");
 const trendCharts = document.getElementById("trend-charts");
-const trendDetail = document.getElementById("trend-detail");
-const trendDetailTitle = document.getElementById("trend-detail-title");
-const trendDetailClose = document.getElementById("trend-detail-close");
-const trendDetailList = document.getElementById("trend-detail-list");
 const trendPersonPanel = document.getElementById("trend-person");
 const trendPersonTitle = document.getElementById("trend-person-title");
 const trendPersonClose = document.getElementById("trend-person-close");
@@ -144,28 +143,52 @@ const entriesList = document.getElementById("entries-list");
 // 其他標籤預設點亮。使用者調過之後依帳號記在這台裝置上。
 const BUILTIN_TAGS = ["團內幹部"];
 const DEFAULT_HIDDEN_TAGS = ["團內幹部"];
-const HIDDEN_TAGS_KEY = "hiddenTags";
-let hiddenTags = new Set(DEFAULT_HIDDEN_TAGS);
+const TAG_FILTER_KEY = "tagFilter";
+
+// 只記「使用者自己動過的標籤」，沒動過的一律套用預設值。
+// 這樣新出現的標籤預設是亮的，而「團內幹部」預設一直是暗的——
+// 不會因為某次按過「全部點亮」就把預設值永久洗掉。
+let tagOverrides = { shown: new Set(), hidden: new Set() };
 
 // 依登入帳號分開存，共用電腦時不會互相蓋掉
-function hiddenTagsKey() {
+function tagFilterKey() {
   const uid = auth.currentUser?.uid;
-  return uid ? `${HIDDEN_TAGS_KEY}:${uid}` : HIDDEN_TAGS_KEY;
+  return uid ? `${TAG_FILTER_KEY}:${uid}` : TAG_FILTER_KEY;
 }
 
-function loadHiddenTags() {
+function isTagOn(tag) {
+  if (tagOverrides.shown.has(tag)) return true;
+  if (tagOverrides.hidden.has(tag)) return false;
+  return !DEFAULT_HIDDEN_TAGS.includes(tag);
+}
+
+function setTagOn(tag, on) {
+  tagOverrides.shown.delete(tag);
+  tagOverrides.hidden.delete(tag);
+  (on ? tagOverrides.shown : tagOverrides.hidden).add(tag);
+  saveTagFilter();
+}
+
+function loadTagFilter() {
+  tagOverrides = { shown: new Set(), hidden: new Set() };
   try {
-    const raw = localStorage.getItem(hiddenTagsKey());
-    hiddenTags = raw ? new Set(JSON.parse(raw)) : new Set(DEFAULT_HIDDEN_TAGS);
+    const raw = localStorage.getItem(tagFilterKey());
+    if (raw) {
+      const saved = JSON.parse(raw);
+      tagOverrides.shown = new Set(saved.shown || []);
+      tagOverrides.hidden = new Set(saved.hidden || []);
+    }
   } catch {
-    // 存壞了就當作沒設定過
-    hiddenTags = new Set(DEFAULT_HIDDEN_TAGS);
+    // 存壞了就當作沒設定過，回到預設
   }
 }
 
-function saveHiddenTags() {
+function saveTagFilter() {
   try {
-    localStorage.setItem(hiddenTagsKey(), JSON.stringify([...hiddenTags]));
+    localStorage.setItem(
+      tagFilterKey(),
+      JSON.stringify({ shown: [...tagOverrides.shown], hidden: [...tagOverrides.hidden] })
+    );
   } catch {
     // 無痕模式之類寫不進去就算了，只是這次不會記住
   }
@@ -307,7 +330,7 @@ onAuthStateChanged(auth, async (user) => {
     loginView.classList.add("hidden");
     appView.classList.remove("hidden");
     chatFab.classList.remove("hidden");
-    loadHiddenTags(); // 這個帳號上次點亮了哪些標籤
+    loadTagFilter(); // 這個帳號上次點亮／點暗了哪些標籤
     showPage("roster");
     renderTagFilter();
     subscribeEntries();
@@ -502,28 +525,40 @@ async function loadMyLink() {
     console.error(err);
     myEntryId = null;
   }
+  // 自己那一筆通常跟自己同階（看不到），名字得從索引拿
+  if (myEntryId) {
+    try {
+      const snap = await getDoc(unitDoc(ROSTER_INDEX_COLLECTION, myEntryId));
+      myEntryName = snap.exists() ? snap.data().name || "" : "";
+    } catch {
+      myEntryName = "";
+    }
+  } else {
+    myEntryName = "";
+  }
   refreshBindPrompt();
 }
 
-// 我自己在名單上的那一筆（沒綁定或那筆被刪掉了就是 undefined）
+// 我自己在名單上的那一筆（同階看不到時會是 undefined，名字改用 myEntryName）
 function myEntry() {
   return allEntries.find((en) => en.id === myEntryId);
 }
 
 // 我自己在名單上的名字（沒綁定就用 Email）
 function myDisplayName() {
-  return myEntry()?.name || auth.currentUser?.email || "";
+  return myEntry()?.name || myEntryName || auth.currentUser?.email || "";
 }
 
 // 綁定後工具列顯示「名字（gmail）」，讓人一眼看出自己是誰
 function updateUserLabel() {
   const email = auth.currentUser?.email || "";
-  const name = myEntry()?.name;
+  const name = myEntry()?.name || myEntryName;
   currentUserLabel.textContent = name ? `${name}（${email}）` : email;
 }
 
 function refreshBindPrompt() {
-  const bound = !!myEntryId && allEntries.some((en) => en.id === myEntryId);
+  // 綁到的那一筆看不看得到都算綁好了（身分階梯本來就會擋住同階的人）
+  const bound = !!myEntryId;
   bindMeBtn.classList.toggle("hidden", bound);
   bindMeBtn.textContent = myEntryId && !bound ? "重新綁定我的資料" : "綁定我的資料";
   updateUserLabel();
@@ -966,7 +1001,7 @@ noticeDismissBtn.addEventListener("click", () => {
 
 // 對象只要有任何一個預設隱藏的標籤（例：團內幹部），整張卡片就不顯示（除非開關開啟）
 function hasHiddenTag(entry) {
-  return (entry.tags || []).some((t) => hiddenTags.has(t));
+  return (entry.tags || []).some((t) => !isTagOn(t));
 }
 
 // 目前名單上出現過的所有標籤，常用的排前面（標籤輸入框的搜尋來源）
@@ -1161,6 +1196,8 @@ function renderEntries() {
   const filtered = allEntries.filter((entry) => {
     if (scopeVal && (entry._scope || "team") !== scopeVal) return false;
     if (hasHiddenTag(entry)) return false;
+    // 點了趨勢圖上的色塊之後，名單卡只留那一群人
+    if (trendFilterIds && !trendFilterIds.has(entry.id)) return false;
     if (statusVal && entry.status !== statusVal) return false;
     if (searchTerm) {
       const haystack = [
@@ -1241,6 +1278,7 @@ function renderEntries() {
         <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
         <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聯絡紀錄</button>
         <button data-action="ai" data-id="${entry.id}" class="btn-secondary">AI 建議</button>
+        <button data-action="trend" data-id="${entry.id}" class="btn-secondary">走勢</button>
         ${entry._scope === "personal" ? `<button data-action="to-team" data-id="${entry.id}" class="btn-secondary">轉為${escapeHtml(teamName)}名單</button>` : ""}
         <button data-action="delete" data-id="${entry.id}" class="btn-danger">刪除</button>
       </div>
@@ -1444,6 +1482,7 @@ function renderHeatList(entries) {
             <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
             <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聯絡紀錄</button>
             <button data-action="heat" data-id="${entry.id}" class="btn-secondary">熱度</button>
+            <button data-action="trend" data-id="${entry.id}" class="btn-secondary">走勢</button>
             <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
           </div>
         </div>`;
@@ -1676,33 +1715,35 @@ filterScope.addEventListener("change", renderEntries);
 toggleViewBtn.addEventListener("click", () => {
   viewMode = viewMode === "detail" ? "heat" : "detail";
   toggleViewBtn.textContent = viewMode === "heat" ? "切換詳細模式" : "切換熱度模式";
-  aiHeatBtn.classList.toggle("hidden", pageMode === "trend" || viewMode !== "heat");
+  aiHeatBtn.classList.toggle("hidden", viewMode !== "heat");
   renderEntries();
 });
 
 // ---------- 標籤篩選（名單與趨勢分析共用） ----------
 // 點亮的標籤才會顯示；一個對象只要帶有沒點亮的標籤，整張卡片就不出現。
 // 沒有任何標籤的對象一律顯示。
+function allTagNames() {
+  return [...new Set([...BUILTIN_TAGS, ...knownTags(), ...tagOverrides.hidden])];
+}
+
 function renderTagFilter() {
-  const tags = [...new Set([...BUILTIN_TAGS, ...knownTags(), ...hiddenTags])];
+  const tags = allTagNames();
   tagFilterList.innerHTML = tags
     .map((t) => {
-      const on = !hiddenTags.has(t);
+      const on = isTagOn(t);
       return `<button type="button" class="tag-toggle${on ? " is-on" : ""}"
         data-tag="${escapeHtml(t)}" aria-pressed="${on}">${escapeHtml(t)}</button>`;
     })
     .join("");
-  tagFilterAll.classList.toggle("hidden", hiddenTags.size === 0);
+  tagFilterAll.classList.toggle("hidden", tags.every((t) => isTagOn(t)));
 }
 
 // 標籤篩選改變後，名單與趨勢圖都要重畫
 function applyTagFilter() {
-  saveHiddenTags();
   renderTagFilter();
   renderEntries();
   if (pageMode === "trend") {
-    trendSelection = null;
-    trendDetail.classList.add("hidden");
+    clearTrendFilter();
     renderTrendCharts();
   }
 }
@@ -1710,14 +1751,12 @@ function applyTagFilter() {
 tagFilterList.addEventListener("click", (e) => {
   const chip = e.target.closest(".tag-toggle");
   if (!chip) return;
-  const tag = chip.dataset.tag;
-  if (hiddenTags.has(tag)) hiddenTags.delete(tag);
-  else hiddenTags.add(tag);
+  setTagOn(chip.dataset.tag, !isTagOn(chip.dataset.tag));
   applyTagFilter();
 });
 
 tagFilterAll.addEventListener("click", () => {
-  hiddenTags.clear();
+  allTagNames().forEach((t) => setTagOn(t, true));
   applyTagFilter();
 });
 
@@ -1993,9 +2032,7 @@ function trendDates() {
 
 let trendSnapshots = []; // [{ date, label, buckets: { heat: [[id...] x4], act: …, part: … } }]
 let trendSelection = null; // { metricKey, level, index }
-
-// 名單頁 ↔ 趨勢分析頁；這些控制項只在名單頁有用
-const ROSTER_ONLY_CONTROLS = [searchInput, filterStatus, filterScope, toggleViewBtn, addEntryBtn];
+let trendFilterIds = null; // 點了圖表之後，名單卡只顯示這些 id
 
 // 統計範圍就是名單頁篩選之後看得到的人，兩邊共用同一組標籤設定
 function trendEntries() {
@@ -2132,6 +2169,7 @@ function highlightTrendSelection() {
   });
 }
 
+// 點圖表＝把下面的名單卡篩成那一群人（名單卡本身就是「那個分類的名單」）
 function selectTrendBucket(metricKey, level, index) {
   const snap = trendSnapshots[index];
   const metric = TREND_METRICS.find((m) => m.key === metricKey);
@@ -2141,29 +2179,18 @@ function selectTrendBucket(metricKey, level, index) {
 
   const ids = snap.buckets[metricKey][level];
   const dateText = `${snap.date.getFullYear()}/${snap.date.getMonth() + 1}/${snap.date.getDate()}`;
-  trendDetailTitle.textContent = `${metric.title}「${metric.labels[level]}」 · ${dateText} · ${ids.length} 人`;
-  trendDetail.classList.remove("hidden");
+  trendFilterIds = new Set(ids);
+  trendFilterLabel.textContent = `只顯示：${metric.title}「${metric.labels[level]}」 · ${dateText} · ${ids.length} 人`;
+  trendFilterBar.classList.remove("hidden");
+  renderEntries();
+}
 
-  if (ids.length === 0) {
-    trendDetailList.innerHTML = `<p class="hint-text">這個時間點沒有人在這一級。</p>`;
-    return;
-  }
-  trendDetailList.innerHTML = ids
-    .map((id) => {
-      const en = allEntries.find((e) => e.id === id);
-      if (!en) return "";
-      const dept = en.department ? `<span class="hint-text">${escapeHtml(en.department)}</span>` : "";
-      const tags = (en.tags || [])
-        .map((t) => `<span class="tag-chip">${escapeHtml(t)}</span>`)
-        .join("");
-      return `
-        <button type="button" class="trend-person" data-id="${id}">
-          <span class="trend-person-name">${escapeHtml(en.name)}</span>
-          ${dept}
-          <span class="trend-person-tags">${tags}</span>
-        </button>`;
-    })
-    .join("");
+function clearTrendFilter() {
+  trendSelection = null;
+  trendFilterIds = null;
+  trendFilterBar.classList.add("hidden");
+  highlightTrendSelection();
+  renderEntries();
 }
 
 // ---------- 單人分析：一個人自己的四條指標曲線 ----------
@@ -2267,14 +2294,20 @@ function renderPersonChart(series, labels) {
 }
 
 // ---------- 匯出 CSV ----------
-// 匯出目前標籤篩選之後看得到的所有人，以及他們現在的各項指標
+// 每個人 × 每個時間點一列（長格式），所以匯出來的就是一份有時間軸的紀錄，
+// 丟進 Excel 直接做樞紐分析或折線圖都可以。時間點跟畫面上的單位一致（週／月／年）。
 function exportTrendCsv() {
   const entries = trendEntries();
   if (entries.length === 0) {
     alert("目前沒有可以匯出的對象。");
     return;
   }
+  const { dates, unit } = trendDates();
+  const unitLabel = { week: "週", month: "月", year: "年" }[trendUnit.value] || "週";
+
   const header = [
+    "時間點",
+    "期間標籤",
     "姓名",
     "系級",
     "性別",
@@ -2290,43 +2323,54 @@ function exportTrendCsv() {
     "互動度",
     "近兩週互動天數",
     "最近互動距今天數",
-    "活動紀錄筆數",
-    "聯絡紀錄筆數",
+    "累計活動紀錄筆數",
+    "累計聯絡紀錄筆數",
   ];
 
-  const rows = entries.map((en) => {
-    const s = spirit(en);
-    const h = heat(en);
-    const p = participation(en);
-    const a = interaction(en);
-    const touch = lastTouchDays(en);
-    const actDays = new Set(
-      [...(en.activities || []), ...(en.talks || [])]
-        .map((r) => r.date)
-        .filter((d) => {
-          const days = daysSince(d);
-          return days !== null && days >= 0 && days < INTERACTION_DAYS;
-        })
-    ).size;
-    return [
-      en.name || "",
-      en.department || "",
-      en.gender || "",
-      en._scope === "personal" ? "個人名單" : "團隊名單",
-      en.status || "",
-      (en.tags || []).join("、"),
-      en.contact || "",
-      s.score,
-      s.label,
-      h.label,
-      HEAT_LABELS[h.base] || "",
-      p.label,
-      a.label,
-      actDays,
-      touch === null ? "" : touch,
-      (en.activities || []).length,
-      (en.talks || []).length,
-    ];
+  const rows = [];
+  dates.forEach((asOf) => {
+    const iso = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}-${String(asOf.getDate()).padStart(2, "0")}`;
+    entries.forEach((en) => {
+      const s = spirit(en, asOf);
+      const h = heat(en, asOf);
+      const p = participation(en, asOf);
+      const a = interaction(en, asOf);
+      const touch = lastTouchDays(en, asOf);
+      const countUpTo = (list) =>
+        (list || []).filter((r) => {
+          const days = daysSince(r.date, asOf);
+          return days !== null && days >= 0;
+        }).length;
+      const actDays = new Set(
+        [...(en.activities || []), ...(en.talks || [])]
+          .map((r) => r.date)
+          .filter((d) => {
+            const days = daysSince(d, asOf);
+            return days !== null && days >= 0 && days < INTERACTION_DAYS;
+          })
+      ).size;
+      rows.push([
+        iso,
+        unit.label(asOf),
+        en.name || "",
+        en.department || "",
+        en.gender || "",
+        en._scope === "personal" ? "個人名單" : "團隊名單",
+        en.status || "",
+        (en.tags || []).join("、"),
+        en.contact || "",
+        s.score,
+        s.label,
+        h.label,
+        HEAT_LABELS[h.base] || "",
+        p.label,
+        a.label,
+        actDays,
+        touch === null ? "" : touch,
+        countUpTo(en.activities),
+        countUpTo(en.talks),
+      ]);
+    });
   });
 
   const csv = [header, ...rows]
@@ -2339,41 +2383,32 @@ function exportTrendCsv() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `名單分析_${myUnitName || "名單"}_${today}.csv`;
+  link.download = `名單趨勢_${myUnitName || "名單"}_${unitLabel}_${today}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
 
-// 趨勢分析是頁面的一部分，不是彈出視窗：跟名單頁互相切換，標籤篩選那排照樣留著
+// 趨勢分析夾在工具列與名單卡之間；名單卡一直都在，圖表只是把它篩成某一群
 function showPage(mode) {
   pageMode = mode;
   const trend = mode === "trend";
-  rosterView.classList.toggle("hidden", trend);
   trendView.classList.toggle("hidden", !trend);
-  trendBtn.textContent = trend ? "回到名單" : "趨勢分析";
+  trendBtn.textContent = trend ? "收起趨勢分析" : "趨勢分析";
   trendBtn.classList.toggle("is-on", trend);
-  // 名單專用的控制項在趨勢頁沒有意義，收起來
-  ROSTER_ONLY_CONTROLS.forEach((el) => el.classList.toggle("hidden", trend));
-  aiHeatBtn.classList.toggle("hidden", trend || viewMode !== "heat");
   if (trend) {
-    closeTrendDetail();
     renderTrendCharts();
+  } else {
+    trendPersonPanel.classList.add("hidden");
+    clearTrendFilter();
   }
-  window.scrollTo({ top: 0 });
-}
-
-function closeTrendDetail() {
-  trendSelection = null;
-  trendDetail.classList.add("hidden");
-  trendPersonPanel.classList.add("hidden");
-  highlightTrendSelection();
 }
 
 trendBtn.addEventListener("click", () => showPage(pageMode === "trend" ? "roster" : "trend"));
 trendUnit.addEventListener("change", () => {
-  closeTrendDetail();
+  clearTrendFilter();
   renderTrendCharts();
 });
+trendFilterClear.addEventListener("click", clearTrendFilter);
 trendExportBtn.addEventListener("click", exportTrendCsv);
 
 trendCharts.addEventListener("click", (e) => {
@@ -2397,14 +2432,6 @@ trendCharts.addEventListener("keydown", (e) => {
   );
 });
 
-trendDetailClose.addEventListener("click", closeTrendDetail);
-
-// 點名單裡的某一位＝看他自己的走勢
-trendDetailList.addEventListener("click", (e) => {
-  const btn = e.target.closest(".trend-person");
-  if (!btn) return;
-  showPersonTrend(btn.dataset.id);
-});
 trendPersonClose.addEventListener("click", () => trendPersonPanel.classList.add("hidden"));
 
 // ---------- Modal open/close ----------
@@ -2554,6 +2581,10 @@ entriesList.addEventListener("click", async (e) => {
     openAiModal(entry);
   } else if (btn.dataset.action === "heat") {
     openHeatModal(entry);
+  } else if (btn.dataset.action === "trend") {
+    // 單人走勢畫在趨勢區塊裡；趨勢區塊沒開就順手打開
+    if (pageMode !== "trend") showPage("trend");
+    showPersonTrend(entry.id);
   } else if (btn.dataset.action === "to-team") {
     if (
       confirm(
