@@ -29,6 +29,8 @@
 
 歸屬（團隊名單／個人名單）、姓名、性別（乾／坤，坤以紅色標示）、系級、標籤（可多個）、背景、聯絡人、成全狀況（固定選項：未求道／已求道／法會畢／新民班畢／至善班畢／行德班畢／崇德班畢／人才培訓班畢／講培班畢／講師／未確定）、策略、做法、推薦活動（由 AI 建議產生）。
 
+> **刪除名單要問兩次**：這個動作不可復原、也沒有備份可還原，所以第一關會先告訴你會連同幾筆活動紀錄與聯絡紀錄一起刪掉，第二關要**把那個人的姓名打一次**才會真的刪除。打錯或取消都會中止。
+
 ### 標籤怎麼打
 
 標籤欄不是純文字：**打字的當下就會搜尋名單上已經用過的標籤**（常用的排前面），點一下或按 Enter 就變成一個圓角標籤，右邊有 × 可以拿掉；輸入框空的時候按 Backspace 會刪掉最後一個。逗號、頓號同樣可以斷開，中文選字中的 Enter 不會誤送出。已經加上的標籤不會再出現在建議清單裡。
@@ -343,10 +345,19 @@ GitHub Actions build 時會自動把這些 secret 注入（見 [.github/workflow
 
 ### 準備（做一次）
 
-1. Firebase Console → **專案設定 → 服務帳戶 → 產生新的私密金鑰**，下載的 JSON 存成專案根目錄的 `serviceAccount.json`。
-2. `npm install`
+1. 取得服務帳戶金鑰（Firebase Console 介面是英文的話，路徑如下）：
+   - 左上角專案名稱旁的 **⚙ 齒輪** → **Project settings**
+   - 上方分頁選 **Service accounts**
+   - 找到 **Firebase Admin SDK** 區塊 → 語言選 **Node.js** → 按 **Generate new private key** → 彈窗再按 **Generate key**
+   - 瀏覽器會下載一個像 `taosystem-firebase-adminsdk-xxxxx-1a2b3c.json` 的檔案
+2. 把它改名成 `serviceAccount.json`，放在專案根目錄（跟 `package.json` 同一層）。
+3. `npm install`
 
-> 🔴 **那個 JSON 是真正的密鑰**（能讀寫整個資料庫、繞過所有規則）。`.gitignore` 已經擋掉 `serviceAccount*.json` 與 `*-firebase-adminsdk-*.json`，**不要提交、不要外傳**。用完可以在 Console 把該金鑰停用。
+> 找不到 **Generate new private key** 按鈕的話，代表你的 Google 帳號在這個專案不是 Owner／Editor，請專案擁有者操作或先把你升成 Owner。
+
+> 🔴 **那個 JSON 是真正的密鑰**（能讀寫整個資料庫、繞過所有規則）。`.gitignore` 已經擋掉 `serviceAccount*.json` 與 `*-firebase-adminsdk-*.json`，**不要提交、不要外傳、不要放進雲端硬碟共用資料夾**。
+>
+> 用完想撤銷的話：Google Cloud Console → **IAM & Admin → Service Accounts** → 點那個 `firebase-adminsdk-…` 帳戶 → **KEYS** 分頁 → 刪掉對應的金鑰。之後要用再產生一把新的即可。
 
 ### 執行
 

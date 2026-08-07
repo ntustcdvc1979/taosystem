@@ -2505,16 +2505,42 @@ entriesList.addEventListener("click", async (e) => {
       await transferToTeam(entry);
     }
   } else if (btn.dataset.action === "delete") {
-    if (confirm(`確定要刪除「${entry.name}」的資料嗎？此動作無法復原。`)) {
-      try {
-        await deleteDoc(entryRef(entry));
-        if (entry._scope !== "personal") await removeRosterIndex(entry.id);
-      } catch (err) {
-        alert("刪除失敗：" + err.message);
-      }
-    }
+    await deleteEntryWithConfirm(entry);
   }
 });
+
+// 刪除名單是不可復原的，所以問兩次：先講清楚會連什麼一起沒了，
+// 再要求把姓名打一次——避免按錯位置就整筆消失。
+async function deleteEntryWithConfirm(entry) {
+  const acts = (entry.activities || []).length;
+  const talks = (entry.talks || []).length;
+  const records =
+    acts + talks > 0
+      ? `\n會連同 ${acts} 筆活動紀錄與 ${talks} 筆聯絡紀錄一起刪掉。`
+      : "";
+
+  if (
+    !confirm(
+      `確定要刪除「${entry.name}」的資料嗎？${records}\n\n此動作無法復原，也沒有備份可以還原。`
+    )
+  ) {
+    return;
+  }
+
+  const typed = prompt(`再確認一次：請輸入「${entry.name}」以完成刪除。`, "");
+  if (typed === null) return;
+  if (typed.trim() !== (entry.name || "").trim()) {
+    alert("輸入的姓名不符，已取消刪除。");
+    return;
+  }
+
+  try {
+    await deleteDoc(entryRef(entry));
+    if (entry._scope !== "personal") await removeRosterIndex(entry.id);
+  } catch (err) {
+    alert("刪除失敗：" + err.message);
+  }
+}
 
 // ---------- 活動管理（月曆檢視） ----------
 const EVENT_TYPES = ["廣結善緣", "獻供", "求道", "成全", "法會", "幹訓"];
