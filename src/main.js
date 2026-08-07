@@ -90,7 +90,7 @@ const trendPersonClose = document.getElementById("trend-person-close");
 const trendPersonChart = document.getElementById("trend-person-chart");
 const trendPersonNow = document.getElementById("trend-person-now");
 
-// 使用者管理（只有道務組組長看得到）
+// 使用者管理（成全組長以上才看得到）
 const membersBtn = document.getElementById("members-btn");
 const membersModal = document.getElementById("members-modal");
 const membersCloseBtn = document.getElementById("members-close-btn");
@@ -383,7 +383,8 @@ async function loadMyUnit() {
 
 // 身分階梯：只看得到比「目前檢視身分」更低階的名單，所以同階彼此看不到
 const ROLE_LABELS = ["非組員", "組員", "成全組長", "忠義字班講師", "點傳師"];
-const MANAGE_MEMBERS_RANK = 3; // 忠義字班講師以上才能管理使用者與身分
+const MANAGE_MEMBERS_RANK = 2; // 成全組長以上才能管理使用者（增減帳號、設定身分）
+const ENTRY_ROLE_RANK = 3; // 名單本身的身分欄位仍然只有忠義字班講師以上改得動
 
 function applyMyRank() {
   // 可以切換檢視身分的人（組長以上）才需要那個下拉選單
@@ -397,7 +398,7 @@ function applyMyRank() {
   viewRankSelect.value = String(viewRank);
   viewRankWrap.classList.toggle("hidden", myRank < 2);
   // 只有忠義字班講師以上能設定名單上的身分
-  fieldRoleWrap.classList.toggle("hidden", myRank < MANAGE_MEMBERS_RANK);
+  fieldRoleWrap.classList.toggle("hidden", myRank < ENTRY_ROLE_RANK);
   // 加使用者時也只能設到自己這一階以下
   [...newMemberRole.options].forEach((opt) => {
     opt.hidden = Number(opt.value) > myRank;
@@ -625,9 +626,10 @@ bindModal.addEventListener("click", (e) => {
   if (e.target === bindModal) bindModal.classList.add("hidden");
 });
 
-// ---------- 使用者管理（道務組組長） ----------
-// 組長可以增減 memberEmails 裡屬於自己單位的 Email。安全規則同樣只認組長，
-// 所以就算有人自己叫出按鈕也寫不進去；組長身分只能從 Console 的 units 指定。
+// ---------- 使用者管理（成全組長以上） ----------
+// 可以增減 memberEmails 裡屬於自己單位的 Email、設定他們的身分。
+// 安全規則擋著同一條線：身分只能設到自己這一階以下，也不能改自己的，
+// 所以就算有人自己把按鈕叫出來也寫不進去。
 let unsubscribeMembers = null;
 let unitMembers = [];
 
@@ -2499,7 +2501,7 @@ entryForm.addEventListener("submit", async (e) => {
     method: fieldMethod.value.trim(),
     // 身分決定誰看得到這一筆；只有講師的表單上有這個欄位，其他人一律存 0（非組員）
     roleRank:
-      myRank >= MANAGE_MEMBERS_RANK ? Number(fieldRole.value) || 0 : Number(editingRoleRank) || 0,
+      myRank >= ENTRY_ROLE_RANK ? Number(fieldRole.value) || 0 : Number(editingRoleRank) || 0,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.email || null,
   };

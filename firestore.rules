@@ -27,12 +27,13 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email))
                .data.get('roleRank', 1);
     }
-    // 忠義字班講師以上（含點傳師）：可以設定名單的身分，也是唯一能管理使用者的人
+    // 忠義字班講師以上（含點傳師）：可以設定名單每一筆的身分
     function isTeacher() {
       return hasMember() && myRank() >= 3;
     }
+    // 成全組長以上：可以管理使用者（增減帳號、設定身分），但一樣只能設到自己這一階以下
     function canManageMembers() {
-      return isTeacher();
+      return hasMember() && myRank() >= 2;
     }
 
     // 帳號歸屬：本人讀得到自己那一份；組長／講師讀得到（也管得到）同單位的每一份
