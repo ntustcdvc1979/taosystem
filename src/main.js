@@ -186,6 +186,7 @@ const entryModal = document.getElementById("entry-modal");
 const entryForm = document.getElementById("entry-form");
 const modalTitle = document.getElementById("modal-title");
 const cancelBtn = document.getElementById("cancel-btn");
+const deleteEntryBtn = document.getElementById("delete-entry-btn");
 
 const fieldId = document.getElementById("entry-id");
 const fieldScope = document.getElementById("field-scope");
@@ -2384,6 +2385,8 @@ function openModal(entry = null) {
     fieldRole.value = "0";
   }
   applyScopeToContactField();
+  // 新增中的資料還不存在，沒有東西可刪
+  deleteEntryBtn.classList.toggle("hidden", !entry);
   entryModal.classList.remove("hidden");
   fieldName.focus();
 }
@@ -2416,6 +2419,18 @@ addEntryBtn.addEventListener("click", () => openModal());
 cancelBtn.addEventListener("click", closeModal);
 // 右上角的 × 等同取消
 document.getElementById("cancel-x").addEventListener("click", closeModal);
+
+// 編輯視窗裡的刪除：跟卡片上的刪除走同一套兩道確認，刪掉才關視窗
+deleteEntryBtn.addEventListener("click", async () => {
+  const entry = allEntries.find((en) => en.id === fieldId.value);
+  if (!entry) return;
+  deleteEntryBtn.disabled = true;
+  try {
+    if (await deleteEntryWithConfirm(entry)) closeModal();
+  } finally {
+    deleteEntryBtn.disabled = false;
+  }
+});
 entryModal.addEventListener("click", (e) => {
   if (e.target === entryModal) closeModal();
 });
@@ -2524,21 +2539,23 @@ async function deleteEntryWithConfirm(entry) {
       `確定要刪除「${entry.name}」的資料嗎？${records}\n\n此動作無法復原，也沒有備份可以還原。`
     )
   ) {
-    return;
+    return false;
   }
 
   const typed = prompt(`再確認一次：請輸入「${entry.name}」以完成刪除。`, "");
-  if (typed === null) return;
+  if (typed === null) return false;
   if (typed.trim() !== (entry.name || "").trim()) {
     alert("輸入的姓名不符，已取消刪除。");
-    return;
+    return false;
   }
 
   try {
     await deleteDoc(entryRef(entry));
     if (entry._scope !== "personal") await removeRosterIndex(entry.id);
+    return true;
   } catch (err) {
     alert("刪除失敗：" + err.message);
+    return false;
   }
 }
 

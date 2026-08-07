@@ -930,6 +930,11 @@ button {
   margin-top: 1rem;
 }
 
+/* 刪除擺左邊，離「儲存」遠一點，免得手滑 */
+.modal-delete {
+  margin-right: auto;
+}
+
 /* 圖表篩選中的提示條（名單卡只顯示那一群） */
 .trend-filter-bar {
   display: flex;
