@@ -103,7 +103,6 @@ const addMemberBtn = document.getElementById("add-member-btn");
 // 身分（權限階梯）
 const viewRankWrap = document.getElementById("view-rank-wrap");
 const viewRankSelect = document.getElementById("view-rank");
-const backfillRoleBtn = document.getElementById("backfill-role-btn");
 const fieldRoleWrap = document.getElementById("field-role-wrap");
 const fieldRole = document.getElementById("field-role");
 
@@ -317,7 +316,6 @@ onAuthStateChanged(auth, async (user) => {
     subscribeEvents();
     loadMyLink();
     loadChatHistory();
-    refreshBackfillBtn();
   } else {
     appView.classList.add("hidden");
     loginView.classList.remove("hidden");
@@ -420,108 +418,6 @@ viewRankSelect.addEventListener("change", () => {
   subscribeEntries();
 });
 
-// ---------- 一次性：幫舊資料補上 roleRank ----------
-// 舊名單沒有這個欄位，會被「roleRank < 檢視身分」的查詢整批漏掉，
-// 所以在還沒套用新規則之前，先由組長／講師按一次把每筆補成 0（非組員）。
-async function backfillRoleRank() {
-  if (
-    !confirm(
-      "要幫還沒有身分欄位的名單補上「非組員」，並建立綁定用的姓名索引嗎？\n\n補完之後才看得到那些舊資料。"
-    )
-  ) {
-    return;
-  }
-  backfillRoleBtn.disabled = true;
-  backfillRoleBtn.textContent = "補齊中...";
-  let ranked = 0;
-  let indexed = 0;
-  const rankFails = [];
-  const indexFails = [];
-  try {
-    const snap = await getDocs(unitCol(ENTRIES_COLLECTION));
-    for (const d of snap.docs) {
-      const data = d.data();
-      // 身分與索引分開算：一邊失敗不該讓另一邊也停下來
-      if (typeof data.roleRank !== "number") {
-        try {
-          await updateDoc(unitDoc(ENTRIES_COLLECTION, d.id), { roleRank: 0 });
-          ranked += 1;
-        } catch (err) {
-          rankFails.push(`${data.name || d.id}：${err.code || err.message}`);
-        }
-      }
-      try {
-        await setDoc(unitDoc(ROSTER_INDEX_COLLECTION, d.id), {
-          name: data.name || "",
-          department: data.department || "",
-          roleRank: Number(data.roleRank) || 0,
-        });
-        indexed += 1;
-      } catch (err) {
-        indexFails.push(`${data.name || d.id}：${err.code || err.message}`);
-      }
-    }
-
-    const lines = [`已補齊 ${ranked} 筆身分、${indexed} 筆索引。`];
-    if (rankFails.length > 0) {
-      lines.push(`\n身分有 ${rankFails.length} 筆失敗：\n${rankFails.slice(0, 3).join("\n")}`);
-    }
-    if (indexFails.length > 0) {
-      lines.push(
-        `\n索引有 ${indexFails.length} 筆失敗。` +
-          (indexFails[0].includes("permission-denied")
-            ? "\n看起來是 Firestore 規則還沒更新到含 rosterIndex 那一段——請到 Firebase Console 發布最新的 firestore.rules 再按一次。"
-            : `\n${indexFails.slice(0, 3).join("\n")}`)
-      );
-    }
-    alert(lines.join("\n"));
-  } catch (err) {
-    alert(
-      "補齊失敗：" +
-        (err.code === "permission-denied"
-          ? "讀不到整份名單。名單裡若有身分跟你同階或更高的人就會這樣，請改用單位裡身分最高的帳號來按。"
-          : err.message)
-    );
-  } finally {
-    backfillRoleBtn.disabled = false;
-    refreshBackfillBtn();
-  }
-}
-
-// 只有組長以上、而且真的還有沒補的資料時才顯示按鈕。
-// 兩個集合分開讀：索引讀不到（規則還沒發布）時不能連按鈕都藏起來，
-// 不然就會卡在「沒有索引 → 按鈕不出現 → 補不了索引」的死結。
-async function refreshBackfillBtn() {
-  if (myRank < 2) return backfillRoleBtn.classList.add("hidden");
-
-  let entriesSnap = null;
-  try {
-    entriesSnap = await getDocs(unitCol(ENTRIES_COLLECTION));
-  } catch (err) {
-    // 整份名單都讀不到（有人的身分比自己高），這裡就幫不上忙了
-    console.warn("補齊檢查：讀不到整份名單", err.code || err.message);
-    backfillRoleBtn.classList.add("hidden");
-    return;
-  }
-
-  let indexed = new Set();
-  try {
-    const indexSnap = await getDocs(unitCol(ROSTER_INDEX_COLLECTION));
-    indexed = new Set(indexSnap.docs.map((d) => d.id));
-  } catch (err) {
-    // 讀不到就當作一筆索引都沒有，按鈕照樣出現，按下去會說清楚是規則的問題
-    console.warn("補齊檢查：讀不到綁定索引", err.code || err.message);
-  }
-
-  const missing = entriesSnap.docs.filter(
-    (d) => typeof d.data().roleRank !== "number" || !indexed.has(d.id)
-  ).length;
-  backfillRoleBtn.textContent = missing > 0 ? `補齊身分／索引（${missing} 筆）` : "補齊身分／索引";
-  backfillRoleBtn.classList.toggle("hidden", missing === 0);
-}
-
-backfillRoleBtn.addEventListener("click", backfillRoleRank);
-
 function applyUnitName() {
   unitNameLabel.textContent = myUnitName;
   unitNameLabel.classList.remove("hidden");
@@ -599,9 +495,9 @@ async function writeRosterIndex(entryId, data) {
     console.error("寫入綁定索引失敗", err);
     if (err.code === "permission-denied") {
       alert(
-        "名單已儲存，但綁定用的姓名索引寫不進去。\n\n" +
-          "多半是 Firestore 安全規則還沒更新到含 rosterIndex 那一段。請到 Firebase Console 發布最新的 firestore.rules，" +
-          "再按工具列的「補齊身分／索引」把缺的補上。"
+        "名單已儲存，但綁定用的姓名索引寫不進去，這一位暫時無法被綁定。\n\n" +
+          "多半是 Firestore 安全規則還沒更新到含 rosterIndex 那一段。請通知管理員發布最新的 firestore.rules，" +
+          "再從後台執行一次補齊腳本（npm run backfill）。"
       );
     }
     return false;

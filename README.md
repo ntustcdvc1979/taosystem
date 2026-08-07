@@ -333,14 +333,48 @@ GitHub Actions build 時會自動把這些 secret 注入（見 [.github/workflow
 
 綁定之後也用得到：工具列要顯示「名字（gmail）」，而你自己那一筆讀不到，名字就是從索引取的。
 
-索引在新增／編輯／刪除／轉為團隊名單時自動同步，舊資料由下面的「補齊身分／索引」建立。
+索引在新增／編輯／刪除／轉為團隊名單時自動同步。**舊資料與任何對不上的地方，由管理員在後台跑補齊腳本處理**（見下一節），使用者端不需要做任何事。
 
-> ⚠️ **升級順序很重要**：舊名單沒有 `roleRank`，也還沒有索引，會被新查詢整批漏掉。請照這個順序做：
-> 1. 先在 Console 把自己的 `memberEmails/{gmail}.roleRank` 設成 `3`（或 `4`）。
-> 2. **先部署新版網頁、但還不要發布新規則**，用那支帳號登入，工具列會出現「**補齊身分／索引（N 筆）**」，按一下把舊名單補成 `roleRank: 0` 並建立索引。
-> 3. 確認名單都回來之後，再發布新的 [firestore.rules](firestore.rules)。
->
-> 順序反了的話，補齊按鈕會因為讀不到整份名單而失效（規則已經不允許無條件讀取），得先把規則暫時退回舊版才能補。
+## 後台維護：補齊 roleRank 與姓名索引
+
+`roleRank` 是後來才加的欄位，**舊名單沒有這個欄位就不會被 `roleRank < 檢視身分` 的查詢回傳**（Firestore 對缺欄位的文件根本不比對），所以升級後看不到。同理，索引機制之前建立的名單也沒有 `rosterIndex`，綁定時搜不到。
+
+這件事由 [scripts/backfill-roles.mjs](scripts/backfill-roles.mjs) 一次處理完，用 Firebase Admin SDK 直連 Firestore、**繞過安全規則**，所以能一次補完**所有單位**，不受身分階梯限制。
+
+### 準備（做一次）
+
+1. Firebase Console → **專案設定 → 服務帳戶 → 產生新的私密金鑰**，下載的 JSON 存成專案根目錄的 `serviceAccount.json`。
+2. `npm install`
+
+> 🔴 **那個 JSON 是真正的密鑰**（能讀寫整個資料庫、繞過所有規則）。`.gitignore` 已經擋掉 `serviceAccount*.json` 與 `*-firebase-adminsdk-*.json`，**不要提交、不要外傳**。用完可以在 Console 把該金鑰停用。
+
+### 執行
+
+```bash
+npm run backfill -- --dry-run
+```
+
+先試跑，只印出「會改什麼」不寫入。確認數字合理後：
+
+```bash
+npm run backfill
+```
+
+其他參數：`--unit=ntust-chongde` 只處理某個單位、`--key=C:\path\serviceAccount.json` 指定金鑰位置（也吃 `GOOGLE_APPLICATION_CREDENTIALS`）。
+
+腳本會做三件事，並逐單位印出統計：
+
+- 名單缺 `roleRank` 的補成 `0`（非組員）
+- 依名單重建 `rosterIndex`（姓名、系級、身分對不上的也一併更新）
+- 刪掉名單已經不存在、索引卻還留著的孤兒
+
+寫入用 batch（每批 400 筆），可以重複執行，不會重複寫已經正確的資料。
+
+### 什麼時候要跑
+
+- **升級到有 `roleRank` 的版本之後**（一次）。
+- 發布新規則之前或之後都可以——腳本繞過規則，不受影響。
+- 之後若發現有人綁定時搜不到自己，再跑一次即可（正常情況下索引是自動同步的）。
 
 ### 從 LINE 點連結進來
 
