@@ -31,9 +31,13 @@ service cloud.firestore {
     function isTeacher() {
       return hasMember() && myRank() >= 3;
     }
-    // 成全組長以上：可以管理使用者（增減帳號、設定身分），但一樣只能設到自己這一階以下
+    // 成全組長以上：可以管理使用者（增減帳號、設定身分）
     function canManageMembers() {
       return hasMember() && myRank() >= 2;
+    }
+    // 能把別人設到哪一階：組長只能設到自己這階以下，講師以上可以指派到點傳師（4）
+    function maxAssignableRank() {
+      return myRank() >= 3 ? 4 : myRank();
     }
 
     // 帳號歸屬：本人讀得到自己那一份；組長／講師讀得到（也管得到）同單位的每一份
@@ -41,12 +45,13 @@ service cloud.firestore {
       allow read: if isSignedIn() &&
                      (request.auth.token.email == email ||
                       (canManageMembers() && resource.data.unitId == myUnit()));
+      // 組長只能設到自己這一階以下；忠義字班講師以上可以一路指派到點傳師（4）
       allow create: if canManageMembers() && request.resource.data.unitId == myUnit()
-                    && request.resource.data.get('roleRank', 1) <= myRank();
-      // 身分只能設到自己這一階以下，也不能改自己的身分（免得自我升等）
+                    && request.resource.data.get('roleRank', 1) <= maxAssignableRank();
+      // 也不能改自己的身分（免得自我升等）
       allow update: if canManageMembers() && resource.data.unitId == myUnit()
                     && request.resource.data.unitId == myUnit()
-                    && request.resource.data.get('roleRank', 1) <= myRank()
+                    && request.resource.data.get('roleRank', 1) <= maxAssignableRank()
                     && (request.auth.token.email != email
                         || request.resource.data.get('roleRank', 1) == resource.data.get('roleRank', 1));
       // 不能把自己刪掉，免得整個單位沒人管得動

@@ -317,6 +317,7 @@ onAuthStateChanged(auth, async (user) => {
     subscribeEvents();
     loadMyLink();
     loadChatHistory();
+    loadRosterNames();
   } else {
     appView.classList.add("hidden");
     loginView.classList.remove("hidden");
@@ -388,6 +389,12 @@ const ROLE_LABELS = ["非組員", "組員", "成全組長", "忠義字班講師"
 const MANAGE_MEMBERS_RANK = 2; // 成全組長以上才能管理使用者（增減帳號、設定身分）
 const ENTRY_ROLE_RANK = 3; // 名單本身的身分欄位仍然只有忠義字班講師以上改得動
 
+// 可以把別人設到哪一階：組長只能設到自己這階以下，
+// 忠義字班講師以上則可以一路指派到點傳師（講師要能請點傳師進來）。
+function maxAssignableRank() {
+  return myRank >= ENTRY_ROLE_RANK ? ROLE_LABELS.length - 1 : myRank;
+}
+
 function applyMyRank() {
   // 可以切換檢視身分的人（組長以上）才需要那個下拉選單
   viewRankSelect.innerHTML = "";
@@ -403,7 +410,7 @@ function applyMyRank() {
   fieldRoleWrap.classList.toggle("hidden", myRank < ENTRY_ROLE_RANK);
   // 加使用者時也只能設到自己這一階以下
   [...newMemberRole.options].forEach((opt) => {
-    opt.hidden = Number(opt.value) > myRank;
+    opt.hidden = Number(opt.value) > maxAssignableRank();
   });
   if (Number(newMemberRole.value) > myRank) newMemberRole.value = "1";
 }
@@ -478,9 +485,9 @@ function refreshBindPrompt() {
   updateUserLabel();
 }
 
-// 綁定用的索引：只有姓名與系級，同單位的人都讀得到，
-// 這樣即使身分階梯擋住了名單本身，每個人還是找得到自己那一筆來綁。
-let bindIndex = [];
+// 姓名索引：只有姓名與系級，同單位的人都讀得到，不受身分階梯限制。
+// 兩個地方靠它：綁定時找自己那一筆、活動邀約時挑人。
+let rosterNames = [];
 
 // 團隊名單有異動就同步索引（只寫姓名、系級、身分，不含成全內容）。
 // 寫不進去不該擋住存檔，但一定要講出來——不然使用者只會發現「綁定時找不到人」卻不知道為什麼。
@@ -513,28 +520,38 @@ async function removeRosterIndex(entryId) {
   }
 }
 
-async function loadBindIndex() {
+async function loadRosterNames() {
   try {
     const snap = await getDocs(unitCol(ROSTER_INDEX_COLLECTION));
-    bindIndex = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    rosterNames = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
-    console.error(err);
-    bindIndex = [];
+    console.error("讀取姓名索引失敗", err);
+    rosterNames = [];
   }
   // 索引還沒建立時，至少用自己看得到的名單頂著
-  if (bindIndex.length === 0) {
-    bindIndex = teamEntries.map((en) => ({
+  if (rosterNames.length === 0) {
+    rosterNames = teamEntries.map((en) => ({
       id: en.id,
       name: en.name,
       department: en.department,
     }));
   }
-  renderBindResults();
+  return rosterNames;
+}
+
+// 挑人用的候選清單：看得到的名單優先（有背景可搜），其餘用索引補上，
+// 這樣活動邀約不會因為身分階梯而找不到人。
+function invitableEntries() {
+  const seen = new Set(allEntries.map((en) => en.id));
+  return [
+    ...allEntries,
+    ...rosterNames.filter((r) => !seen.has(r.id)).map((r) => ({ ...r, _fromIndex: true })),
+  ];
 }
 
 function renderBindResults() {
   const q = bindSearch.value.trim().toLowerCase();
-  const matches = bindIndex
+  const matches = rosterNames
     .filter((en) => !q || (en.name || "").toLowerCase().includes(q))
     .slice(0, 10);
   bindResults.innerHTML = matches.length
@@ -602,7 +619,7 @@ bindMeBtn.addEventListener("click", () => {
   refreshBindCurrent();
   bindModal.classList.remove("hidden");
   bindSearch.focus();
-  loadBindIndex();
+  loadRosterNames().then(renderBindResults);
 });
 bindCloseBtn.addEventListener("click", () => bindModal.classList.add("hidden"));
 bindModal.addEventListener("click", (e) => {
@@ -662,7 +679,7 @@ function renderMembers() {
         ? `<span class="member-role-label">${ROLE_LABELS[rank]}</span>`
         : `<select class="member-role" data-email="${escapeHtml(m.email)}">
              ${[1, 2, 3, 4]
-               .filter((r) => r <= myRank)
+               .filter((r) => r <= maxAssignableRank())
                .map((r) => `<option value="${r}" ${r === rank ? "selected" : ""}>${ROLE_LABELS[r]}</option>`)
                .join("")}
            </select>`;
@@ -712,7 +729,7 @@ async function addMember() {
   }
   addMemberBtn.disabled = true;
   try {
-    const rank = Math.min(Number(newMemberRole.value) || 1, myRank);
+    const rank = Math.min(Number(newMemberRole.value) || 1, maxAssignableRank());
     await setDoc(doc(db, "memberEmails", email), {
       unitId: myUnitId,
       roleRank: rank,
@@ -748,7 +765,15 @@ membersList.addEventListener("click", async (e) => {
   const btn = e.target.closest("button[data-email]");
   if (!btn) return;
   const email = btn.dataset.email;
-  if (!confirm(`把 ${email} 移出「${myUnitName}」嗎？\n\n他之後就登不進來了（已建立的名單資料不受影響）。`)) {
+  const member = unitMembers.find((m) => m.email === email);
+  const rank = typeof member?.roleRank === "number" ? member.roleRank : 1;
+  if (
+    !confirm(
+      `確定要把「${email}」（${ROLE_LABELS[rank]}）移出「${myUnitName}」嗎？\n\n` +
+        "他下次登入就進不來了。\n" +
+        "已建立的名單資料不受影響；之後要恢復，把同一個 Gmail 再加回來即可。"
+    )
+  ) {
     return;
   }
   btn.disabled = true;
@@ -2688,8 +2713,13 @@ function resetEventForm() {
 }
 
 // ---------- 活動邀約名單 ----------
+// 邀約只需要名字，所以身分階梯擋不到的人也照樣顯示得出來（名字取自姓名索引）
 function entryName(entryId) {
-  return allEntries.find((en) => en.id === entryId)?.name || "";
+  return (
+    allEntries.find((en) => en.id === entryId)?.name ||
+    rosterNames.find((r) => r.id === entryId)?.name ||
+    ""
+  );
 }
 
 // 其他人（或自己另一分頁）改了同一個活動時，同步刷新開著的邀約名單
@@ -2746,11 +2776,12 @@ function renderInviteSuggestions() {
 
   const q = newInvitePerson.value.trim().toLowerCase();
   const invited = new Set(editingEventInvites.map((i) => i.entryId));
-  const matches = allEntries
+  const matches = invitableEntries()
     .filter((en) => !invited.has(en.id))
     .filter((en) => {
       if (!q) return true;
-      return [en.name, en.department, getBackground(en)]
+      // 索引來的只有姓名與系級可以搜；看得到的名單連背景一起搜
+      return [en.name, en.department, en._fromIndex ? "" : getBackground(en)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -2941,6 +2972,23 @@ aiInviteBtn.addEventListener("click", async () => {
   const ev = allEvents.find((x) => x.id === editingEventId);
   if (!ev) return;
 
+  // 會把名單送去給 AI、也要跑一陣子，先問過再說
+  const invitedCount = editingEventInvites.length;
+  const pool = allEntries.filter(
+    (en) => !editingEventInvites.some((i) => i.entryId === en.id)
+  ).length;
+  if (
+    !confirm(
+      `要請 AI 從還沒邀約的 ${pool} 位裡挑人推薦嗎？\n\n` +
+        `活動：${ev.name || "（未命名）"}\n` +
+        `目前邀約名單已有 ${invitedCount} 位。\n\n` +
+        "系統會把這些人的背景與紀錄（去識別化後）送給 AI 判斷，跑起來要等一下子。\n" +
+        "AI 推薦的人會直接加進「預定邀約」，你可以再自行調整。"
+    )
+  ) {
+    return;
+  }
+
   inviteAiStatus.textContent = "AI 分析中，請稍候...";
   aiInviteBtn.disabled = true;
   try {
@@ -3086,6 +3134,10 @@ eventsManageBtn.addEventListener("click", () => {
   calCursor = firstOfMonth(new Date());
   renderCalendar();
   eventsModal.classList.remove("hidden");
+  // 邀約要挑得到全單位的人，不受身分階梯限制，所以先把姓名索引拉最新的
+  loadRosterNames().then(() => {
+    if (editingEventId) renderInviteList();
+  });
 });
 eventsCloseBtn.addEventListener("click", () => eventsModal.classList.add("hidden"));
 eventsModal.addEventListener("click", (e) => {
