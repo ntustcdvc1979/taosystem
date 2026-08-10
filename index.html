@@ -92,9 +92,9 @@
             <label>
               時間單位
               <select id="trend-unit">
-                <option value="week" selected>週（近 12 週）</option>
-                <option value="month">月（近 12 個月）</option>
-                <option value="year">年（近 5 年）</option>
+                <option value="week" selected>近一週（每天）</option>
+                <option value="month">近一月（每週）</option>
+                <option value="year">近一年（每月）</option>
               </select>
             </label>
             <button type="button" id="trend-export-btn" class="btn-secondary btn-small">匯出 CSV</button>
@@ -105,16 +105,17 @@
           <!-- 單人趨勢：點名單卡上的「趨勢」之後，畫他自己的四條指標曲線 -->
           <div id="trend-person" class="trend-person-panel hidden">
             <div class="trend-detail-head">
-              <span id="trend-person-title" class="field-label"></span>
               <span class="trend-person-controls">
-                <select id="trend-person-unit" title="這個人要用哪種期間看">
-                  <option value="week" selected>週（近 12 週）</option>
-                  <option value="month">月（近 12 個月）</option>
-                  <option value="year">年（近 5 年）</option>
+                <select id="trend-person-unit" title="這個人要看多久">
+                  <option value="week" selected>近一週（每天）</option>
+                  <option value="month">近一月（每週）</option>
+                  <option value="year">近一年（每月）</option>
                 </select>
-                <button type="button" id="trend-person-close" class="btn-link-plain">收起</button>
+                <span id="trend-person-title" class="field-label"></span>
               </span>
+              <button type="button" id="trend-person-close" class="btn-link-plain">收起</button>
             </div>
+            <div id="trend-person-records" class="trend-records hidden"></div>
             <div id="trend-person-chart"></div>
             <div id="trend-person-now" class="trend-person-now"></div>
           </div>

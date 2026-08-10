@@ -993,27 +993,40 @@ button {
   padding: 0.2rem 0.3rem;
 }
 
-/* 單人趨勢圖上的紀錄標記 */
-.mark-act {
-  fill: #1e8a4c;
-}
-
-.mark-talk {
-  fill: #1f6a99;
-}
-
+/* 單人趨勢圖上的紀錄註記（畫在日期文字上方一層，點得下去） */
 .trend-mark {
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.trend-dot {
   cursor: help;
 }
 
-.trend-swatch.swatch-act {
-  background: #1e8a4c;
-  border-radius: 2px;
+.trend-axis-right {
+  fill: #7c4dff;
 }
 
-.trend-swatch.swatch-talk {
-  background: #1f6a99;
-  border-radius: 50%;
+/* 點註記後展開的紀錄清單 */
+.trend-records {
+  margin: 0.4rem 0 0.2rem;
+  padding: 0.6rem 0.7rem;
+  background: #f7f8fa;
+  border-radius: 8px;
+}
+
+.trend-records-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.trend-record-item {
+  padding: 0.2rem 0;
+  font-size: 0.85rem;
+  color: #444;
 }
 
 /* 圖表篩選中的提示條（名單卡只顯示那一群） */

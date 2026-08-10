@@ -88,6 +88,7 @@ const trendPersonTitle = document.getElementById("trend-person-title");
 const trendPersonClose = document.getElementById("trend-person-close");
 const trendPersonUnit = document.getElementById("trend-person-unit");
 const trendPersonChart = document.getElementById("trend-person-chart");
+const trendPersonRecords = document.getElementById("trend-person-records");
 const trendPersonNow = document.getElementById("trend-person-now");
 
 // 使用者管理（成全組長以上才看得到）
@@ -1344,12 +1345,12 @@ function inPeriod(dateStr, period) {
   return d >= period.start && d <= period.end;
 }
 
-function periodWeeks(period) {
-  return Math.max(1, (period.end - period.start) / 86400000 / 7);
+function periodDays(period) {
+  return Math.max(1, Math.round((period.end - period.start) / 86400000));
 }
 
-// 互動度：期間內有幾天有互動，換算成「平均每週幾天」再分級，
-// 這樣週／月／年用同一把尺，不會因為期間長短而失真。
+// 互動度：期間內有幾天有互動 ÷ 期間有幾天，用比例分級，
+// 這樣一天、一週、一個月的格子都是同一把尺（門檻沿用卡片上的「兩週 4 天＝高」）。
 function interactionIn(entry, period) {
   const days = new Set(
     [...(entry.activities || []), ...(entry.talks || [])]
@@ -1357,10 +1358,11 @@ function interactionIn(entry, period) {
       .filter((d) => inPeriod(d, period))
   );
   const count = days.size;
-  const perWeek = count / periodWeeks(period);
-  const text = `期間內有 ${count} 天互動（平均每週 ${perWeek.toFixed(1)} 天）`;
-  if (perWeek >= 2) return { level: 3, label: "高", count, text };
-  if (perWeek >= 1) return { level: 2, label: "中", count, text };
+  const total = periodDays(period);
+  const ratio = count / total;
+  const text = `期間內 ${total} 天中有 ${count} 天互動`;
+  if (ratio >= 2 / 7) return { level: 3, label: "高", count, text };
+  if (ratio >= 1 / 7) return { level: 2, label: "中", count, text };
   if (count > 0) return { level: 1, label: "低", count, text };
   return { level: 0, label: "無", count, text };
 }
@@ -1987,15 +1989,18 @@ function escapeHtml(value) {
 }
 
 searchInput.addEventListener("input", renderEntries);
-filterStatus.addEventListener("change", renderEntries);
-// 團隊／個人名單的篩選，趨勢圖也要跟著換一批人
-filterScope.addEventListener("change", () => {
+// 成全狀況、團隊／個人名單的篩選，趨勢圖也要跟著換一批人
+function onRosterFilterChange() {
   renderEntries();
   if (pageMode === "trend") {
     clearTrendFilter();
     renderTrendCharts();
+    if (personTrendEntryId) renderPersonTrend();
   }
-});
+}
+
+filterStatus.addEventListener("change", onRosterFilterChange);
+filterScope.addEventListener("change", onRosterFilterChange);
 
 toggleViewBtn.addEventListener("click", () => {
   viewMode = viewMode === "detail" ? "heat" : "detail";
@@ -2291,53 +2296,56 @@ const TREND_METRICS = [
   },
 ];
 
-// 時間單位：一個刻度就是一整段期間（週＝那一週內、月＝那一個月內、年＝那一年內），
-// 不是某一天的快照。近 12 週／近 12 個月／近 5 年。
+// 看多久、以及一格代表多久：
+//   近一週 → 前七天到今天，一天一格（7 格）
+//   近一月 → 最近四週，一週一格（4 格）
+//   近一年 → 最近十二個月，一個月一格（12 格）
+// 每一格都是「那一段期間內」，不是某一天的快照。
+const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+const dayEnd = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+const shiftDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+
 const TREND_UNITS = {
   week: {
-    points: 12,
-    // 以星期一為一週的開始
-    startOf: (d, i) => {
-      const day = (d.getDay() + 6) % 7; // 週一 = 0
-      return new Date(d.getFullYear(), d.getMonth(), d.getDate() - day - i * 7);
+    points: 7,
+    // i = 0 是今天，往回數
+    bucket: (today, i) => {
+      const day = shiftDays(today, -i);
+      return { start: dayStart(day), end: dayEnd(day), label: md(day) };
     },
-    endOf: (start) =>
-      new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999),
-    label: (s) => `${s.getMonth() + 1}/${s.getDate()}`,
   },
   month: {
-    points: 12,
-    startOf: (d, i) => new Date(d.getFullYear(), d.getMonth() - i, 1),
-    endOf: (start) =>
-      new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999),
-    label: (s) => `${s.getFullYear() % 100}/${s.getMonth() + 1}`,
+    points: 4,
+    bucket: (today, i) => {
+      const end = shiftDays(today, -i * 7);
+      const start = shiftDays(end, -6);
+      return { start: dayStart(start), end: dayEnd(end), label: md(start) };
+    },
   },
   year: {
-    points: 5,
-    startOf: (d, i) => new Date(d.getFullYear() - i, 0, 1),
-    endOf: (start) => new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999),
-    label: (s) => `${s.getFullYear()}`,
+    points: 12,
+    bucket: (today, i) => {
+      const start = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
+      return { start, end, label: `${start.getFullYear() % 100}/${start.getMonth() + 1}` };
+    },
   },
 };
 
-// 每個期間（由舊到新）。最後一段是「到今天為止」，還沒過完的日子不算進去。
+// 每一格（由舊到新）。最後一格切到今天為止，還沒過完的日子不算進去。
 function trendPeriods() {
   const unit = TREND_UNITS[trendUnit.value] || TREND_UNITS.week;
   return periodsForUnit(unit);
 }
 
 function periodsForUnit(unit) {
-  const today = new Date();
-  today.setHours(23, 59, 59, 999);
+  const now = new Date();
+  const today = dayEnd(now);
   const periods = [];
   for (let i = unit.points - 1; i >= 0; i -= 1) {
-    const start = unit.startOf(today, i);
-    const end = unit.endOf(start);
-    periods.push({
-      start,
-      end: end > today ? today : end,
-      label: unit.label(start),
-    });
+    const p = unit.bucket(now, i);
+    periods.push({ ...p, end: p.end > today ? today : p.end });
   }
   return { periods, unit };
 }
@@ -2346,12 +2354,16 @@ let trendSnapshots = []; // [{ date, label, buckets: { heat: [[id...] x4], act: 
 let trendSelection = null; // { metricKey, level, index }
 let trendFilterIds = null; // 點了圖表之後，名單卡只顯示這些 id
 
-// 統計範圍跟名單卡完全一致：同一組標籤篩選，也同一個「團隊／個人名單」篩選
+// 統計範圍跟名單卡完全一致：標籤、團隊／個人名單、成全狀況都吃得到。
+// （檢視身分不用在這裡處理——它是在訂閱時就用 roleRank 過濾，allEntries 本來就只有看得到的人。）
 function trendEntries() {
   const scopeVal = filterScope.value;
+  const statusVal = filterStatus.value;
   return allEntries.filter(
     (en) =>
-      matchesTagFilter(en) && (!scopeVal || (en._scope || "team") === scopeVal)
+      matchesTagFilter(en) &&
+      (!scopeVal || (en._scope || "team") === scopeVal) &&
+      (!statusVal || en.status === statusVal)
   );
 }
 
@@ -2525,6 +2537,8 @@ const PERSON_SERIES = [
 ];
 
 let personTrendEntryId = null; // 目前在看誰的趨勢
+let personTrendRecords = []; // 每一格的活動／聯絡紀錄（點註記圖示時要展開）
+let trendPersonPeriods = [];
 
 function showPersonTrend(entryId) {
   personTrendEntryId = entryId;
@@ -2540,36 +2554,40 @@ function renderPersonTrend() {
   const unit = TREND_UNITS[trendPersonUnit.value] || TREND_UNITS.week;
   const { periods } = periodsForUnit(unit);
 
+  const levelText = ["無", "低", "中", "高"];
   const series = PERSON_SERIES.map((s) => {
     const metric = TREND_METRICS.find((m) => m.key === s.key);
     return {
       ...s,
-      // 四條線都畫在 0–3 的刻度上；道氣本來是 0–100 分，等比例縮到 0–3
+      // 道氣走右邊的 0–100 分刻度，其餘三條走左邊的 0–3 級刻度
       values: periods.map((p) =>
         s.key === "spirit" ? (spiritIn(entry, p).score / 100) * 3 : metric.compute(entry, p) ?? 0
       ),
+      // 滑鼠移到點上要看得到實際數值
+      tips: periods.map((p) => {
+        if (s.key === "spirit") return `${p.label} 道氣 ${spiritIn(entry, p).score} 分`;
+        const lv = metric.compute(entry, p);
+        const label =
+          s.key === "heat" ? HEAT_LABELS[lv ?? 0] : lv === null ? "—" : levelText[lv];
+        return `${p.label} ${s.title} ${label}`;
+      }),
     };
   });
 
-  // 每一段期間有沒有留下紀錄，畫在 x 軸下方當標記
-  const marks = periods.map((p) => {
-    const { acts, talks } = recordsIn(entry, p);
-    const parts = [];
-    if (acts.length) {
-      parts.push(`活動：${acts.map((a) => `${a.date} ${a.activity || ""}`.trim()).join("、")}`);
-    }
-    if (talks.length) {
-      parts.push(`聯絡：${talks.map((t) => t.date).join("、")}`);
-    }
-    return { acts: acts.length, talks: talks.length, tip: parts.join("\n") };
-  });
+  // 每一段期間有沒有留下紀錄；標記畫在 x 軸文字上方，點了看細節
+  personTrendRecords = periods.map((p) => recordsIn(entry, p));
+  const marks = personTrendRecords.map((r) => ({
+    has: r.acts.length + r.talks.length > 0,
+    count: r.acts.length + r.talks.length,
+  }));
 
   trendPersonTitle.textContent = `${entry.name}${entry.department ? `（${entry.department}）` : ""}的趨勢`;
+  trendPersonPeriods = periods;
+  trendPersonRecords.classList.add("hidden");
   trendPersonChart.innerHTML = renderPersonChart(
     series,
     periods.map((p) => p.label),
-    marks,
-    periods
+    marks
   );
 
   const now = {
@@ -2585,34 +2603,42 @@ function renderPersonTrend() {
     <span class="metric ${now.part.level === null ? "part-na" : `part-${now.part.level}`}" title="${escapeHtml(now.part.text)}">參與 ${now.part.label}</span>`;
 }
 
-function renderPersonChart(series, labels, marks = [], periods = []) {
+function renderPersonChart(series, labels, marks = []) {
   const n = labels.length;
   const W = 720;
-  const H = 210;
+  const H = 230;
   const padL = 34;
-  const padR = 8;
+  const padR = 40; // 右邊留給道氣的分數刻度
   const padT = 10;
-  const padB = 26;
+  const padB = 46; // 下面留給「註記 + 日期」兩層，才不會疊在一起
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   const xOf = (i) => padL + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
   const yOf = (v) => padT + plotH - (v / 3) * plotH;
 
+  // 左：0–3 級（熱度／互動度／參與度）　右：0–100 分（道氣）
   const grid = [0, 1, 2, 3]
     .map(
       (v) => `
         <line x1="${padL}" y1="${yOf(v)}" x2="${W - padR}" y2="${yOf(v)}" class="trend-grid" />
-        <text x="${padL - 6}" y="${yOf(v) + 4}" class="trend-axis" text-anchor="end">${v}</text>`
+        <text x="${padL - 6}" y="${yOf(v) + 4}" class="trend-axis" text-anchor="end">${v}</text>
+        <text x="${W - padR + 6}" y="${yOf(v) + 4}" class="trend-axis trend-axis-right" text-anchor="start">${Math.round((v / 3) * 100)}</text>`
     )
     .join("");
+
+  const axisTitles = `
+    <text x="${padL - 6}" y="${padT - 1}" class="trend-axis" text-anchor="end">級</text>
+    <text x="${W - padR + 6}" y="${padT - 1}" class="trend-axis trend-axis-right" text-anchor="start">分</text>`;
 
   const lines = series
     .map((s) => {
       const points = s.values.map((v, i) => `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).join(" ");
       const dots = s.values
         .map(
-          (v, i) =>
-            `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="2.5" fill="${s.color}" />`
+          (v, i) => `
+          <circle class="trend-dot" cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="3" fill="${s.color}">
+            <title>${escapeHtml(s.tips?.[i] || "")}</title>
+          </circle>`
         )
         .join("");
       return `<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2"
@@ -2621,34 +2647,24 @@ function renderPersonChart(series, labels, marks = [], periods = []) {
     .join("");
 
   const everyOther = n > 9 ? 2 : 1;
+  const labelY = H - 8;
   const xLabels = labels
     .map((label, i) =>
       i % everyOther === 0
-        ? `<text x="${xOf(i).toFixed(1)}" y="${H - 8}" class="trend-axis" text-anchor="middle">${label}</text>`
+        ? `<text x="${xOf(i).toFixed(1)}" y="${labelY}" class="trend-axis" text-anchor="middle">${label}</text>`
         : ""
     )
     .join("");
 
-  // x 軸上方標出那段期間有沒有紀錄：■＝活動、●＝聯絡，滑上去看是哪幾筆
-  const markY = padT + plotH + 9;
+  // 註記圖示畫在日期文字的上方一層，不會互相蓋到；點下去看那段期間的紀錄
+  const markY = labelY - 14;
   const markers = marks
-    .map((m, i) => {
-      if (!m || (!m.acts && !m.talks)) return "";
-      const x = xOf(i);
-      const tip = `${periods[i] ? periodText(periods[i]) + "\n" : ""}${m.tip}`;
-      const shapes = [];
-      if (m.acts) {
-        shapes.push(
-          `<rect x="${(x - (m.talks ? 6 : 3)).toFixed(1)}" y="${markY - 3}" width="6" height="6" class="mark-act" />`
-        );
-      }
-      if (m.talks) {
-        shapes.push(
-          `<circle cx="${(x + (m.acts ? 4 : 0)).toFixed(1)}" cy="${markY}" r="3" class="mark-talk" />`
-        );
-      }
-      return `<g class="trend-mark"><title>${escapeHtml(tip)}</title>${shapes.join("")}</g>`;
-    })
+    .map((m, i) =>
+      m && m.has
+        ? `<text class="trend-mark" data-index="${i}" x="${xOf(i).toFixed(1)}" y="${markY}"
+             text-anchor="middle">📝<title>有 ${m.count} 筆紀錄，點一下看內容</title></text>`
+        : ""
+    )
     .join("");
 
   const legend = series
@@ -2659,14 +2675,41 @@ function renderPersonChart(series, labels, marks = [], periods = []) {
     .join("");
 
   return `
-    <svg viewBox="0 0 ${W} ${H}" class="trend-svg">${grid}${lines}${markers}${xLabels}</svg>
+    <svg viewBox="0 0 ${W} ${H}" class="trend-svg">${grid}${axisTitles}${lines}${markers}${xLabels}</svg>
     <div class="trend-legend">
       ${legend}
-      <span class="trend-legend-item"><span class="trend-swatch swatch-act"></span>有活動紀錄</span>
-      <span class="trend-legend-item"><span class="trend-swatch swatch-talk"></span>有聯絡紀錄</span>
-      <span class="hint-text">刻度 0–3 級；道氣是 0–100 分等比例縮到同一把尺上。</span>
+      <span class="trend-legend-item">📝 有紀錄（點日期上的圖示看內容）</span>
+      <span class="hint-text">左軸＝級（0–3），右軸＝道氣分數（0–100）。</span>
     </div>`;
 }
+
+// 點日期上的註記圖示 → 展開那一格的活動／聯絡紀錄
+trendPersonChart.addEventListener("click", (e) => {
+  const mark = e.target.closest(".trend-mark");
+  if (!mark) return;
+  const i = Number(mark.dataset.index);
+  const rec = personTrendRecords[i];
+  const period = trendPersonPeriods[i];
+  if (!rec || !period) return;
+
+  const item = (icon, text) => `<div class="trend-record-item">${icon} ${escapeHtml(text)}</div>`;
+  const acts = rec.acts.map((a) =>
+    item("🎪", `${a.date} ${a.activity || "（未填活動名稱）"}${a.reaction ? ` — ${a.reaction}` : ""}`)
+  );
+  const talks = rec.talks.map((t) => item("💬", `${t.date} ${t.content || "（未填內容）"}`));
+
+  trendPersonRecords.innerHTML = `
+    <div class="trend-records-head">
+      <span class="field-label">${escapeHtml(periodText(period))}　共 ${rec.acts.length + rec.talks.length} 筆</span>
+      <button type="button" class="btn-link-plain" data-close-records="1">收起</button>
+    </div>
+    ${[...acts, ...talks].join("") || `<p class="hint-text">這段期間沒有紀錄。</p>`}`;
+  trendPersonRecords.classList.remove("hidden");
+});
+
+trendPersonRecords.addEventListener("click", (e) => {
+  if (e.target.closest("[data-close-records]")) trendPersonRecords.classList.add("hidden");
+});
 
 // ---------- 匯出 CSV ----------
 // 一個人一組列，每個指標一列，欄位是各個期間——所以一列橫著看就是那個人的趨勢：
