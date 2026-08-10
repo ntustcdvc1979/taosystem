@@ -354,6 +354,11 @@ onAuthStateChanged(auth, async (user) => {
       unsubscribeMembers();
       unsubscribeMembers = null;
     }
+    if (unsubscribeLinks) {
+      unsubscribeLinks();
+      unsubscribeLinks = null;
+    }
+    unitLinks = [];
     myRank = 1;
     viewRank = 1;
     membersBtn.classList.add("hidden");
@@ -717,7 +722,9 @@ bindModal.addEventListener("click", (e) => {
 // 安全規則擋著同一條線：身分只能設到自己這一階以下，也不能改自己的，
 // 所以就算有人自己把按鈕叫出來也寫不進去。
 let unsubscribeMembers = null;
+let unsubscribeLinks = null;
 let unitMembers = [];
+let unitLinks = []; // memberLinks：使用者自己綁的那一份
 
 function openMembersModal() {
   membersUnitName.textContent = myUnitName;
@@ -732,6 +739,10 @@ function closeMembersModal() {
   if (unsubscribeMembers) {
     unsubscribeMembers();
     unsubscribeMembers = null;
+  }
+  if (unsubscribeLinks) {
+    unsubscribeLinks();
+    unsubscribeLinks = null;
   }
 }
 
@@ -748,6 +759,36 @@ function subscribeMembers() {
       membersStatus.textContent = "讀取失敗：" + err.message;
     }
   );
+
+  // 綁定有兩個來源：使用者自己綁的（memberLinks）與這裡指定的（memberEmails.entryId）。
+  // 這份清單要兩邊都看，否則自己綁好的人在這裡會顯示成「還沒綁定」。
+  if (unsubscribeLinks) unsubscribeLinks();
+  unsubscribeLinks = onSnapshot(
+    unitCol(LINKS_COLLECTION),
+    (snapshot) => {
+      unitLinks = snapshot.docs.map((d) => ({ uid: d.id, ...d.data() }));
+      renderMembers();
+    },
+    (err) => {
+      if (err.code !== "permission-denied") console.error(err);
+    }
+  );
+}
+
+// 一個帳號實際綁到哪一筆：自己綁的與被指定的，以比較新的為準（跟登入時的判斷同一套）
+function effectiveEntryId(member) {
+  const link = unitLinks.find(
+    (l) => (l.email || "").toLowerCase() === (member.email || "").toLowerCase()
+  );
+  const self = link?.entryId
+    ? { entryId: link.entryId, at: link.linkedAt?.toMillis?.() ?? 0 }
+    : null;
+  const assigned = member.entryId
+    ? { entryId: member.entryId, at: member.entryAssignedAt?.toMillis?.() ?? 0 }
+    : null;
+  if (!self) return assigned?.entryId || "";
+  if (!assigned) return self.entryId;
+  return assigned.at > self.at ? assigned.entryId : self.entryId;
 }
 
 function renderMembers() {
@@ -769,14 +810,16 @@ function renderMembers() {
                .map((r) => `<option value="${r}" ${r === rank ? "selected" : ""}>${ROLE_LABELS[r]}</option>`)
                .join("")}
            </select>`;
-      // 幫他指定「他是名單上的誰」——對方沒登入過也設得起來（寫在他的 memberEmails 上）
-      const bound = m.entryId ? entryName(m.entryId) || "（找不到那一筆）" : "";
+      // 幫他指定「他是名單上的誰」——對方沒登入過也設得起來（寫在他的 memberEmails 上）。
+      // 顯示的是實際生效的那一筆，所以他自己綁的也看得到。
+      const entryId = effectiveEntryId(m);
+      const bound = entryId ? entryName(entryId) || "（找不到那一筆）" : "";
       return `
         <div class="member-row">
           <span class="member-email">${escapeHtml(m.email)}${isMe ? '<span class="member-self">你</span>' : ""}</span>
           ${roleCell}
           <button type="button" class="btn-secondary btn-small member-bind"
-            data-email="${escapeHtml(m.email)}" data-entry="${escapeHtml(m.entryId || "")}">
+            data-email="${escapeHtml(m.email)}" data-entry="${escapeHtml(entryId)}">
             ${bound ? `綁定：${escapeHtml(bound)}` : "指定綁定"}
           </button>
           ${
