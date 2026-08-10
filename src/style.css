@@ -935,6 +935,87 @@ button {
   margin-right: auto;
 }
 
+/* 已結束待回報的活動：跟「近兩週活動」區隔開，用琥珀色 */
+.report-notice {
+  background: #fffaf0;
+  border-color: #f2dfae;
+}
+
+.report-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.3rem;
+}
+
+.report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 0.6rem;
+}
+
+.report-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.3rem;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.report-row:hover {
+  background: #f4f6f9;
+}
+
+.report-row input {
+  width: auto;
+  margin: 0;
+}
+
+.report-name {
+  font-weight: 600;
+}
+
+/* 單人趨勢：期間切換擺在標題右邊 */
+.trend-person-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.trend-person-controls select {
+  width: auto;
+  margin: 0;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.3rem;
+}
+
+/* 單人趨勢圖上的紀錄標記 */
+.mark-act {
+  fill: #1e8a4c;
+}
+
+.mark-talk {
+  fill: #1f6a99;
+}
+
+.trend-mark {
+  cursor: help;
+}
+
+.trend-swatch.swatch-act {
+  background: #1e8a4c;
+  border-radius: 2px;
+}
+
+.trend-swatch.swatch-talk {
+  background: #1f6a99;
+  border-radius: 50%;
+}
+
 /* 圖表篩選中的提示條（名單卡只顯示那一群） */
 .trend-filter-bar {
   display: flex;

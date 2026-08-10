@@ -86,6 +86,7 @@ const trendCharts = document.getElementById("trend-charts");
 const trendPersonPanel = document.getElementById("trend-person");
 const trendPersonTitle = document.getElementById("trend-person-title");
 const trendPersonClose = document.getElementById("trend-person-close");
+const trendPersonUnit = document.getElementById("trend-person-unit");
 const trendPersonChart = document.getElementById("trend-person-chart");
 const trendPersonNow = document.getElementById("trend-person-now");
 
@@ -135,6 +136,20 @@ const heatCloseBtn = document.getElementById("heat-close-btn");
 const upcomingNotice = document.getElementById("upcoming-notice");
 const noticeList = document.getElementById("notice-list");
 const noticeDismissBtn = document.getElementById("notice-dismiss");
+
+// 活動結束後回報參與狀況
+const reportNotice = document.getElementById("report-notice");
+const reportNoticeList = document.getElementById("report-notice-list");
+const reportModal = document.getElementById("report-modal");
+const reportCloseBtn = document.getElementById("report-close-btn");
+const reportEventLabel = document.getElementById("report-event");
+const reportList = document.getElementById("report-list");
+const reportReaction = document.getElementById("report-reaction");
+const reportStatus = document.getElementById("report-status");
+const reportSelectAll = document.getElementById("report-select-all");
+const reportSelectNone = document.getElementById("report-select-none");
+const reportSubmitBtn = document.getElementById("report-submit-btn");
+const reportSkipBtn = document.getElementById("report-skip-btn");
 const NOTICE_DISMISS_KEY = "taosystem_notice_dismissed";
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
@@ -892,6 +907,7 @@ function subscribeEvents() {
       renderCalendar();
       refreshOpenInviteList();
       renderUpcomingNotice();
+      renderReportNotice();
       renderEntries(); // 參與度會用到活動資料
     },
     (err) => {
@@ -970,6 +986,191 @@ noticeList.addEventListener("click", (e) => {
 noticeDismissBtn.addEventListener("click", () => {
   localStorage.setItem(NOTICE_DISMISS_KEY, ymd(new Date()));
   upcomingNotice.classList.add("hidden");
+});
+
+// ---------- 活動結束後回報參與狀況 ----------
+// 活動辦完了但沒人回報誰有來，參與度就永遠是舊的，所以結束後主動提醒。
+const REPORT_WINDOW_DAYS = 60; // 結束後 60 天內都還會提醒
+
+function eventEndDate(ev) {
+  return ev.endDate || ev.date;
+}
+
+function eventsNeedingReport() {
+  return allEvents
+    .filter((ev) => {
+      if (ev.attendanceReported) return false;
+      const d = daysSince(eventEndDate(ev));
+      return d !== null && d > 0 && d <= REPORT_WINDOW_DAYS; // 已經結束、還在提醒範圍內
+    })
+    .sort((a, b) => (eventEndDate(b) || "").localeCompare(eventEndDate(a) || ""));
+}
+
+function renderReportNotice() {
+  const pending = eventsNeedingReport();
+  if (pending.length === 0) {
+    reportNotice.classList.add("hidden");
+    return;
+  }
+  reportNoticeList.innerHTML = pending
+    .map((ev) => {
+      const days = daysSince(eventEndDate(ev));
+      const when = days === 1 ? "昨天" : `${days} 天前`;
+      const invited = (ev.invites || []).length;
+      return `
+        <div class="notice-item">
+          <div class="notice-item-info">
+            <span class="notice-when">${when}結束</span>
+            <span class="notice-name">${escapeHtml(ev.name)}</span>
+            <span class="notice-type">${escapeHtml(ev.type || "")}</span>
+            <span class="notice-summary${invited ? "" : " notice-warn"}">${
+              invited ? `邀約名單 ${invited} 人` : "沒有邀約名單，可自行挑人"
+            }</span>
+          </div>
+          <button type="button" class="btn-primary btn-small" data-report-event="${ev.id}">回報參與狀況</button>
+        </div>`;
+    })
+    .join("");
+  reportNotice.classList.remove("hidden");
+}
+
+reportNoticeList.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-report-event]");
+  if (!btn) return;
+  openReportModal(btn.dataset.reportEvent);
+});
+
+let reportingEventId = null;
+
+function openReportModal(eventId) {
+  const ev = allEvents.find((x) => x.id === eventId);
+  if (!ev) return;
+  reportingEventId = eventId;
+  reportEventLabel.textContent = `${ev.name}（${eventEndDate(ev)}${ev.type ? `・${ev.type}` : ""}）`;
+  reportStatus.textContent = "";
+  reportReaction.value = "";
+
+  // 有邀約名單就用它；沒有的話就列出目前看得到的人，讓人自己挑
+  const invites = ev.invites || [];
+  const rows = invites.length
+    ? invites.map((i) => ({
+        id: i.entryId,
+        name: entryName(i.entryId) || "（對象已刪除）",
+        status: i.status,
+        // 回覆可以的預設打勾，其他的預設不打勾
+        checked: i.status === "已回覆可以",
+      }))
+    : trendEntries().map((en) => ({ id: en.id, name: en.name, status: "", checked: false }));
+
+  reportList.innerHTML = rows.length
+    ? rows
+        .map(
+          (r) => `
+        <label class="report-row">
+          <input type="checkbox" value="${r.id}" ${r.checked ? "checked" : ""} />
+          <span class="report-name">${escapeHtml(r.name)}</span>
+          ${r.status ? `<span class="hint-text">${escapeHtml(r.status)}</span>` : ""}
+        </label>`
+        )
+        .join("")
+    : `<p class="hint-text">名單上還沒有人。</p>`;
+
+  reportModal.classList.remove("hidden");
+}
+
+function closeReportModal() {
+  reportModal.classList.add("hidden");
+  reportingEventId = null;
+}
+
+async function markEventReported(ev, attendedIds) {
+  await updateDoc(unitDoc(EVENTS_COLLECTION, ev.id), {
+    attendanceReported: true,
+    attendedIds,
+    reportedAt: serverTimestamp(),
+    reportedBy: auth.currentUser?.email || null,
+  });
+}
+
+async function submitReport() {
+  const ev = allEvents.find((x) => x.id === reportingEventId);
+  if (!ev) return;
+  const ids = [...reportList.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.value);
+  const reaction = reportReaction.value.trim();
+  const date = eventEndDate(ev);
+
+  reportSubmitBtn.disabled = true;
+  reportStatus.textContent = "處理中...";
+  let added = 0;
+  let skipped = 0;
+  const failures = [];
+
+  for (const id of ids) {
+    const entry = allEntries.find((en) => en.id === id);
+    const ref = entry && entryRef(entry);
+    if (!ref) {
+      // 身分階梯擋住的人這邊改不動（規則也會擋），如實回報
+      failures.push(entryName(id) || id);
+      continue;
+    }
+    const activities = entry.activities || [];
+    // 同一場活動同一天已經有紀錄就不重複寫
+    if (activities.some((a) => (a.activity || "").trim() === ev.name.trim() && a.date === date)) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      await updateDoc(ref, {
+        activities: [...activities, { activity: ev.name, date, reaction }],
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || null,
+      });
+      added += 1;
+    } catch (err) {
+      failures.push(`${entry.name}：${err.code || err.message}`);
+    }
+  }
+
+  try {
+    await markEventReported(ev, ids);
+  } catch (err) {
+    failures.push(`活動標記：${err.code || err.message}`);
+  }
+
+  reportSubmitBtn.disabled = false;
+  const parts = [`已寫入 ${added} 人的活動紀錄`];
+  if (skipped > 0) parts.push(`${skipped} 人本來就有這筆`);
+  if (failures.length > 0) parts.push(`${failures.length} 人失敗（${failures[0]}）`);
+  alert(parts.join("，") + "。");
+  if (failures.length === 0) closeReportModal();
+  else reportStatus.textContent = parts.join("，") + "。";
+  renderReportNotice();
+}
+
+reportSubmitBtn.addEventListener("click", submitReport);
+reportCloseBtn.addEventListener("click", closeReportModal);
+reportModal.addEventListener("click", (e) => {
+  if (e.target === reportModal) closeReportModal();
+});
+reportSelectAll.addEventListener("click", () => {
+  reportList.querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = true));
+});
+reportSelectNone.addEventListener("click", () => {
+  reportList.querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = false));
+});
+reportSkipBtn.addEventListener("click", async () => {
+  const ev = allEvents.find((x) => x.id === reportingEventId);
+  if (!ev) return;
+  if (!confirm(`「${ev.name}」不用回報參與狀況嗎？\n\n提醒會消失，之後仍可在活動管理裡手動補紀錄。`)) {
+    return;
+  }
+  try {
+    await markEventReported(ev, []);
+    closeReportModal();
+    renderReportNotice();
+  } catch (err) {
+    reportStatus.textContent = "標記失敗：" + err.message;
+  }
 });
 
 // 標籤篩選：一個都沒選就全部顯示；有選就只留帶有其中任一標籤的人
@@ -1133,6 +1334,94 @@ function heat(entry, asOf = null) {
   };
 }
 
+// ---------- 期間版指標（趨勢分析用） ----------
+// 卡片上的指標看的是「現在」（近兩週互動、近一個月參與）；趨勢分析看的是「那一段期間之內」：
+// 週＝那一週內、月＝那一個月內、年＝那一年內。所以另外做一組吃 {start, end} 的算法。
+function inPeriod(dateStr, period) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return false;
+  return d >= period.start && d <= period.end;
+}
+
+function periodWeeks(period) {
+  return Math.max(1, (period.end - period.start) / 86400000 / 7);
+}
+
+// 互動度：期間內有幾天有互動，換算成「平均每週幾天」再分級，
+// 這樣週／月／年用同一把尺，不會因為期間長短而失真。
+function interactionIn(entry, period) {
+  const days = new Set(
+    [...(entry.activities || []), ...(entry.talks || [])]
+      .map((r) => r.date)
+      .filter((d) => inPeriod(d, period))
+  );
+  const count = days.size;
+  const perWeek = count / periodWeeks(period);
+  const text = `期間內有 ${count} 天互動（平均每週 ${perWeek.toFixed(1)} 天）`;
+  if (perWeek >= 2) return { level: 3, label: "高", count, text };
+  if (perWeek >= 1) return { level: 2, label: "中", count, text };
+  if (count > 0) return { level: 1, label: "低", count, text };
+  return { level: 0, label: "無", count, text };
+}
+
+// 期間內辦過的活動（活動管理登錄的 + 大家在活動紀錄裡寫到的）
+function activityPoolIn(period) {
+  const pool = new Map();
+  allEvents.forEach((ev) => {
+    if (!inPeriod(ev.date, period)) return;
+    const key = (ev.name || "").trim();
+    if (key) pool.set(key, { name: key, event: ev });
+  });
+  allEntries.forEach((en) => {
+    (en.activities || []).forEach((a) => {
+      const key = (a.activity || "").trim();
+      if (!key || !inPeriod(a.date, period) || pool.has(key)) return;
+      pool.set(key, { name: key, event: null });
+    });
+  });
+  return [...pool.values()];
+}
+
+// 參與度：期間內辦過的活動裡，這個人出席了幾成
+function participationIn(entry, period) {
+  const pool = activityPoolIn(period);
+  if (pool.length === 0) return { level: null, label: "—", text: "期間內沒有活動" };
+
+  const mine = new Set(
+    (entry.activities || [])
+      .filter((a) => inPeriod(a.date, period))
+      .map((a) => (a.activity || "").trim())
+      .filter(Boolean)
+  );
+  const attended = pool.filter(
+    (item) =>
+      mine.has(item.name) ||
+      (item.event?.invites || []).some(
+        (i) => i.entryId === entry.id && i.status === "已回覆可以"
+      )
+  ).length;
+
+  const ratio = attended / pool.length;
+  const text = `期間內 ${pool.length} 場中出席 ${attended} 場`;
+  if (ratio >= 0.6) return { level: 3, label: "高", text };
+  if (ratio >= 0.3) return { level: 2, label: "中", text };
+  if (ratio > 0) return { level: 1, label: "低", text };
+  return { level: 0, label: "無", text };
+}
+
+// 熱度沒有「期間內」的概念（它是一個當下的狀態），取期間結束那天的值
+function heatIn(entry, period) {
+  return heat(entry, period.end);
+}
+
+// 這個人在這段期間內有沒有留下紀錄（趨勢圖上標記用）
+function recordsIn(entry, period) {
+  const acts = (entry.activities || []).filter((a) => inPeriod(a.date, period));
+  const talks = (entry.talks || []).filter((t) => inPeriod(t.date, period));
+  return { acts, talks };
+}
+
 // ---------- 道氣 ----------
 // 把三個指標合成一個總分：熱度佔六成（談得多深最重要），參與度、互動度各佔兩成。
 // 每個指標都是 0–3 級，換算成 0–100 分。
@@ -1142,10 +1431,7 @@ const SPIRIT_RULE =
   `道氣＝熱度 ×${SPIRIT_WEIGHTS.heat} ＋ 參與度 ×${SPIRIT_WEIGHTS.participation} ＋ 互動度 ×${SPIRIT_WEIGHTS.interaction}，` +
   `每項 0–3 級換算成 0–100 分：73 分以上＝強、47 分以上＝佳、1 分以上＝普、0 分＝弱。`;
 
-function spirit(entry, asOf = null) {
-  const h = heat(entry, asOf).level;
-  const p = participation(entry, asOf).level ?? 0; // 那段期間沒活動就當 0
-  const a = interaction(entry, asOf).level;
+function spiritFrom(h, p, a) {
   const raw =
     h * SPIRIT_WEIGHTS.heat + p * SPIRIT_WEIGHTS.participation + a * SPIRIT_WEIGHTS.interaction;
   const score = Math.round((raw / 3) * 100);
@@ -1156,6 +1442,24 @@ function spirit(entry, asOf = null) {
     label: SPIRIT_LABELS[level],
     text: `道氣 ${score} 分（熱度 ${HEAT_LABELS[h]}、參與 ${["無", "低", "中", "高"][p]}、互動 ${["無", "低", "中", "高"][a]}）\n${SPIRIT_RULE}`,
   };
+}
+
+// 卡片上的道氣（看現在）
+function spirit(entry, asOf = null) {
+  return spiritFrom(
+    heat(entry, asOf).level,
+    participation(entry, asOf).level ?? 0, // 那段期間沒活動就當 0
+    interaction(entry, asOf).level
+  );
+}
+
+// 趨勢分析的道氣（看那一段期間內）
+function spiritIn(entry, period) {
+  return spiritFrom(
+    heatIn(entry, period).level,
+    participationIn(entry, period).level ?? 0,
+    interactionIn(entry, period).level
+  );
 }
 
 // ---------- Render（卡片式名單） ----------
@@ -1252,7 +1556,7 @@ function renderEntries() {
         <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
         <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聯絡紀錄</button>
         <button data-action="ai" data-id="${entry.id}" class="btn-secondary">AI 建議</button>
-        <button data-action="trend" data-id="${entry.id}" class="btn-secondary">走勢</button>
+        <button data-action="trend" data-id="${entry.id}" class="btn-secondary">趨勢</button>
         ${entry._scope === "personal" ? `<button data-action="to-team" data-id="${entry.id}" class="btn-secondary">轉為${escapeHtml(teamName)}名單</button>` : ""}
         <button data-action="delete" data-id="${entry.id}" class="btn-danger">刪除</button>
       </div>
@@ -1456,7 +1760,7 @@ function renderHeatList(entries) {
             <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
             <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聯絡紀錄</button>
             <button data-action="heat" data-id="${entry.id}" class="btn-secondary">熱度</button>
-            <button data-action="trend" data-id="${entry.id}" class="btn-secondary">走勢</button>
+            <button data-action="trend" data-id="${entry.id}" class="btn-secondary">趨勢</button>
             <button data-action="edit" data-id="${entry.id}" class="btn-secondary">編輯</button>
           </div>
         </div>`;
@@ -1684,7 +1988,14 @@ function escapeHtml(value) {
 
 searchInput.addEventListener("input", renderEntries);
 filterStatus.addEventListener("change", renderEntries);
-filterScope.addEventListener("change", renderEntries);
+// 團隊／個人名單的篩選，趨勢圖也要跟著換一批人
+filterScope.addEventListener("change", () => {
+  renderEntries();
+  if (pageMode === "trend") {
+    clearTrendFilter();
+    renderTrendCharts();
+  }
+});
 
 toggleViewBtn.addEventListener("click", () => {
   viewMode = viewMode === "detail" ? "heat" : "detail";
@@ -1955,90 +2266,117 @@ const TREND_METRICS = [
   {
     key: "spirit",
     title: "道氣",
-    labels: SPIRIT_LABELS, // 弱 普 佳 旺
+    labels: SPIRIT_LABELS, // 弱 普 佳 強
     note: SPIRIT_RULE,
-    compute: (entry, asOf) => spirit(entry, asOf).level,
-    score: (entry, asOf) => spirit(entry, asOf).score,
+    compute: (entry, period) => spiritIn(entry, period).level,
+    score: (entry, period) => spiritIn(entry, period).score,
   },
   {
     key: "heat",
     title: "成全熱度",
     labels: HEAT_LABELS, // 冷 涼 溫 熱
-    compute: (entry, asOf) => heat(entry, asOf).level,
+    compute: (entry, period) => heatIn(entry, period).level,
   },
   {
     key: "act",
     title: "互動度",
     labels: ["無", "低", "中", "高"],
-    compute: (entry, asOf) => interaction(entry, asOf).level,
+    compute: (entry, period) => interactionIn(entry, period).level,
   },
   {
     key: "part",
     title: "參與度",
     labels: ["無", "低", "中", "高"],
-    compute: (entry, asOf) => participation(entry, asOf).level,
+    compute: (entry, period) => participationIn(entry, period).level,
   },
 ];
 
-// 時間單位：週看近 12 週、月看近 12 個月、年看近 5 年
+// 時間單位：一個刻度就是一整段期間（週＝那一週內、月＝那一個月內、年＝那一年內），
+// 不是某一天的快照。近 12 週／近 12 個月／近 5 年。
 const TREND_UNITS = {
   week: {
     points: 12,
-    back: (d, i) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - i * 7),
-    label: (d) => `${d.getMonth() + 1}/${d.getDate()}`,
+    // 以星期一為一週的開始
+    startOf: (d, i) => {
+      const day = (d.getDay() + 6) % 7; // 週一 = 0
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate() - day - i * 7);
+    },
+    endOf: (start) =>
+      new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999),
+    label: (s) => `${s.getMonth() + 1}/${s.getDate()}`,
   },
   month: {
     points: 12,
-    back: (d, i) => new Date(d.getFullYear(), d.getMonth() - i, d.getDate()),
-    label: (d) => `${d.getFullYear() % 100}/${d.getMonth() + 1}`,
+    startOf: (d, i) => new Date(d.getFullYear(), d.getMonth() - i, 1),
+    endOf: (start) =>
+      new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999),
+    label: (s) => `${s.getFullYear() % 100}/${s.getMonth() + 1}`,
   },
   year: {
     points: 5,
-    back: (d, i) => new Date(d.getFullYear() - i, d.getMonth(), d.getDate()),
-    label: (d) => `${d.getFullYear()}`,
+    startOf: (d, i) => new Date(d.getFullYear() - i, 0, 1),
+    endOf: (start) => new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999),
+    label: (s) => `${s.getFullYear()}`,
   },
 };
 
-// 每個取樣時間點（由舊到新）
-function trendDates() {
+// 每個期間（由舊到新）。最後一段是「到今天為止」，還沒過完的日子不算進去。
+function trendPeriods() {
   const unit = TREND_UNITS[trendUnit.value] || TREND_UNITS.week;
+  return periodsForUnit(unit);
+}
+
+function periodsForUnit(unit) {
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const dates = [];
-  for (let i = unit.points - 1; i >= 0; i -= 1) dates.push(unit.back(today, i));
-  return { dates, unit };
+  today.setHours(23, 59, 59, 999);
+  const periods = [];
+  for (let i = unit.points - 1; i >= 0; i -= 1) {
+    const start = unit.startOf(today, i);
+    const end = unit.endOf(start);
+    periods.push({
+      start,
+      end: end > today ? today : end,
+      label: unit.label(start),
+    });
+  }
+  return { periods, unit };
 }
 
 let trendSnapshots = []; // [{ date, label, buckets: { heat: [[id...] x4], act: …, part: … } }]
 let trendSelection = null; // { metricKey, level, index }
 let trendFilterIds = null; // 點了圖表之後，名單卡只顯示這些 id
 
-// 統計範圍就是名單頁篩選之後看得到的人，兩邊共用同一組標籤設定
+// 統計範圍跟名單卡完全一致：同一組標籤篩選，也同一個「團隊／個人名單」篩選
 function trendEntries() {
-  return allEntries.filter(matchesTagFilter);
+  const scopeVal = filterScope.value;
+  return allEntries.filter(
+    (en) =>
+      matchesTagFilter(en) && (!scopeVal || (en._scope || "team") === scopeVal)
+  );
 }
 
 function buildTrendData() {
   const entries = trendEntries();
-  const { dates, unit } = trendDates();
+  const { periods } = trendPeriods();
 
-  trendSnapshots = dates.map((asOf) => {
+  trendSnapshots = periods.map((period) => {
     const buckets = {};
     let spiritTotal = 0;
     TREND_METRICS.forEach((m) => {
       buckets[m.key] = [[], [], [], []];
       entries.forEach((en) => {
-        const level = m.compute(en, asOf);
+        const level = m.compute(en, period);
         // 參與度在「那段期間完全沒有活動」時是 null，歸到「無」那一格
         buckets[m.key][level === null ? 0 : level].push(en.id);
       });
     });
     entries.forEach((en) => {
-      spiritTotal += spirit(en, asOf).score;
+      spiritTotal += spiritIn(en, period).score;
     });
     return {
-      date: asOf,
-      label: unit.label(asOf),
+      period,
+      date: period.end,
+      label: period.label,
       buckets,
       avgSpirit: entries.length ? Math.round(spiritTotal / entries.length) : 0,
     };
@@ -2157,11 +2495,17 @@ function selectTrendBucket(metricKey, level, index) {
   highlightTrendSelection();
 
   const ids = snap.buckets[metricKey][level];
-  const dateText = `${snap.date.getFullYear()}/${snap.date.getMonth() + 1}/${snap.date.getDate()}`;
   trendFilterIds = new Set(ids);
-  trendFilterLabel.textContent = `只顯示：${metric.title}「${metric.labels[level]}」 · ${dateText} · ${ids.length} 人`;
+  trendFilterLabel.textContent = `只顯示：${metric.title}「${metric.labels[level]}」 · ${periodText(snap.period)} · ${ids.length} 人`;
   trendFilterBar.classList.remove("hidden");
   renderEntries();
+}
+
+// 期間顯示成「8/3–8/9」這種區間，提醒這是一整段而不是某一天
+function periodText(period) {
+  if (!period) return "";
+  const f = (d) => `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  return `${f(period.start)}–${f(period.end)}`;
 }
 
 function clearTrendFilter() {
@@ -2180,25 +2524,53 @@ const PERSON_SERIES = [
   { key: "part", title: "參與度", color: "#1e8a4c" },
 ];
 
+let personTrendEntryId = null; // 目前在看誰的趨勢
+
 function showPersonTrend(entryId) {
-  const entry = allEntries.find((e) => e.id === entryId);
+  personTrendEntryId = entryId;
+  renderPersonTrend();
+  trendPersonPanel.classList.remove("hidden");
+  trendPersonPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function renderPersonTrend() {
+  const entry = allEntries.find((e) => e.id === personTrendEntryId);
   if (!entry) return;
-  const { dates, unit } = trendDates();
+  // 單人趨勢有自己的週／月／年，跟上面的整體圖表分開看
+  const unit = TREND_UNITS[trendPersonUnit.value] || TREND_UNITS.week;
+  const { periods } = periodsForUnit(unit);
 
   const series = PERSON_SERIES.map((s) => {
     const metric = TREND_METRICS.find((m) => m.key === s.key);
     return {
       ...s,
       // 四條線都畫在 0–3 的刻度上；道氣本來是 0–100 分，等比例縮到 0–3
-      values: dates.map((d) =>
-        s.key === "spirit" ? (spirit(entry, d).score / 100) * 3 : metric.compute(entry, d) ?? 0
+      values: periods.map((p) =>
+        s.key === "spirit" ? (spiritIn(entry, p).score / 100) * 3 : metric.compute(entry, p) ?? 0
       ),
-      levels: dates.map((d) => metric.compute(entry, d) ?? 0),
     };
   });
 
-  trendPersonTitle.textContent = `${entry.name}${entry.department ? `（${entry.department}）` : ""}的走勢`;
-  trendPersonChart.innerHTML = renderPersonChart(series, dates.map(unit.label));
+  // 每一段期間有沒有留下紀錄，畫在 x 軸下方當標記
+  const marks = periods.map((p) => {
+    const { acts, talks } = recordsIn(entry, p);
+    const parts = [];
+    if (acts.length) {
+      parts.push(`活動：${acts.map((a) => `${a.date} ${a.activity || ""}`.trim()).join("、")}`);
+    }
+    if (talks.length) {
+      parts.push(`聯絡：${talks.map((t) => t.date).join("、")}`);
+    }
+    return { acts: acts.length, talks: talks.length, tip: parts.join("\n") };
+  });
+
+  trendPersonTitle.textContent = `${entry.name}${entry.department ? `（${entry.department}）` : ""}的趨勢`;
+  trendPersonChart.innerHTML = renderPersonChart(
+    series,
+    periods.map((p) => p.label),
+    marks,
+    periods
+  );
 
   const now = {
     spirit: spirit(entry),
@@ -2211,12 +2583,9 @@ function showPersonTrend(entryId) {
     <span class="metric heat-${now.heat.level}">熱度 ${now.heat.label}</span>
     <span class="metric act-${now.act.level}" title="${escapeHtml(now.act.text)}">互動 ${now.act.label}</span>
     <span class="metric ${now.part.level === null ? "part-na" : `part-${now.part.level}`}" title="${escapeHtml(now.part.text)}">參與 ${now.part.label}</span>`;
-
-  trendPersonPanel.classList.remove("hidden");
-  trendPersonPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function renderPersonChart(series, labels) {
+function renderPersonChart(series, labels, marks = [], periods = []) {
   const n = labels.length;
   const W = 720;
   const H = 210;
@@ -2260,6 +2629,28 @@ function renderPersonChart(series, labels) {
     )
     .join("");
 
+  // x 軸上方標出那段期間有沒有紀錄：■＝活動、●＝聯絡，滑上去看是哪幾筆
+  const markY = padT + plotH + 9;
+  const markers = marks
+    .map((m, i) => {
+      if (!m || (!m.acts && !m.talks)) return "";
+      const x = xOf(i);
+      const tip = `${periods[i] ? periodText(periods[i]) + "\n" : ""}${m.tip}`;
+      const shapes = [];
+      if (m.acts) {
+        shapes.push(
+          `<rect x="${(x - (m.talks ? 6 : 3)).toFixed(1)}" y="${markY - 3}" width="6" height="6" class="mark-act" />`
+        );
+      }
+      if (m.talks) {
+        shapes.push(
+          `<circle cx="${(x + (m.acts ? 4 : 0)).toFixed(1)}" cy="${markY}" r="3" class="mark-talk" />`
+        );
+      }
+      return `<g class="trend-mark"><title>${escapeHtml(tip)}</title>${shapes.join("")}</g>`;
+    })
+    .join("");
+
   const legend = series
     .map(
       (s) =>
@@ -2268,12 +2659,17 @@ function renderPersonChart(series, labels) {
     .join("");
 
   return `
-    <svg viewBox="0 0 ${W} ${H}" class="trend-svg">${grid}${lines}${xLabels}</svg>
-    <div class="trend-legend">${legend}<span class="hint-text">刻度 0–3 級；道氣是 0–100 分等比例縮到同一把尺上。</span></div>`;
+    <svg viewBox="0 0 ${W} ${H}" class="trend-svg">${grid}${lines}${markers}${xLabels}</svg>
+    <div class="trend-legend">
+      ${legend}
+      <span class="trend-legend-item"><span class="trend-swatch swatch-act"></span>有活動紀錄</span>
+      <span class="trend-legend-item"><span class="trend-swatch swatch-talk"></span>有聯絡紀錄</span>
+      <span class="hint-text">刻度 0–3 級；道氣是 0–100 分等比例縮到同一把尺上。</span>
+    </div>`;
 }
 
 // ---------- 匯出 CSV ----------
-// 一個人一組列，每個指標一列，欄位是各個時間點——所以一列橫著看就是那個人的走勢：
+// 一個人一組列，每個指標一列，欄位是各個期間——所以一列橫著看就是那個人的趨勢：
 // 哪一週是「涼」、哪一週轉「熱」一眼就看得出來。時間單位跟畫面上一致（週／月／年）。
 function exportTrendCsv() {
   const entries = trendEntries();
@@ -2281,20 +2677,27 @@ function exportTrendCsv() {
     alert("目前沒有可以匯出的對象。");
     return;
   }
-  const { dates, unit } = trendDates();
+  const { periods } = trendPeriods();
   const unitLabel = { week: "週", month: "月", year: "年" }[trendUnit.value] || "週";
 
+  // 每一格都是「那一段期間內」的值，跟畫面上的圖表完全一致
   const metrics = [
-    { title: "道氣分數", value: (en, d) => spirit(en, d).score },
-    { title: "道氣", value: (en, d) => spirit(en, d).label },
-    { title: "成全熱度", value: (en, d) => heat(en, d).label },
-    { title: "參與度", value: (en, d) => participation(en, d).label },
-    { title: "互動度", value: (en, d) => interaction(en, d).label },
+    { title: "道氣分數", value: (en, p) => spiritIn(en, p).score },
+    { title: "道氣", value: (en, p) => spiritIn(en, p).label },
+    { title: "成全熱度", value: (en, p) => heatIn(en, p).label },
+    { title: "參與度", value: (en, p) => participationIn(en, p).label },
+    { title: "互動度", value: (en, p) => interactionIn(en, p).label },
+    { title: "期間內互動天數", value: (en, p) => interactionIn(en, p).count },
+    { title: "期間內活動紀錄", value: (en, p) => recordsIn(en, p).acts.length },
+    { title: "期間內聯絡紀錄", value: (en, p) => recordsIn(en, p).talks.length },
   ];
 
-  const header = ["姓名", "系級", "歸屬", "成全狀況", "標籤", "指標", ...dates.map(unit.label)];
+  const header = ["姓名", "系級", "歸屬", "成全狀況", "標籤", "指標", ...periods.map((p) => p.label)];
 
-  const rows = [];
+  const rows = [
+    // 第一列標出每一段期間實際的起訖，免得只看到「8/3」不知道涵蓋到哪
+    ["", "", "", "", "", "期間", ...periods.map((p) => periodText(p))],
+  ];
   entries.forEach((en) => {
     metrics.forEach((m) => {
       rows.push([
@@ -2304,7 +2707,7 @@ function exportTrendCsv() {
         en.status || "",
         (en.tags || []).join("、"),
         m.title,
-        ...dates.map((d) => m.value(en, d)),
+        ...periods.map((p) => m.value(en, p)),
       ]);
     });
   });
@@ -2319,8 +2722,10 @@ function exportTrendCsv() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  const scope = selectedTags.size > 0 ? `_${[...selectedTags].join("+")}` : "";
-  link.download = `名單趨勢_${myUnitName || "名單"}${scope}_${unitLabel}_${today}.csv`;
+  const tagPart = selectedTags.size > 0 ? `_${[...selectedTags].join("+")}` : "";
+  const scopePart =
+    filterScope.value === "personal" ? "_個人名單" : filterScope.value === "team" ? "_團隊名單" : "";
+  link.download = `名單趨勢_${myUnitName || "名單"}${scopePart}${tagPart}_${unitLabel}_${today}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -2369,7 +2774,11 @@ trendCharts.addEventListener("keydown", (e) => {
   );
 });
 
-trendPersonClose.addEventListener("click", () => trendPersonPanel.classList.add("hidden"));
+trendPersonClose.addEventListener("click", () => {
+  trendPersonPanel.classList.add("hidden");
+  personTrendEntryId = null;
+});
+trendPersonUnit.addEventListener("change", renderPersonTrend);
 
 // ---------- Modal open/close ----------
 function openModal(entry = null) {
@@ -2533,7 +2942,7 @@ entriesList.addEventListener("click", async (e) => {
   } else if (btn.dataset.action === "heat") {
     openHeatModal(entry);
   } else if (btn.dataset.action === "trend") {
-    // 單人走勢畫在趨勢區塊裡；趨勢區塊沒開就順手打開
+    // 單人趨勢畫在趨勢區塊裡；趨勢區塊沒開就順手打開
     if (pageMode !== "trend") showPage("trend");
     showPersonTrend(entry.id);
   } else if (btn.dataset.action === "to-team") {

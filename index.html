@@ -102,11 +102,18 @@
 
           <div id="trend-charts" class="trend-charts"></div>
 
-          <!-- 單人分析：點名單卡上的「走勢」之後，畫他自己的四條指標曲線 -->
+          <!-- 單人趨勢：點名單卡上的「趨勢」之後，畫他自己的四條指標曲線 -->
           <div id="trend-person" class="trend-person-panel hidden">
             <div class="trend-detail-head">
               <span id="trend-person-title" class="field-label"></span>
-              <button type="button" id="trend-person-close" class="btn-link-plain">收起</button>
+              <span class="trend-person-controls">
+                <select id="trend-person-unit" title="這個人要用哪種期間看">
+                  <option value="week" selected>週（近 12 週）</option>
+                  <option value="month">月（近 12 個月）</option>
+                  <option value="year">年（近 5 年）</option>
+                </select>
+                <button type="button" id="trend-person-close" class="btn-link-plain">收起</button>
+              </span>
             </div>
             <div id="trend-person-chart"></div>
             <div id="trend-person-now" class="trend-person-now"></div>
@@ -117,6 +124,14 @@
         <div id="trend-filter-bar" class="trend-filter-bar hidden">
           <span id="trend-filter-label"></span>
           <button type="button" id="trend-filter-clear" class="btn-link-plain">清除篩選</button>
+        </div>
+
+        <!-- 已結束但還沒回報參與狀況的活動 -->
+        <div id="report-notice" class="upcoming-notice report-notice hidden">
+          <div class="notice-head">
+            <span class="notice-title">已結束的活動：回報參與狀況</span>
+          </div>
+          <div id="report-notice-list"></div>
         </div>
 
         <!-- 近兩週活動提醒：提示該安排邀約了 -->
@@ -319,6 +334,36 @@
           </p>
           <div class="modal-actions">
             <button type="button" id="bind-close-btn" class="btn-secondary">關閉</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 回報參與狀況：活動結束後把誰有來寫進各自的活動紀錄 -->
+      <div id="report-modal" class="modal hidden">
+        <div class="modal-content">
+          <button type="button" id="report-close-btn" class="modal-close" aria-label="關閉">×</button>
+          <h2>回報參與狀況</h2>
+          <p id="report-event" class="field-label"></p>
+          <p class="hint-text">
+            勾選實際有來的人，送出後會寫進他們各自的「活動紀錄」（活動名稱與日期取自這場活動），
+            參與度與道氣會跟著更新。已經有同一筆紀錄的人會自動略過。
+          </p>
+
+          <div class="report-actions">
+            <button type="button" id="report-select-all" class="btn-secondary btn-small">全選</button>
+            <button type="button" id="report-select-none" class="btn-secondary btn-small">全不選</button>
+          </div>
+          <div id="report-list" class="report-list"></div>
+
+          <label>
+            共同反應（選填，會寫進每個人的紀錄）
+            <textarea id="report-reaction" rows="2" placeholder="例：氣氛很好，多數人願意再來"></textarea>
+          </label>
+
+          <p id="report-status" class="hint-text"></p>
+          <div class="modal-actions">
+            <button type="button" id="report-skip-btn" class="btn-secondary">這場不用回報</button>
+            <button type="button" id="report-submit-btn" class="btn-primary">送出回報</button>
           </div>
         </div>
       </div>
