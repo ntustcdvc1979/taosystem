@@ -956,23 +956,40 @@ button {
   margin-bottom: 0.6rem;
 }
 
+/* 一個人一區塊：出席狀態 + 自己的反應欄 */
 .report-row {
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #eee;
+  font-size: 0.88rem;
+}
+
+.report-row + .report-row {
+  margin-top: 0.35rem;
+}
+
+.report-row.is-came {
+  background: #f2f9f5;
+  border-color: #cfe8db;
+}
+
+.report-row-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.35rem 0.3rem;
-  border-radius: 6px;
-  font-size: 0.88rem;
-  cursor: pointer;
 }
 
-.report-row:hover {
-  background: #f4f6f9;
-}
-
-.report-row input {
+.report-came {
   width: auto;
-  margin: 0;
+  margin: 0 0 0 auto;
+  padding: 0.2rem 0.3rem;
+  font-size: 0.8rem;
+}
+
+.report-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
 }
 
 .report-name {
@@ -996,7 +1013,26 @@ button {
 /* 單人趨勢圖上的紀錄註記（畫在日期文字上方一層，點得下去） */
 .trend-mark {
   cursor: pointer;
-  font-size: 11px;
+}
+
+.trend-mark-icon {
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .trend-mark-icon {
+    font-size: 18px;
+  }
+}
+
+/* 透明的觸控範圍：手機上圖示本身太小，點不準 */
+.trend-mark-hit {
+  fill: transparent;
+}
+
+.trend-mark:hover .trend-mark-hit,
+.trend-mark:focus .trend-mark-hit {
+  fill: rgba(124, 77, 255, 0.12);
 }
 
 .trend-dot {
@@ -1070,8 +1106,16 @@ button {
   font-size: 0.85rem;
 }
 
+/* 寬螢幕排兩欄，圖表才不會被拉得又寬又扁；窄螢幕自動收成一欄 */
+.trend-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 0 1.4rem;
+}
+
 .trend-chart {
   margin-bottom: 1.1rem;
+  min-width: 0;
 }
 
 .trend-chart-head {

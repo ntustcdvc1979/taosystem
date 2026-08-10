@@ -346,20 +346,16 @@
           <h2>回報參與狀況</h2>
           <p id="report-event" class="field-label"></p>
           <p class="hint-text">
-            勾選實際有來的人，送出後會寫進他們各自的「活動紀錄」（活動名稱與日期取自這場活動），
-            參與度與道氣會跟著更新。已經有同一筆紀錄的人會自動略過。
+            把每個人標成「有參加」或「沒參加」，並可以各自寫一句當天的反應。
+            送出後，有參加的人會多一筆「活動紀錄」（活動名稱與日期取自這場活動），參與度與道氣跟著更新。
+            已經有同一筆紀錄的人會自動略過。
           </p>
 
           <div class="report-actions">
-            <button type="button" id="report-select-all" class="btn-secondary btn-small">全選</button>
-            <button type="button" id="report-select-none" class="btn-secondary btn-small">全不選</button>
+            <button type="button" id="report-all-yes" class="btn-secondary btn-small">全部有參加</button>
+            <button type="button" id="report-all-no" class="btn-secondary btn-small">全部沒參加</button>
           </div>
           <div id="report-list" class="report-list"></div>
-
-          <label>
-            共同反應（選填，會寫進每個人的紀錄）
-            <textarea id="report-reaction" rows="2" placeholder="例：氣氛很好，多數人願意再來"></textarea>
-          </label>
 
           <p id="report-status" class="hint-text"></p>
           <div class="modal-actions">

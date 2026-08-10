@@ -145,10 +145,9 @@ const reportModal = document.getElementById("report-modal");
 const reportCloseBtn = document.getElementById("report-close-btn");
 const reportEventLabel = document.getElementById("report-event");
 const reportList = document.getElementById("report-list");
-const reportReaction = document.getElementById("report-reaction");
 const reportStatus = document.getElementById("report-status");
-const reportSelectAll = document.getElementById("report-select-all");
-const reportSelectNone = document.getElementById("report-select-none");
+const reportAllYes = document.getElementById("report-all-yes");
+const reportAllNo = document.getElementById("report-all-no");
 const reportSubmitBtn = document.getElementById("report-submit-btn");
 const reportSkipBtn = document.getElementById("report-skip-btn");
 const NOTICE_DISMISS_KEY = "taosystem_notice_dismissed";
@@ -1049,7 +1048,6 @@ function openReportModal(eventId) {
   reportingEventId = eventId;
   reportEventLabel.textContent = `${ev.name}（${eventEndDate(ev)}${ev.type ? `・${ev.type}` : ""}）`;
   reportStatus.textContent = "";
-  reportReaction.value = "";
 
   // 有邀約名單就用它；沒有的話就列出目前看得到的人，讓人自己挑
   const invites = ev.invites || [];
@@ -1058,26 +1056,46 @@ function openReportModal(eventId) {
         id: i.entryId,
         name: entryName(i.entryId) || "（對象已刪除）",
         status: i.status,
-        // 回覆可以的預設打勾，其他的預設不打勾
-        checked: i.status === "已回覆可以",
+        // 回覆可以的預設當作有參加，其餘預設沒參加
+        came: i.status === "已回覆可以",
       }))
-    : trendEntries().map((en) => ({ id: en.id, name: en.name, status: "", checked: false }));
+    : trendEntries().map((en) => ({ id: en.id, name: en.name, status: "", came: false }));
 
   reportList.innerHTML = rows.length
     ? rows
         .map(
           (r) => `
-        <label class="report-row">
-          <input type="checkbox" value="${r.id}" ${r.checked ? "checked" : ""} />
-          <span class="report-name">${escapeHtml(r.name)}</span>
-          ${r.status ? `<span class="hint-text">${escapeHtml(r.status)}</span>` : ""}
-        </label>`
+        <div class="report-row" data-id="${r.id}">
+          <div class="report-row-head">
+            <span class="report-name">${escapeHtml(r.name)}</span>
+            ${r.status ? `<span class="hint-text">${escapeHtml(r.status)}</span>` : ""}
+            <select class="report-came">
+              <option value="yes" ${r.came ? "selected" : ""}>有參加</option>
+              <option value="no" ${r.came ? "" : "selected"}>沒參加</option>
+            </select>
+          </div>
+          <input type="text" class="report-note" placeholder="他的反應（選填）" />
+        </div>`
         )
         .join("")
     : `<p class="hint-text">名單上還沒有人。</p>`;
 
+  applyReportRowState();
   reportModal.classList.remove("hidden");
 }
+
+// 沒參加的人不用填反應，欄位就收起來，視覺上也一眼看出誰有來
+function applyReportRowState() {
+  reportList.querySelectorAll(".report-row").forEach((row) => {
+    const came = row.querySelector(".report-came").value === "yes";
+    row.classList.toggle("is-came", came);
+    row.querySelector(".report-note").classList.toggle("hidden", !came);
+  });
+}
+
+reportList.addEventListener("change", (e) => {
+  if (e.target.closest(".report-came")) applyReportRowState();
+});
 
 function closeReportModal() {
   reportModal.classList.add("hidden");
@@ -1096,8 +1114,13 @@ async function markEventReported(ev, attendedIds) {
 async function submitReport() {
   const ev = allEvents.find((x) => x.id === reportingEventId);
   if (!ev) return;
-  const ids = [...reportList.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.value);
-  const reaction = reportReaction.value.trim();
+  // 每個人各自的出席與反應
+  const came = [...reportList.querySelectorAll(".report-row")]
+    .filter((row) => row.querySelector(".report-came").value === "yes")
+    .map((row) => ({
+      id: row.dataset.id,
+      reaction: row.querySelector(".report-note").value.trim(),
+    }));
   const date = eventEndDate(ev);
 
   reportSubmitBtn.disabled = true;
@@ -1106,7 +1129,7 @@ async function submitReport() {
   let skipped = 0;
   const failures = [];
 
-  for (const id of ids) {
+  for (const { id, reaction } of came) {
     const entry = allEntries.find((en) => en.id === id);
     const ref = entry && entryRef(entry);
     if (!ref) {
@@ -1133,7 +1156,7 @@ async function submitReport() {
   }
 
   try {
-    await markEventReported(ev, ids);
+    await markEventReported(ev, came.map((c) => c.id));
   } catch (err) {
     failures.push(`活動標記：${err.code || err.message}`);
   }
@@ -1153,12 +1176,12 @@ reportCloseBtn.addEventListener("click", closeReportModal);
 reportModal.addEventListener("click", (e) => {
   if (e.target === reportModal) closeReportModal();
 });
-reportSelectAll.addEventListener("click", () => {
-  reportList.querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = true));
-});
-reportSelectNone.addEventListener("click", () => {
-  reportList.querySelectorAll("input[type=checkbox]").forEach((c) => (c.checked = false));
-});
+function setAllCame(value) {
+  reportList.querySelectorAll(".report-came").forEach((sel) => (sel.value = value));
+  applyReportRowState();
+}
+reportAllYes.addEventListener("click", () => setAllCame("yes"));
+reportAllNo.addEventListener("click", () => setAllCame("no"));
 reportSkipBtn.addEventListener("click", async () => {
   const ev = allEvents.find((x) => x.id === reportingEventId);
   if (!ev) return;
@@ -2605,12 +2628,15 @@ function renderPersonTrend() {
 
 function renderPersonChart(series, labels, marks = []) {
   const n = labels.length;
-  const W = 720;
-  const H = 230;
-  const padL = 34;
-  const padR = 40; // 右邊留給道氣的分數刻度
-  const padT = 10;
-  const padB = 46; // 下面留給「註記 + 日期」兩層，才不會疊在一起
+  // 手機把畫布縮到跟螢幕差不多寬，SVG 才不會整張被縮小、
+  // 連帶讓文字與註記變得又小又難點。
+  const narrow = window.innerWidth < 640;
+  const W = narrow ? 380 : 720;
+  const H = narrow ? 260 : 230;
+  const padL = 26;
+  const padR = 34; // 右邊留給道氣的分數刻度
+  const padT = 12;
+  const padB = narrow ? 58 : 46; // 下面留給「註記 + 日期」兩層，才不會疊在一起
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   const xOf = (i) => padL + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
@@ -2656,13 +2682,20 @@ function renderPersonChart(series, labels, marks = []) {
     )
     .join("");
 
-  // 註記圖示畫在日期文字的上方一層，不會互相蓋到；點下去看那段期間的紀錄
-  const markY = labelY - 14;
+  // 註記圖示畫在日期文字的上方一層，不會互相蓋到；點下去看那段期間的紀錄。
+  // 圖示本身在手機上很小，所以另外鋪一塊透明的方塊當觸控範圍（含日期那一行）。
+  const markY = labelY - (narrow ? 22 : 15);
+  const hitW = Math.max(narrow ? 34 : 28, plotW / Math.max(1, n));
+  const hitH = narrow ? 46 : 30;
   const markers = marks
     .map((m, i) =>
       m && m.has
-        ? `<text class="trend-mark" data-index="${i}" x="${xOf(i).toFixed(1)}" y="${markY}"
-             text-anchor="middle">📝<title>有 ${m.count} 筆紀錄，點一下看內容</title></text>`
+        ? `<g class="trend-mark" data-index="${i}">
+             <title>有 ${m.count} 筆紀錄，點一下看內容</title>
+             <rect class="trend-mark-hit" x="${(xOf(i) - hitW / 2).toFixed(1)}" y="${(markY - hitH * 0.6).toFixed(1)}"
+               width="${hitW.toFixed(1)}" height="${hitH}" rx="6" />
+             <text class="trend-mark-icon" x="${xOf(i).toFixed(1)}" y="${markY}" text-anchor="middle">📝</text>
+           </g>`
         : ""
     )
     .join("");
@@ -2822,6 +2855,14 @@ trendPersonClose.addEventListener("click", () => {
   personTrendEntryId = null;
 });
 trendPersonUnit.addEventListener("change", renderPersonTrend);
+
+// 轉向或改變視窗寬度時，圖表的尺寸策略（手機／桌機）要重算
+let personResizeTimer = null;
+window.addEventListener("resize", () => {
+  if (!personTrendEntryId || trendPersonPanel.classList.contains("hidden")) return;
+  clearTimeout(personResizeTimer);
+  personResizeTimer = setTimeout(renderPersonTrend, 150);
+});
 
 // ---------- Modal open/close ----------
 function openModal(entry = null) {
