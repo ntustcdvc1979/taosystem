@@ -882,6 +882,12 @@ button {
   z-index: 50;
 }
 
+/* 疊在另一個對話框上面時要在更上層——例如從「使用者管理」點「指定綁定」，
+   兩個 modal 的 z-index 一樣時，後面出現在 HTML 裡的那個會蓋住先出現的。 */
+.modal.is-stacked {
+  z-index: 55;
+}
+
 .modal-content {
   position: relative;
   background: #fff;
@@ -941,31 +947,24 @@ button {
   border-color: #f2dfae;
 }
 
-.report-actions {
-  display: flex;
-  gap: 0.4rem;
-  margin: 0.5rem 0 0.3rem;
-}
-
 .report-list {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
-  max-height: 260px;
+  max-height: 320px;
   overflow-y: auto;
-  margin-bottom: 0.6rem;
+  margin: 0.7rem 0 0.5rem;
 }
 
-/* 一個人一區塊：出席狀態 + 自己的反應欄 */
+/* 一個人一區塊：出席狀態 + 自己的備註欄 */
 .report-row {
-  padding: 0.45rem 0.5rem;
+  padding: 0.5rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid #eee;
+  border: 1px solid #e6e9ec;
   font-size: 0.88rem;
 }
 
 .report-row + .report-row {
-  margin-top: 0.35rem;
+  margin-top: 0.4rem;
 }
 
 .report-row.is-came {
@@ -992,8 +991,11 @@ button {
 }
 
 .report-note {
-  margin: 0.35rem 0 0;
+  display: block;
+  width: 100%;
+  margin: 0.4rem 0 0;
   font-size: 0.85rem;
+  resize: vertical;
 }
 
 .report-name {

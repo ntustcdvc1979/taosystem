@@ -148,8 +148,6 @@ const reportCloseBtn = document.getElementById("report-close-btn");
 const reportEventLabel = document.getElementById("report-event");
 const reportList = document.getElementById("report-list");
 const reportStatus = document.getElementById("report-status");
-const reportAllYes = document.getElementById("report-all-yes");
-const reportAllNo = document.getElementById("report-all-no");
 const reportSubmitBtn = document.getElementById("report-submit-btn");
 const reportSkipBtn = document.getElementById("report-skip-btn");
 const NOTICE_DISMISS_KEY = "taosystem_notice_dismissed";
@@ -667,6 +665,8 @@ function openBindForMember(email, currentEntryId) {
   bindCurrent.classList.add("hidden");
   bindSelfHint.classList.add("hidden");
   bindResults.innerHTML = `<p class="hint-text">載入中...</p>`;
+  // 這是從「使用者管理」疊上來的，要蓋在它上面
+  bindModal.classList.add("is-stacked");
   bindModal.classList.remove("hidden");
   bindSearch.focus();
   loadRosterNames().then(renderBindResults);
@@ -696,6 +696,7 @@ bindUnbindBtn.addEventListener("click", async () => {
 
 bindMeBtn.addEventListener("click", () => {
   bindTargetEmail = null;
+  bindModal.classList.remove("is-stacked");
   bindModalTitle.textContent = "綁定我的資料";
   bindSelfHint.classList.remove("hidden");
   bindSearch.value = "";
@@ -1292,12 +1293,6 @@ reportCloseBtn.addEventListener("click", closeReportModal);
 reportModal.addEventListener("click", (e) => {
   if (e.target === reportModal) closeReportModal();
 });
-function setAllCame(value) {
-  reportList.querySelectorAll(".report-came").forEach((sel) => (sel.value = value));
-  applyReportRowState();
-}
-reportAllYes.addEventListener("click", () => setAllCame("yes"));
-reportAllNo.addEventListener("click", () => setAllCame("no"));
 reportSkipBtn.addEventListener("click", async () => {
   const ev = allEvents.find((x) => x.id === reportingEventId);
   if (!ev) return;
