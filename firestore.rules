@@ -48,7 +48,9 @@ service cloud.firestore {
       // 組長只能設到自己這一階以下；忠義字班講師以上可以一路指派到點傳師（4）
       allow create: if canManageMembers() && request.resource.data.unitId == myUnit()
                     && request.resource.data.get('roleRank', 1) <= maxAssignableRank();
-      // 也不能改自己的身分（免得自我升等）
+      // 也不能改自己的身分（免得自我升等）。
+      // 組長以上也是從這裡幫別人指定「他是名單上的誰」（entryId），
+      // 因為對方可能還沒登入過、還沒有 uid 可以寫 memberLinks。
       allow update: if canManageMembers() && resource.data.unitId == myUnit()
                     && request.resource.data.unitId == myUnit()
                     && request.resource.data.get('roleRank', 1) <= maxAssignableRank()

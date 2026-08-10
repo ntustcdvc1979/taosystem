@@ -315,13 +315,13 @@
       <!-- 綁定自己 對話框：把登入帳號對應到名單中的哪一位 -->
       <div id="bind-modal" class="modal hidden">
         <div class="modal-content">
-          <h2>綁定我的資料</h2>
-          <p class="hint-text">
+          <h2 id="bind-modal-title">綁定我的資料</h2>
+          <p id="bind-self-hint" class="hint-text">
             每位幹部自己也是名單中的一員。綁定後，系統才知道名單上哪一位是你，
             聯絡人、個人名單等才會正確對應。
           </p>
           <label>
-            在名單中找到自己
+            在名單中找到那一位
             <input type="text" id="bind-search" placeholder="輸入姓名搜尋" autocomplete="off" />
           </label>
           <div id="bind-results" class="bind-results"></div>
@@ -346,8 +346,8 @@
           <h2>回報參與狀況</h2>
           <p id="report-event" class="field-label"></p>
           <p class="hint-text">
-            把每個人標成「有參加」或「沒參加」，並可以各自寫一句當天的反應。
-            送出後，有參加的人會多一筆「活動紀錄」（活動名稱與日期取自這場活動），參與度與道氣跟著更新。
+            只列出<strong>回覆可以參加</strong>的人，預設當作有來，把臨時沒來的改掉就好。
+            有參加的填反應 → 寫進他的「活動紀錄」；沒參加的填原因 → 寫進「聯絡紀錄」（不會影響參與度）。
             已經有同一筆紀錄的人會自動略過。
           </p>
 

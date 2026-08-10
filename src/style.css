@@ -973,6 +973,10 @@ button {
   border-color: #cfe8db;
 }
 
+.report-row.is-absent {
+  background: #fafafa;
+}
+
 .report-row-head {
   display: flex;
   flex-wrap: wrap;
@@ -1106,10 +1110,11 @@ button {
   font-size: 0.85rem;
 }
 
-/* 寬螢幕排兩欄，圖表才不會被拉得又寬又扁；窄螢幕自動收成一欄 */
+/* 寬螢幕排兩欄，圖表才不會被拉得又寬又扁；
+   窄螢幕收成一欄——min() 是必要的，不然 420px 的下限會比螢幕還寬而衝出畫面 */
 .trend-charts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
   gap: 0 1.4rem;
 }
 

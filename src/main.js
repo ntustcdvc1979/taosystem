@@ -114,6 +114,8 @@ const bindSearch = document.getElementById("bind-search");
 const bindResults = document.getElementById("bind-results");
 const bindStatus = document.getElementById("bind-status");
 const bindCloseBtn = document.getElementById("bind-close-btn");
+const bindModalTitle = document.getElementById("bind-modal-title");
+const bindSelfHint = document.getElementById("bind-self-hint");
 const bindCurrent = document.getElementById("bind-current");
 const bindCurrentName = document.getElementById("bind-current-name");
 const bindUnbindBtn = document.getElementById("bind-unbind-btn");
@@ -438,6 +440,8 @@ viewRankSelect.addEventListener("change", () => {
     unsubscribeEntries = null;
   }
   teamEntries = [];
+  // 舊模式選到的那群人在新模式下不一定存在，先清掉圖表篩選
+  clearTrendFilter();
   subscribeEntries();
 });
 
@@ -451,14 +455,34 @@ function applyUnitName() {
 // ---------- 帳號綁定到名單中的自己 ----------
 async function loadMyLink() {
   const uid = auth.currentUser?.uid;
+  const email = auth.currentUser?.email;
   if (!uid) return;
+
+  // 兩個來源：自己綁的（memberLinks/{uid}）與組長以上幫你指定的（memberEmails/{gmail}.entryId）。
+  // 誰比較新就聽誰的——這樣自己改得動，組長也改得動。
+  let self = null;
+  let assigned = null;
   try {
     const snap = await getDoc(unitDoc(LINKS_COLLECTION, uid));
-    myEntryId = snap.exists() ? snap.data().entryId || null : null;
+    if (snap.exists() && snap.data().entryId) {
+      self = { entryId: snap.data().entryId, at: snap.data().linkedAt?.toMillis?.() ?? 0 };
+    }
   } catch (err) {
     console.error(err);
-    myEntryId = null;
   }
+  try {
+    const snap = email ? await getDoc(doc(db, "memberEmails", email)) : null;
+    if (snap?.exists() && snap.data().entryId) {
+      assigned = {
+        entryId: snap.data().entryId,
+        at: snap.data().entryAssignedAt?.toMillis?.() ?? 0,
+      };
+    }
+  } catch (err) {
+    console.error(err);
+  }
+  const winner = !self ? assigned : !assigned ? self : assigned.at > self.at ? assigned : self;
+  myEntryId = winner?.entryId || null;
   // 自己那一筆通常跟自己同階（看不到），名字得從索引拿
   if (myEntryId) {
     try {
@@ -583,19 +607,46 @@ function renderBindResults() {
 
 bindSearch.addEventListener("input", renderBindResults);
 
+// 這個視窗兩用：綁自己（bindTargetEmail = null），或組長以上幫別的帳號綁
+let bindTargetEmail = null;
+
 bindResults.addEventListener("click", async (e) => {
   const btn = e.target.closest(".bind-result");
   if (!btn) return;
+  const entryId = btn.dataset.id;
+  const name = btn.dataset.name || "";
+
+  // 幫別人綁：寫進他的 memberEmails，因為對方可能還沒登入過、沒有 uid 可用
+  if (bindTargetEmail) {
+    try {
+      await setDoc(
+        doc(db, "memberEmails", bindTargetEmail),
+        {
+          unitId: myUnitId,
+          entryId,
+          entryAssignedAt: serverTimestamp(),
+          entryAssignedBy: auth.currentUser?.email || null,
+        },
+        { merge: true }
+      );
+      bindStatus.textContent = `已把 ${bindTargetEmail} 綁定為「${name}」。`;
+    } catch (err) {
+      bindStatus.textContent =
+        err.code === "permission-denied" ? "沒有權限指派這個帳號的綁定。" : "綁定失敗：" + err.message;
+    }
+    return;
+  }
+
   const uid = auth.currentUser?.uid;
   try {
     await setDoc(unitDoc(LINKS_COLLECTION, uid), {
-      entryId: btn.dataset.id,
+      entryId,
       email: auth.currentUser?.email || null,
       linkedAt: serverTimestamp(),
     });
-    myEntryId = btn.dataset.id;
+    myEntryId = entryId;
     // 綁到的那一筆自己不一定看得到（身分比自己高），所以名字用索引上的
-    myEntryName = allEntries.find((en) => en.id === myEntryId)?.name || btn.dataset.name || "";
+    myEntryName = allEntries.find((en) => en.id === myEntryId)?.name || name;
     bindStatus.textContent = `已綁定為「${myEntryName}」。`;
     refreshBindPrompt();
     refreshBindCurrent();
@@ -604,6 +655,22 @@ bindResults.addEventListener("click", async (e) => {
     bindStatus.textContent = "綁定失敗：" + err.message;
   }
 });
+
+// 組長以上幫某個帳號指定他是名單上的誰
+function openBindForMember(email, currentEntryId) {
+  bindTargetEmail = email;
+  bindSearch.value = "";
+  bindModalTitle.textContent = "指定綁定";
+  bindStatus.textContent = currentEntryId
+    ? `${email} 目前綁定：${entryName(currentEntryId) || currentEntryId}`
+    : `${email} 還沒綁定。`;
+  bindCurrent.classList.add("hidden");
+  bindSelfHint.classList.add("hidden");
+  bindResults.innerHTML = `<p class="hint-text">載入中...</p>`;
+  bindModal.classList.remove("hidden");
+  bindSearch.focus();
+  loadRosterNames().then(renderBindResults);
+}
 
 // 綁錯了要能解除，重綁只要再選一次（memberLinks 一個帳號就一份，會直接覆蓋）
 function refreshBindCurrent() {
@@ -628,6 +695,9 @@ bindUnbindBtn.addEventListener("click", async () => {
 });
 
 bindMeBtn.addEventListener("click", () => {
+  bindTargetEmail = null;
+  bindModalTitle.textContent = "綁定我的資料";
+  bindSelfHint.classList.remove("hidden");
   bindSearch.value = "";
   bindStatus.textContent = "";
   bindResults.innerHTML = `<p class="hint-text">載入中...</p>`;
@@ -698,14 +768,20 @@ function renderMembers() {
                .map((r) => `<option value="${r}" ${r === rank ? "selected" : ""}>${ROLE_LABELS[r]}</option>`)
                .join("")}
            </select>`;
+      // 幫他指定「他是名單上的誰」——對方沒登入過也設得起來（寫在他的 memberEmails 上）
+      const bound = m.entryId ? entryName(m.entryId) || "（找不到那一筆）" : "";
       return `
         <div class="member-row">
           <span class="member-email">${escapeHtml(m.email)}${isMe ? '<span class="member-self">你</span>' : ""}</span>
           ${roleCell}
+          <button type="button" class="btn-secondary btn-small member-bind"
+            data-email="${escapeHtml(m.email)}" data-entry="${escapeHtml(m.entryId || "")}">
+            ${bound ? `綁定：${escapeHtml(bound)}` : "指定綁定"}
+          </button>
           ${
             isMe
               ? `<span class="hint-text">不能移除自己</span>`
-              : `<button type="button" class="btn-danger btn-small" data-email="${escapeHtml(m.email)}">移除</button>`
+              : `<button type="button" class="btn-danger btn-small member-remove" data-email="${escapeHtml(m.email)}">移除</button>`
           }
         </div>`;
     })
@@ -777,7 +853,14 @@ newMemberEmail.addEventListener("keydown", (e) => {
 });
 
 membersList.addEventListener("click", async (e) => {
-  const btn = e.target.closest("button[data-email]");
+  // 指定綁定：借用綁定視窗，但這次是幫別人設
+  const bindBtn = e.target.closest(".member-bind");
+  if (bindBtn) {
+    openBindForMember(bindBtn.dataset.email, bindBtn.dataset.entry || null);
+    return;
+  }
+
+  const btn = e.target.closest("button.member-remove");
   if (!btn) return;
   const email = btn.dataset.email;
   const member = unitMembers.find((m) => m.email === email);
@@ -842,6 +925,14 @@ function mergeEntries() {
   refreshBindPrompt();
   renderTagFilter(); // 新標籤要出現在篩選清單，按鈕上的隱藏數也要跟著更新
   if (heatModalEntryId) renderHeatModal();
+  // 換檢視身分（或任何名單異動）之後，趨勢圖要跟著換成新的那批人
+  if (pageMode === "trend") {
+    renderTrendCharts();
+    if (personTrendEntryId) {
+      if (allEntries.some((en) => en.id === personTrendEntryId)) renderPersonTrend();
+      else trendPersonPanel.classList.add("hidden"); // 這個人在新模式下看不到了
+    }
+  }
 }
 
 function subscribeEntries() {
@@ -1049,17 +1140,14 @@ function openReportModal(eventId) {
   reportEventLabel.textContent = `${ev.name}（${eventEndDate(ev)}${ev.type ? `・${ev.type}` : ""}）`;
   reportStatus.textContent = "";
 
-  // 有邀約名單就用它；沒有的話就列出目前看得到的人，讓人自己挑
-  const invites = ev.invites || [];
-  const rows = invites.length
-    ? invites.map((i) => ({
-        id: i.entryId,
-        name: entryName(i.entryId) || "（對象已刪除）",
-        status: i.status,
-        // 回覆可以的預設當作有參加，其餘預設沒參加
-        came: i.status === "已回覆可以",
-      }))
-    : trendEntries().map((en) => ({ id: en.id, name: en.name, status: "", came: false }));
+  // 只列「已回覆可以」的人——會不會來本來就只有他們需要確認
+  const rows = (ev.invites || [])
+    .filter((i) => i.status === "已回覆可以")
+    .map((i) => ({
+      id: i.entryId,
+      name: entryName(i.entryId) || "（對象已刪除）",
+      came: true, // 說可以來的預設就是有來，只要改掉沒來的那幾位
+    }));
 
   reportList.innerHTML = rows.length
     ? rows
@@ -1068,28 +1156,29 @@ function openReportModal(eventId) {
         <div class="report-row" data-id="${r.id}">
           <div class="report-row-head">
             <span class="report-name">${escapeHtml(r.name)}</span>
-            ${r.status ? `<span class="hint-text">${escapeHtml(r.status)}</span>` : ""}
             <select class="report-came">
               <option value="yes" ${r.came ? "selected" : ""}>有參加</option>
               <option value="no" ${r.came ? "" : "selected"}>沒參加</option>
             </select>
           </div>
-          <input type="text" class="report-note" placeholder="他的反應（選填）" />
+          <textarea class="report-note" rows="2"></textarea>
         </div>`
         )
         .join("")
-    : `<p class="hint-text">名單上還沒有人。</p>`;
+    : `<p class="hint-text">這場活動沒有人回覆可以參加，沒什麼要回報的。可以直接按「這場不用回報」。</p>`;
 
   applyReportRowState();
   reportModal.classList.remove("hidden");
 }
 
-// 沒參加的人不用填反應，欄位就收起來，視覺上也一眼看出誰有來
+// 有參加填「反應」，沒參加填「原因」——兩邊都留得下紀錄，只是寫到不同地方
 function applyReportRowState() {
   reportList.querySelectorAll(".report-row").forEach((row) => {
     const came = row.querySelector(".report-came").value === "yes";
+    const note = row.querySelector(".report-note");
     row.classList.toggle("is-came", came);
-    row.querySelector(".report-note").classList.toggle("hidden", !came);
+    row.classList.toggle("is-absent", !came);
+    note.placeholder = came ? "他的反應（選填，會寫進活動紀錄）" : "沒來的原因（選填，會寫進聯絡紀錄）";
   });
 }
 
@@ -1114,22 +1203,22 @@ async function markEventReported(ev, attendedIds) {
 async function submitReport() {
   const ev = allEvents.find((x) => x.id === reportingEventId);
   if (!ev) return;
-  // 每個人各自的出席與反應
-  const came = [...reportList.querySelectorAll(".report-row")]
-    .filter((row) => row.querySelector(".report-came").value === "yes")
-    .map((row) => ({
-      id: row.dataset.id,
-      reaction: row.querySelector(".report-note").value.trim(),
-    }));
+  // 每個人各自的出席與備註
+  const rows = [...reportList.querySelectorAll(".report-row")].map((row) => ({
+    id: row.dataset.id,
+    came: row.querySelector(".report-came").value === "yes",
+    note: row.querySelector(".report-note").value.trim(),
+  }));
   const date = eventEndDate(ev);
 
   reportSubmitBtn.disabled = true;
   reportStatus.textContent = "處理中...";
   let added = 0;
+  let absent = 0;
   let skipped = 0;
   const failures = [];
 
-  for (const { id, reaction } of came) {
+  for (const { id, came, note } of rows) {
     const entry = allEntries.find((en) => en.id === id);
     const ref = entry && entryRef(entry);
     if (!ref) {
@@ -1137,32 +1226,59 @@ async function submitReport() {
       failures.push(entryName(id) || id);
       continue;
     }
-    const activities = entry.activities || [];
-    // 同一場活動同一天已經有紀錄就不重複寫
-    if (activities.some((a) => (a.activity || "").trim() === ev.name.trim() && a.date === date)) {
+
+    if (came) {
+      const activities = entry.activities || [];
+      // 同一場活動同一天已經有紀錄就不重複寫
+      if (activities.some((a) => (a.activity || "").trim() === ev.name.trim() && a.date === date)) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        await updateDoc(ref, {
+          activities: [...activities, { activity: ev.name, date, reaction: note }],
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser?.email || null,
+        });
+        added += 1;
+      } catch (err) {
+        failures.push(`${entry.name}：${err.code || err.message}`);
+      }
+      continue;
+    }
+
+    // 沒來的人不能寫成活動紀錄（那會讓參與度變高），改記在聯絡紀錄裡
+    if (!note) continue;
+    const talks = entry.talks || [];
+    const content = `未參加「${ev.name}」：${note}`;
+    if (talks.some((t) => t.date === date && (t.content || "").trim() === content)) {
       skipped += 1;
       continue;
     }
     try {
       await updateDoc(ref, {
-        activities: [...activities, { activity: ev.name, date, reaction }],
+        talks: [...talks, { date, content }],
         updatedAt: serverTimestamp(),
         updatedBy: auth.currentUser?.email || null,
       });
-      added += 1;
+      absent += 1;
     } catch (err) {
       failures.push(`${entry.name}：${err.code || err.message}`);
     }
   }
 
   try {
-    await markEventReported(ev, came.map((c) => c.id));
+    await markEventReported(
+      ev,
+      rows.filter((r) => r.came).map((r) => r.id)
+    );
   } catch (err) {
     failures.push(`活動標記：${err.code || err.message}`);
   }
 
   reportSubmitBtn.disabled = false;
   const parts = [`已寫入 ${added} 人的活動紀錄`];
+  if (absent > 0) parts.push(`${absent} 人的缺席原因記到聯絡紀錄`);
   if (skipped > 0) parts.push(`${skipped} 人本來就有這筆`);
   if (failures.length > 0) parts.push(`${failures.length} 人失敗（${failures[0]}）`);
   alert(parts.join("，") + "。");
