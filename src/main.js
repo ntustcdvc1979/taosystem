@@ -1,6 +1,7 @@
 import "./style.css";
 import { handleInAppBrowser } from "./inapp.js";
 import { createTagEditor } from "./tageditor.js";
+import { initClassroom, startClassroom, stopClassroom } from "./classroom.js";
 import { auth, db } from "./firebase.js";
 import {
   getSharedApiKey,
@@ -49,7 +50,8 @@ let myUnitId = null;
 let myUnitName = "";
 let myEntryId = null; // 這支帳號綁定到名單中的哪一位
 let myEntryName = ""; // 那一筆的名字（自己那筆常常因為同階而讀不到，名字改從索引取）
-let myRank = 1; // 自己的身分（3 講師／2 成全組長／1 組員／0 非組員）
+let myRank = 1; // 道務身分（4 點傳師／3 講師／2 成全組長／1 組員／0 非組員）
+let myClassRank = 1; // 班務身分（4 點傳師／3 講師／2 班務組長／1 班務人員）
 let viewRank = 1; // 目前用哪個身分在看名單（不會超過 myRank）
 
 // units/{unitId}/{name} 的集合參考
@@ -197,6 +199,45 @@ let viewMode = "heat";
 // 目前在哪一頁："roster"（名單，預設）／"trend"（趨勢分析）
 let pageMode = "roster";
 
+// ---------- 兩個系統：道務／班務 ----------
+// 兩邊的名單、紀錄、頁面都各自獨立，只有標題列與使用者管理共用。
+const SYSTEM_KEY = "system";
+let currentSystem = "dao";
+
+const systemDaoBtn = document.getElementById("system-dao");
+const systemClassBtn = document.getElementById("system-class");
+const daoView = document.getElementById("dao-view");
+const classView = document.getElementById("class-view");
+const appTitle = document.getElementById("app-title");
+
+function systemKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `${SYSTEM_KEY}:${uid}` : SYSTEM_KEY;
+}
+
+function showSystem(system) {
+  currentSystem = system === "class" ? "class" : "dao";
+  const isClass = currentSystem === "class";
+  daoView.classList.toggle("hidden", isClass);
+  classView.classList.toggle("hidden", !isClass);
+  systemDaoBtn.classList.toggle("is-on", !isClass);
+  systemClassBtn.classList.toggle("is-on", isClass);
+  appTitle.textContent = isClass ? "班務名單管理" : "成全名單管理";
+  document.title = appTitle.textContent;
+  // AI 成全助手看的是道務名單，班務系統就不出現
+  chatFab.classList.toggle("hidden", isClass || !auth.currentUser);
+  if (isClass) chatPanel.classList.add("hidden");
+  try {
+    localStorage.setItem(systemKey(), currentSystem);
+  } catch {
+    // 記不起來也不影響使用
+  }
+  window.scrollTo({ top: 0 });
+}
+
+systemDaoBtn.addEventListener("click", () => showSystem("dao"));
+systemClassBtn.addEventListener("click", () => showSystem("class"));
+
 const entryModal = document.getElementById("entry-modal");
 const entryForm = document.getElementById("entry-form");
 const modalTitle = document.getElementById("modal-title");
@@ -332,6 +373,13 @@ onAuthStateChanged(auth, async (user) => {
     subscribeEvents();
     loadMyLink();
     loadChatHistory();
+    // 班務系統：自己的名單與課程，跟道務完全分開
+    startClassroom(classroomContext);
+    try {
+      showSystem(localStorage.getItem(systemKey()) || "dao");
+    } catch {
+      showSystem("dao");
+    }
     loadRosterNames();
   } else {
     appView.classList.add("hidden");
@@ -358,8 +406,10 @@ onAuthStateChanged(auth, async (user) => {
       unsubscribeLinks();
       unsubscribeLinks = null;
     }
+    stopClassroom();
     unitLinks = [];
     myRank = 1;
+    myClassRank = 1;
     viewRank = 1;
     membersBtn.classList.add("hidden");
     membersModal.classList.add("hidden");
@@ -368,8 +418,16 @@ onAuthStateChanged(auth, async (user) => {
     myPersonalEntries = [];
     allEvents = [];
     chatHistory = [];
+    showSystem("dao");
   }
 });
+
+// 班務模組要的東西：目前單位、道務名單的姓名（給「關聯道務名單」搜尋用）
+const classroomContext = {
+  unitId: () => myUnitId,
+  daoNames: () => rosterNames,
+};
+initClassroom(classroomContext);
 
 // ---------- 帳號歸屬的道務單位 ----------
 // memberEmails/{gmail} 與 units/{unitId} 都只能由管理員在 Firebase Console 設定，
@@ -390,6 +448,8 @@ async function loadMyUnit() {
     const rank = memberSnap.data().roleRank;
     myRank = typeof rank === "number" ? rank : 1;
     viewRank = myRank;
+    // 班務身分獨立設定；但點傳師與忠義字班講師兩邊共通，所以自動比照道務身分
+    myClassRank = effectiveClassRank(memberSnap.data());
 
     const unitSnap = await getDoc(doc(db, "units", myUnitId));
     myUnitName = (unitSnap.exists() ? unitSnap.data().name : "") || myUnitId;
@@ -400,12 +460,25 @@ async function loadMyUnit() {
   }
   applyUnitName();
   applyMyRank();
-  membersBtn.classList.toggle("hidden", myRank < MANAGE_MEMBERS_RANK);
+  membersBtn.classList.toggle(
+    "hidden",
+    myRank < MANAGE_MEMBERS_RANK && myClassRank < MANAGE_MEMBERS_RANK
+  );
   return true;
+}
+
+// 班務身分＝自己設定的 classRank，但講師以上（3、4）兩邊共通，取比較高的那個
+function effectiveClassRank(memberData = {}) {
+  const own = typeof memberData.classRank === "number" ? memberData.classRank : 1;
+  const dao = typeof memberData.roleRank === "number" ? memberData.roleRank : 1;
+  return Math.max(own, dao >= ENTRY_ROLE_RANK ? dao : 0);
 }
 
 // 身分階梯：只看得到比「目前檢視身分」更低階的名單，所以同階彼此看不到
 const ROLE_LABELS = ["非組員", "組員", "成全組長", "忠義字班講師", "點傳師"];
+// 班務系統的身分：點傳師與忠義字班講師兩邊共通，中間那一階換成「班務組長」，
+// 所以「成全組長」不等於「班務組長」，兩邊分開設定。
+const CLASS_ROLE_LABELS = ["—", "班務人員", "班務組長", "忠義字班講師", "點傳師"];
 const MANAGE_MEMBERS_RANK = 2; // 成全組長以上才能管理使用者（增減帳號、設定身分）
 const ENTRY_ROLE_RANK = 3; // 名單本身的身分欄位仍然只有忠義字班講師以上改得動
 
@@ -804,12 +877,27 @@ function renderMembers() {
       // 身分只能設到自己這一階以下，也不能改自己的（規則也擋著）
       const roleCell = isMe
         ? `<span class="member-role-label">${ROLE_LABELS[rank]}</span>`
-        : `<select class="member-role" data-email="${escapeHtml(m.email)}">
+        : `<select class="member-role" data-email="${escapeHtml(m.email)}" title="道務身分">
              ${[1, 2, 3, 4]
                .filter((r) => r <= maxAssignableRank())
                .map((r) => `<option value="${r}" ${r === rank ? "selected" : ""}>${ROLE_LABELS[r]}</option>`)
                .join("")}
            </select>`;
+      // 班務身分另外設；講師以上兩邊共通，所以那兩階由道務身分帶過來、這裡不重複設定
+      const classRank = effectiveClassRank(m);
+      const sharedRank = classRank >= ENTRY_ROLE_RANK && rank >= ENTRY_ROLE_RANK;
+      const classCell =
+        isMe || sharedRank
+          ? `<span class="member-role-label">班務：${CLASS_ROLE_LABELS[classRank]}</span>`
+          : `<select class="member-class-role" data-email="${escapeHtml(m.email)}" title="班務身分">
+               ${[1, 2, 3, 4]
+                 .filter((r) => r <= maxAssignableRank())
+                 .map(
+                   (r) =>
+                     `<option value="${r}" ${r === classRank ? "selected" : ""}>班務：${CLASS_ROLE_LABELS[r]}</option>`
+                 )
+                 .join("")}
+             </select>`;
       // 幫他指定「他是名單上的誰」——對方沒登入過也設得起來（寫在他的 memberEmails 上）。
       // 顯示的是實際生效的那一筆，所以他自己綁的也看得到。
       const entryId = effectiveEntryId(m);
@@ -818,6 +906,7 @@ function renderMembers() {
         <div class="member-row">
           <span class="member-email">${escapeHtml(m.email)}${isMe ? '<span class="member-self">你</span>' : ""}</span>
           ${roleCell}
+          ${classCell}
           <button type="button" class="btn-secondary btn-small member-bind"
             data-email="${escapeHtml(m.email)}" data-entry="${escapeHtml(entryId)}">
             ${bound ? `綁定：${escapeHtml(bound)}` : "指定綁定"}
@@ -846,6 +935,25 @@ async function setMemberRole(email, rank) {
     membersStatus.textContent =
       err.code === "permission-denied"
         ? "沒有權限設定這個身分（只能設到自己這一階以下，也不能改自己的）。"
+        : "設定失敗：" + err.message;
+    renderMembers();
+  }
+}
+
+// 班務身分：跟道務分開存，所以成全組長不會自動變成班務組長
+async function setMemberClassRole(email, rank) {
+  membersStatus.textContent = "";
+  try {
+    await setDoc(
+      doc(db, "memberEmails", email),
+      { unitId: myUnitId, classRank: rank },
+      { merge: true }
+    );
+    membersStatus.textContent = `已把 ${email} 的班務身分設為「${CLASS_ROLE_LABELS[rank]}」。`;
+  } catch (err) {
+    membersStatus.textContent =
+      err.code === "permission-denied"
+        ? "沒有權限設定這個班務身分（只能設到自己這一階以下，也不能改自己的）。"
         : "設定失敗：" + err.message;
     renderMembers();
   }
@@ -929,6 +1037,11 @@ membersList.addEventListener("click", async (e) => {
 });
 
 membersList.addEventListener("change", (e) => {
+  const classSel = e.target.closest("select.member-class-role");
+  if (classSel) {
+    setMemberClassRole(classSel.dataset.email, Number(classSel.value) || 1);
+    return;
+  }
   const sel = e.target.closest("select.member-role");
   if (!sel) return;
   setMemberRole(sel.dataset.email, Number(sel.value) || 1);

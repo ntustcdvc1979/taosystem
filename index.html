@@ -29,7 +29,7 @@
       <!-- 主畫面 -->
       <section id="app-view" class="view hidden">
         <header class="topbar">
-          <h1>成全名單管理</h1>
+          <h1 id="app-title">成全名單管理</h1>
           <div class="topbar-right">
             <span id="unit-name" class="unit-badge hidden"></span>
             <span id="current-user"></span>
@@ -39,6 +39,13 @@
           </div>
         </header>
 
+        <!-- 兩個系統各自獨立，只有上面的標題列與使用者管理共用 -->
+        <div class="system-switch" role="tablist">
+          <button type="button" id="system-dao" class="system-tab is-on" role="tab">道務系統</button>
+          <button type="button" id="system-class" class="system-tab" role="tab">班務系統</button>
+        </div>
+
+        <div id="dao-view">
         <div class="toolbar">
           <input type="search" id="search-input" placeholder="搜尋姓名 / 系級 / 背景 / 聯絡人..." />
           <select id="filter-status">
@@ -50,7 +57,7 @@
             <option value="至善班畢">至善班畢</option>
             <option value="行德班畢">行德班畢</option>
             <option value="崇德班畢">崇德班畢</option>
-            <option value="人才培訓班畢">人才培訓班畢</option>
+            <option value="人才儲訓班畢">人才儲訓班畢</option>
             <option value="講培班畢">講培班畢</option>
             <option value="講師">講師</option>
             <option value="未確定">未確定</option>
@@ -147,7 +154,153 @@
         <div id="entries-list" class="cards-wrap">
           <p class="empty-text">尚無資料</p>
         </div>
+        </div><!-- /dao-view -->
+
+        <!-- 班務系統：班員與護班人員的名單、課程與上課紀錄 -->
+        <div id="class-view" class="hidden">
+          <div class="toolbar">
+            <input type="search" id="class-search" placeholder="搜尋姓名 / 系級 / 關聯的道務名單..." />
+            <select id="class-filter-group">
+              <option value="">全部班別</option>
+              <option value="新民">新民</option>
+              <option value="至善">至善</option>
+              <option value="行德">行德</option>
+              <option value="崇德">崇德</option>
+              <option value="人才儲訓">人才儲訓</option>
+              <option value="講培">講培</option>
+              <option value="講師">講師</option>
+            </select>
+            <select id="class-filter-type">
+              <option value="">班員與護班人員</option>
+              <option value="班員">只看班員</option>
+              <option value="護班人員">只看護班人員</option>
+            </select>
+            <button id="course-manage-btn" class="btn-secondary">課程管理</button>
+            <button id="class-add-btn" class="btn-primary">＋ 新增班務名單</button>
+          </div>
+
+          <div id="class-list" class="cards-wrap">
+            <p class="empty-text">尚無班務名單</p>
+          </div>
+        </div>
       </section>
+
+      <!-- 班務：新增／編輯名單 -->
+      <div id="class-modal" class="modal hidden">
+        <div class="modal-content">
+          <button type="button" id="class-close-x" class="modal-close" aria-label="取消">×</button>
+          <h2 id="class-modal-title">新增班務名單</h2>
+          <label>
+            姓名 <span class="required">*</span>
+            <input type="text" id="class-field-name" />
+          </label>
+          <label>
+            班別
+            <select id="class-field-group">
+              <option value="新民">新民</option>
+              <option value="至善">至善</option>
+              <option value="行德">行德</option>
+              <option value="崇德">崇德</option>
+              <option value="人才儲訓">人才儲訓</option>
+              <option value="講培">講培</option>
+              <option value="講師">講師</option>
+            </select>
+          </label>
+          <label>
+            身分
+            <select id="class-field-type">
+              <option value="班員">班員</option>
+              <option value="護班人員">護班人員</option>
+            </select>
+            <span class="hint-text">班員記學習狀況（筆記、準時、提問）；護班人員記承擔狀況（準時抵達、與班員互動、學習項目）。</span>
+          </label>
+          <label>
+            性別
+            <select id="class-field-gender">
+              <option value="">請選擇</option>
+              <option value="乾">乾</option>
+              <option value="坤">坤</option>
+            </select>
+          </label>
+          <label>
+            系級
+            <input type="text" id="class-field-department" placeholder="例：資工三" />
+          </label>
+          <label>
+            關聯道務名單
+            <input type="text" id="class-link-search" placeholder="輸入姓名搜尋道務名單" autocomplete="off" />
+            <div id="class-link-results" class="bind-results"></div>
+            <div id="class-linked-current" class="class-linked"></div>
+          </label>
+          <label>
+            備註
+            <textarea id="class-field-note" rows="2"></textarea>
+          </label>
+          <div class="modal-actions">
+            <button type="button" id="class-delete-btn" class="btn-danger modal-delete hidden">刪除這筆</button>
+            <button type="button" id="class-cancel-btn" class="btn-secondary">取消</button>
+            <button type="button" id="class-save-btn" class="btn-primary">儲存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 班務：課程管理 -->
+      <div id="course-modal" class="modal hidden">
+        <div class="modal-content">
+          <button type="button" id="course-close-x" class="modal-close" aria-label="關閉">×</button>
+          <h2>課程管理</h2>
+          <p class="hint-text">課程是班務系統的活動：登錄之後，寫上課紀錄時可以直接從清單挑。</p>
+          <div class="course-form">
+            <input type="date" id="course-date" />
+            <input type="text" id="course-name" placeholder="課程名稱，例：新民班第三堂" />
+            <select id="course-group">
+              <option value="新民">新民</option>
+              <option value="至善">至善</option>
+              <option value="行德">行德</option>
+              <option value="崇德">崇德</option>
+              <option value="人才儲訓">人才儲訓</option>
+              <option value="講培">講培</option>
+              <option value="講師">講師</option>
+            </select>
+            <button type="button" id="course-save-btn" class="btn-primary btn-small">新增課程</button>
+          </div>
+          <div id="course-list" class="course-list"></div>
+        </div>
+      </div>
+
+      <!-- 班務：上課紀錄 -->
+      <div id="lesson-modal" class="modal hidden">
+        <div class="modal-content">
+          <button type="button" id="lesson-close-x" class="modal-close" aria-label="關閉">×</button>
+          <h2>上課紀錄 - <span id="lesson-modal-name"></span></h2>
+          <p class="hint-text">最新的紀錄排在最上面。</p>
+
+          <div class="lesson-form">
+            <div class="lesson-form-row">
+              <input type="date" id="lesson-date" />
+              <select id="lesson-course"></select>
+              <select id="lesson-attend">
+                <option value="準時">準時</option>
+                <option value="遲到">遲到</option>
+                <option value="請假">請假</option>
+                <option value="缺席">缺席</option>
+              </select>
+            </div>
+            <div id="lesson-ban-fields" class="lesson-form-row">
+              <label class="lesson-check"><input type="checkbox" id="lesson-notes" />有寫筆記</label>
+              <label class="lesson-check"><input type="checkbox" id="lesson-asked" />課堂有提問</label>
+            </div>
+            <div id="lesson-hu-fields" class="lesson-form-row hidden">
+              <input type="text" id="lesson-interaction" placeholder="與班員互動狀況" />
+              <input type="text" id="lesson-duties" placeholder="學習項目，例：準備點心、課後整理" />
+            </div>
+            <textarea id="lesson-comment" rows="2" placeholder="其他備註（選填）"></textarea>
+            <button type="button" id="lesson-add-btn" class="btn-primary btn-small">新增紀錄</button>
+          </div>
+
+          <div id="lesson-list" class="lesson-list"></div>
+        </div>
+      </div>
 
       <!-- 新增/編輯 對話框 -->
       <div id="entry-modal" class="modal hidden">
@@ -216,7 +369,7 @@
                 <option value="至善班畢">至善班畢</option>
                 <option value="行德班畢">行德班畢</option>
                 <option value="崇德班畢">崇德班畢</option>
-                <option value="人才培訓班畢">人才培訓班畢</option>
+                <option value="人才儲訓班畢">人才儲訓班畢</option>
                 <option value="講培班畢">講培班畢</option>
                 <option value="講師">講師</option>
                 <option value="未確定">未確定</option>

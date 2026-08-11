@@ -31,13 +31,24 @@ service cloud.firestore {
     function isTeacher() {
       return hasMember() && myRank() >= 3;
     }
-    // 成全組長以上：可以管理使用者（增減帳號、設定身分）
+    // 成全組長或班務組長以上：可以管理使用者（增減帳號、設定身分）
     function canManageMembers() {
-      return hasMember() && myRank() >= 2;
+      return hasMember() && (myRank() >= 2 || myClassRank() >= 2);
     }
     // 能把別人設到哪一階：組長只能設到自己這階以下，講師以上可以指派到點傳師（4）
     function maxAssignableRank() {
       return myRank() >= 3 ? 4 : myRank();
+    }
+    // 班務身分（classRank）：跟道務分開存，所以「成全組長」不等於「班務組長」；
+    // 但點傳師與忠義字班講師（3、4）兩邊共通，直接沿用道務身分。
+    function myClassRank() {
+      return myRank() >= 3
+        ? myRank()
+        : get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email))
+            .data.get('classRank', 1);
+    }
+    function maxAssignableClassRank() {
+      return myClassRank() >= 3 ? 4 : myClassRank();
     }
 
     // 帳號歸屬：本人讀得到自己那一份；組長／講師讀得到（也管得到）同單位的每一份
@@ -47,15 +58,18 @@ service cloud.firestore {
                       (canManageMembers() && resource.data.unitId == myUnit()));
       // 組長只能設到自己這一階以下；忠義字班講師以上可以一路指派到點傳師（4）
       allow create: if canManageMembers() && request.resource.data.unitId == myUnit()
-                    && request.resource.data.get('roleRank', 1) <= maxAssignableRank();
+                    && request.resource.data.get('roleRank', 1) <= maxAssignableRank()
+                    && request.resource.data.get('classRank', 1) <= maxAssignableClassRank();
       // 也不能改自己的身分（免得自我升等）。
       // 組長以上也是從這裡幫別人指定「他是名單上的誰」（entryId），
       // 因為對方可能還沒登入過、還沒有 uid 可以寫 memberLinks。
       allow update: if canManageMembers() && resource.data.unitId == myUnit()
                     && request.resource.data.unitId == myUnit()
                     && request.resource.data.get('roleRank', 1) <= maxAssignableRank()
+                    && request.resource.data.get('classRank', 1) <= maxAssignableClassRank()
                     && (request.auth.token.email != email
-                        || request.resource.data.get('roleRank', 1) == resource.data.get('roleRank', 1));
+                        || (request.resource.data.get('roleRank', 1) == resource.data.get('roleRank', 1)
+                            && request.resource.data.get('classRank', 1) == resource.data.get('classRank', 1)));
       // 不能把自己刪掉，免得整個單位沒人管得動
       allow delete: if canManageMembers() && resource.data.unitId == myUnit()
                     && request.auth.token.email != email;
@@ -92,6 +106,16 @@ service cloud.firestore {
 
       // 活動
       match /events/{eventId} {
+        allow read, write: if inUnit(unitId);
+      }
+
+      // ===== 班務系統 =====
+      // 跟道務分開的兩個集合：班務名單（班員／護班人員，含上課紀錄）與課程。
+      // 班務沒有道務那種身分階梯——同單位的人共同維護班務資料。
+      match /classEntries/{entryId} {
+        allow read, write: if inUnit(unitId);
+      }
+      match /courses/{courseId} {
         allow read, write: if inUnit(unitId);
       }
 
