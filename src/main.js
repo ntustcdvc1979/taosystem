@@ -1512,6 +1512,24 @@ function heat(entry, asOf = null) {
   };
 }
 
+// 熱度比上一個衰減週期（7 天前）是升是降：
+// 剛聯絡過的人會從衰減中回升（▲），一直沒聯絡的則往下掉（▼）。
+function heatTrend(entry, now = null) {
+  const current = now || heat(entry);
+  const before = heat(entry, new Date(Date.now() - HEAT_DECAY_DAYS * 86400000));
+  const diff = current.level - before.level;
+  if (diff === 0) return null;
+  const from = HEAT_LABELS[before.level];
+  const to = HEAT_LABELS[current.level];
+  return diff > 0
+    ? { dir: "up", mark: "▲", tip: `較一週前上升：${from} → ${to}` }
+    : {
+        dir: "down",
+        mark: "▼",
+        tip: `較一週前下降：${from} → ${to}${current.days !== null ? `（已 ${current.days} 天沒聯絡）` : ""}`,
+      };
+}
+
 // ---------- 期間版指標（趨勢分析用） ----------
 // 卡片上的指標看的是「現在」（近兩週互動、近一個月參與）；趨勢分析看的是「那一段期間之內」：
 // 週＝那一週內、月＝那一個月內、年＝那一年內。所以另外做一組吃 {start, end} 的算法。
@@ -1785,9 +1803,10 @@ function renderHeatModal() {
       `<button type="button" class="metric heat-${l} heat-option${l === h.base ? " selected" : ""}" data-level="${l}">${label}</button>`
   ).join("");
 
+  // 評語只在這裡顯示（卡片那行讓給做法），所以沒有評語時也要講一聲
   heatModalReason.textContent = h.reason
     ? `評語（${h.source === "manual" ? "手動" : "AI"}）：${h.reason}`
-    : "";
+    : "還沒有評語。用下面的「AI 重新評估這一位」產生，或手動點選級別。";
 }
 
 heatOptions.addEventListener("click", async (e) => {
@@ -1909,19 +1928,20 @@ function renderHeatList(entries) {
       const lastTouch =
         h.days === null ? "尚無紀錄" : h.days === 0 ? "今天" : `${h.days} 天前`;
       const partClass = p.level === null ? "part-na" : `part-${p.level}`;
-      // 衰減不再佔掉整行字——改成徽章上的一個「↓」加提示，
-      // 那行留給真正有內容的評語（AI 或手動寫的），久沒聯絡則用日期本身標紅提醒。
-      const decayTip = h.decayed
-        ? `評估為 ${HEAT_LABELS[h.base]}，已 ${h.days} 天沒聯絡，顯示降為 ${h.label}`
-        : "";
-      const note = h.reason || (h.assessed ? "" : "尚未評估熱度");
+      // 熱度的升降用圓圈旁的三角形表示；評語留在「熱度」視窗裡，
+      // 卡片這行改放做法——那才是每天要照著做的東西。
+      const trend = heatTrend(entry, h);
+      const note = entry.method || "";
       const staleClass = h.days !== null && h.days >= HEAT_DECAY_DAYS ? " is-stale" : "";
       return `
         <div class="heat-card" data-id="${entry.id}">
           <div class="heat-card-main">
-            <span class="metric heat-${h.level} heat-badge"${decayTip ? ` title="${escapeHtml(decayTip)}"` : ""}>${h.label}${
-              h.decayed ? `<span class="heat-decay">↓</span>` : ""
-            }</span>
+            <span class="metric heat-${h.level} heat-badge">${h.label}</span>
+            ${
+              trend
+                ? `<span class="heat-trend is-${trend.dir}" title="${escapeHtml(trend.tip)}">${trend.mark}</span>`
+                : ""
+            }
             <div class="heat-card-info">
               <div class="heat-card-name">
                 ${escapeHtml(entry.name)}

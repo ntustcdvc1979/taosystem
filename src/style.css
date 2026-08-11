@@ -428,12 +428,22 @@ button {
   line-height: 1;
 }
 
-/* 熱度因為久沒聯絡而降級：徽章右下角一個小箭頭，細節放在 title 提示裡 */
-.heat-decay {
-  margin-left: 0.05rem;
+/* 熱度比一週前的升降：圓圈旁一個三角形，細節放在 title 提示裡 */
+.heat-trend {
+  flex-shrink: 0;
+  margin-left: -0.35rem;
+  align-self: flex-start;
   font-size: 0.7rem;
-  font-weight: 400;
-  opacity: 0.75;
+  line-height: 1;
+  cursor: help;
+}
+
+.heat-trend.is-up {
+  color: #dc2626;
+}
+
+.heat-trend.is-down {
+  color: #4a7fa5;
 }
 
 /* 超過一週沒聯絡就把「幾天前」標紅，一眼看出該關心了 */
