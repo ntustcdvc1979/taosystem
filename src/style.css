@@ -428,6 +428,20 @@ button {
   line-height: 1;
 }
 
+/* 熱度因為久沒聯絡而降級：徽章右下角一個小箭頭，細節放在 title 提示裡 */
+.heat-decay {
+  margin-left: 0.05rem;
+  font-size: 0.7rem;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+/* 超過一週沒聯絡就把「幾天前」標紅，一眼看出該關心了 */
+.last-touch.is-stale {
+  color: #c0392b;
+  font-weight: 600;
+}
+
 .heat-card-info {
   min-width: 0;
   flex: 1;
@@ -1569,6 +1583,7 @@ button {
 .cal-event.type-求道 { background: #eafaf0; color: #1e8a4c; }
 .cal-event.type-成全 { background: #fff4e5; color: #b45309; }
 .cal-event.type-幹訓 { background: #f3ecfb; color: #7c3aed; }
+.cal-event.type-會議 { background: #eef1f5; color: #566372; }
 .cal-event.type-獻供 { background: #fef9c3; color: #a16207; }
 
 .event-form {

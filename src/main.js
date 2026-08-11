@@ -1909,13 +1909,19 @@ function renderHeatList(entries) {
       const lastTouch =
         h.days === null ? "尚無紀錄" : h.days === 0 ? "今天" : `${h.days} 天前`;
       const partClass = p.level === null ? "part-na" : `part-${p.level}`;
-      const note = h.decayed
-        ? `已 ${h.days} 天沒聯絡，熱度自 ${HEAT_LABELS[h.base]} 降為 ${h.label}`
-        : h.reason || (h.assessed ? "" : "尚未評估熱度");
+      // 衰減不再佔掉整行字——改成徽章上的一個「↓」加提示，
+      // 那行留給真正有內容的評語（AI 或手動寫的），久沒聯絡則用日期本身標紅提醒。
+      const decayTip = h.decayed
+        ? `評估為 ${HEAT_LABELS[h.base]}，已 ${h.days} 天沒聯絡，顯示降為 ${h.label}`
+        : "";
+      const note = h.reason || (h.assessed ? "" : "尚未評估熱度");
+      const staleClass = h.days !== null && h.days >= HEAT_DECAY_DAYS ? " is-stale" : "";
       return `
         <div class="heat-card" data-id="${entry.id}">
           <div class="heat-card-main">
-            <span class="metric heat-${h.level} heat-badge">${h.label}</span>
+            <span class="metric heat-${h.level} heat-badge"${decayTip ? ` title="${escapeHtml(decayTip)}"` : ""}>${h.label}${
+              h.decayed ? `<span class="heat-decay">↓</span>` : ""
+            }</span>
             <div class="heat-card-info">
               <div class="heat-card-name">
                 ${escapeHtml(entry.name)}
@@ -1930,7 +1936,7 @@ function renderHeatList(entries) {
                 ${entry.status ? `<span>${escapeHtml(entry.status)}</span>` : ""}
                 <span class="metric ${partClass}" title="${escapeHtml(p.text)}">參與 ${p.label}</span>
                 <span class="metric act-${x.level}" title="${escapeHtml(x.text)}">互動 ${x.label}</span>
-                <span>${lastTouch}</span>
+                <span class="last-touch${staleClass}" title="最近一次活動或聯絡紀錄">${lastTouch}</span>
               </div>
             </div>
           </div>
@@ -3232,7 +3238,7 @@ async function deleteEntryWithConfirm(entry) {
 }
 
 // ---------- 活動管理（月曆檢視） ----------
-const EVENT_TYPES = ["廣結善緣", "獻供", "求道", "成全", "法會", "幹訓"];
+const EVENT_TYPES = ["廣結善緣", "獻供", "求道", "成全", "法會", "幹訓", "會議"];
 
 // 單日活動只出現一個日期選擇；勾了「多日活動」才顯示結束日期
 function applyMultidayToggle() {
@@ -3695,11 +3701,13 @@ calendarEl.addEventListener("click", (e) => {
     if (ev) startEditEvent(ev);
     return;
   }
+  // 點空白日期格：正在編輯某個活動的話先退回新增模式，
+  // 不然會以為自己在開新活動，其實是在改舊的那一筆。
   const cell = e.target.closest(".cal-cell[data-day]");
-  if (cell && !editingEventId) {
-    newEventDate.value = cell.dataset.day;
-    newEventName.focus();
-  }
+  if (!cell) return;
+  if (editingEventId) resetEventForm();
+  newEventDate.value = cell.dataset.day;
+  newEventName.focus();
 });
 
 function validEventInput() {
