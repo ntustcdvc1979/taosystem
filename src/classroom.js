@@ -77,6 +77,7 @@ export function startClassroom(context) {
       renderClassList();
       if (lessonEntryId) refreshLessonModal();
       reconcileProfiles();
+      ctx.onLessonsChanged?.();
     },
     (err) => {
       if (err.code !== "permission-denied") console.error(err);
@@ -86,9 +87,10 @@ export function startClassroom(context) {
   unsubCourses = onSnapshot(
     col(COURSES),
     (snap) => {
+      // 依日期由舊到新：課程是照著上下去的，順著看才對得上進度
       courses = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+        .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
       renderCourseList();
       renderCourseOptions();
       renderClassList();
@@ -218,7 +220,6 @@ function renderClassList() {
         </div>
         <div class="class-card-meta">
           ${en.department ? `<span>${esc(en.department)}</span>` : ""}
-          ${en.linkedName ? `<span class="linked-badge" title="已關聯道務名單">道務：${esc(en.linkedName)}</span>` : ""}
           <span>${lessons} 筆上課紀錄</span>
         </div>
         <div class="class-card-note">${esc(lastLessonText(en))}</div>
@@ -235,7 +236,7 @@ function renderClassList() {
 // ---------- 新增／編輯名單 ----------
 function openClassModal(entry = null) {
   editingClassId = entry?.id || null;
-  $("class-modal-title").textContent = entry ? "編輯班務名單" : "新增班務名單";
+  $("class-modal-title").textContent = entry ? "編輯名單" : "新增名單";
   $("class-field-name").value = entry?.name || "";
   $("class-field-gender").value = entry?.gender || "";
   $("class-field-department").value = entry?.department || "";
@@ -537,12 +538,28 @@ function coursesFor(entry) {
   return courses.filter((c) => groups.has(c.classGroup));
 }
 
+// 已經記過的課不用再記一次（舊紀錄沒有 courseId，就比對課名＋日期）
+function isLessonLogged(lessons, course) {
+  return lessons.some((l) =>
+    l.courseId
+      ? l.courseId === course.id
+      : (l.course || "") === (course.name || "") && (l.date || "") === (course.date || "")
+  );
+}
+
+function coursesToLog(entry) {
+  // 紀錄視窗開著的那一位用畫面上這份，剛存的那一筆才會馬上從清單消失
+  const lessons = entry.id === lessonEntryId ? lessonRows : entry.lessons || [];
+  return coursesFor(entry).filter((c) => !isLessonLogged(lessons, c));
+}
+
 function renderCourseOptions() {
   const sel = $("lesson-course");
   if (!sel) return;
   const entry = classEntries.find((e) => e.id === lessonEntryId);
-  const mine = entry ? coursesFor(entry) : [];
+  const mine = entry ? coursesToLog(entry) : [];
   const keep = sel.value;
+  const hasAny = entry ? coursesFor(entry).length > 0 : false;
   sel.innerHTML = mine.length
     ? `<option value="">請選擇課程</option>` +
       mine
@@ -551,7 +568,7 @@ function renderCourseOptions() {
             `<option value="${esc(c.id)}">${esc(c.date || "未定日期")}・${esc(courseLabel(c))}</option>`
         )
         .join("")
-    : `<option value="">（他的班別還沒有登錄課程）</option>`;
+    : `<option value="">${hasAny ? "（他那幾班的課都記過了）" : "（他的班別還沒有登錄課程）"}</option>`;
   if (keep && mine.some((c) => c.id === keep)) sel.value = keep;
 }
 
@@ -793,6 +810,7 @@ function refreshLessonModal() {
   const entry = classEntries.find((e) => e.id === lessonEntryId);
   if (!entry) return;
   lessonRows = [...(entry.lessons || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  renderCourseOptions(); // 剛記完的那堂課要從清單消失
   renderLessonRows();
 }
 
@@ -812,9 +830,11 @@ async function addLesson() {
   const course = selectedCourse();
   if (!course) {
     alert(
-      coursesFor(entry).length
+      coursesToLog(entry).length
         ? "請先選一堂課，日期會跟著課程帶入。"
-        : "他的班別還沒有登錄課程，請先到「課程管理」新增。"
+        : coursesFor(entry).length
+          ? "他那幾班的課都已經記過了，要改就改下面既有的那幾筆。"
+          : "他的班別還沒有登錄課程，請先到「課程管理」新增。"
     );
     $("lesson-course").focus();
     return;
@@ -846,6 +866,9 @@ async function addLesson() {
     $("lesson-duties").value = "";
     $("lesson-notes").checked = false;
     $("lesson-asked").checked = false;
+    $("lesson-course").value = "";
+    renderCourseOptions(); // 記過的課從清單拿掉
+    applyLessonRole();
     renderLessonRows();
   } catch (err) {
     alert("儲存失敗：" + err.message);
@@ -1006,6 +1029,19 @@ export function initClassroom(context) {
 // 給道務那邊查「這個人在班務系統的班別」用
 export function classInfoFor(daoEntryId) {
   return classEntries.find((c) => c.linkedEntryId === daoEntryId) || null;
+}
+
+// 有來上課也是一次見面：道務那邊算「距離上次互動多久」時要一起看。
+// 只認真的到場的（準時／遲到）——請假、缺席那天並沒有見到人。
+const ATTENDED = new Set(["準時", "遲到"]);
+
+export function classTouchDates(daoEntryId) {
+  if (!daoEntryId) return [];
+  return classEntries
+    .filter((c) => c.linkedEntryId === daoEntryId)
+    .flatMap((c) => c.lessons || [])
+    .filter((l) => l.date && ATTENDED.has(l.attend))
+    .map((l) => l.date);
 }
 
 

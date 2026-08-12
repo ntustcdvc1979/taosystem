@@ -391,6 +391,13 @@ button {
   color: #5a6472;
 }
 
+/* 欄位名稱與必填的 * 要在同一行：label 本身是直排的，
+   文字沒有包起來的話 * 會被當成另一個項目掉到下一行 */
+.course-field-label {
+  display: block;
+  white-space: nowrap;
+}
+
 .course-form-grid input,
 .course-form-grid select {
   width: 100%;
@@ -2414,17 +2421,6 @@ button {
   font-size: 0.8rem;
 }
 
-/* 手機上沒有拖放，狀態下拉才是改狀態的主要方式 */
-.invite-chip-status {
-  width: 100%;
-  margin: 0.3rem 0 0;
-  padding: 0.15rem 0.2rem;
-  border: 1px solid #e3e6ea;
-  border-radius: 5px;
-  background: #f8f9fb;
-  color: #5a6472;
-  font-size: 0.72rem;
-}
 
 .invite-chip.dragging {
   opacity: 0.5;

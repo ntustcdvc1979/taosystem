@@ -7,6 +7,7 @@ import {
   stopClassroom,
   syncProfileFromDao,
   refreshDaoNames,
+  classTouchDates,
 } from "./classroom.js";
 import { auth, db } from "./firebase.js";
 import {
@@ -479,6 +480,10 @@ onAuthStateChanged(auth, async (user) => {
 const classroomContext = {
   unitId: () => myUnitId,
   daoNames: () => rosterNames,
+  // 上課紀錄會影響道務卡片上的「距離上次互動」，班務那邊一有異動就重畫
+  onLessonsChanged: () => {
+    if (myRank >= 1) renderEntries();
+  },
 };
 initClassroom(classroomContext);
 
@@ -1854,11 +1859,18 @@ function interaction(entry, asOf = null) {
 const HEAT_LABELS = ["冷", "涼", "溫", "熱"];
 const HEAT_DECAY_DAYS = 7;
 
-// 最近一次互動（活動紀錄或聯絡紀錄）距今幾天
+// 最近一次互動（活動紀錄、聯絡紀錄，以及班務那邊有到的上課紀錄）距今幾天。
+// 前天在新民班見過面，道務這裡就該顯示 2 天前，不然會誤以為很久沒關心他。
+// 註：讀得到班務名單才算得進來（沒有班務權限的帳號看不到 classEntries）。
+function touchDates(entry) {
+  return [
+    ...[...(entry.activities || []), ...(entry.talks || [])].map((r) => r.date),
+    ...(myClassRank >= 1 ? classTouchDates(entry.id) : []),
+  ].filter(Boolean);
+}
+
 function lastTouchDays(entry, asOf = null) {
-  const dates = [...(entry.activities || []), ...(entry.talks || [])]
-    .map((r) => r.date)
-    .filter(Boolean)
+  const dates = touchDates(entry)
     .filter((d) => {
       const n = daysSince(d, asOf);
       return n !== null && n >= 0; // 回推時不看那一天之後才發生的紀錄
@@ -1873,10 +1885,7 @@ function heat(entry, asOf = null) {
   let base = typeof h.level === "number" ? h.level : 0;
   const days = lastTouchDays(entry, asOf);
   // 回推過去某一天時，若那時候還沒有任何紀錄，就不能套用之後才評出來的熱度
-  if (asOf && days === null) {
-    const hasAnyRecord = [...(entry.activities || []), ...(entry.talks || [])].some((r) => r.date);
-    if (hasAnyRecord) base = 0;
-  }
+  if (asOf && days === null && touchDates(entry).length > 0) base = 0;
   const weeks = days === null ? 0 : Math.floor(days / HEAT_DECAY_DAYS);
   const level = Math.max(0, base - weeks);
   return {
@@ -2336,7 +2345,7 @@ function renderHeatList(entries) {
                 ${entry.status ? `<span>${escapeHtml(entry.status)}</span>` : ""}
                 <span class="metric ${partClass}" title="${escapeHtml(p.text)}">參與 ${p.label}</span>
                 <span class="metric act-${x.level}" title="${escapeHtml(x.text)}">互動 ${x.label}</span>
-                <span class="last-touch${staleClass}" title="最近一次活動或聯絡紀錄">${lastTouch}</span>
+                <span class="last-touch${staleClass}" title="最近一次活動紀錄、聯絡紀錄，或班務系統上有到的上課紀錄">${lastTouch}</span>
               </div>
             </div>
           </div>
@@ -3791,8 +3800,8 @@ function renderInviteList() {
   ).join("／");
   inviteSummary.textContent = editingEventInvites.length ? `（${counts}）` : "";
 
-  // 一個狀態一框。電腦上可以把人拖到別框，手機／平板則用每張卡上的狀態下拉——
-  // iOS 上的瀏覽器（Safari、Firefox…）沒有 HTML5 拖放，只靠拖曳等於改不了狀態。
+  // 一個狀態一框。電腦上可以把人拖到別框；點名字會打開下方的備註區，
+  // 狀態下拉在那裡——iOS 的瀏覽器沒有 HTML5 拖放，那才是手機上改狀態的路。
   inviteBoard.innerHTML = INVITE_STATUSES.map((status) => {
     const members = editingEventInvites.filter((i) => i.status === status);
     const chips = members
@@ -3806,12 +3815,6 @@ function renderInviteList() {
               <button type="button" class="invite-remove" title="移除">×</button>
             </div>
             ${note ? `<div class="invite-chip-note" title="${escapeHtml(note)}">${escapeHtml(note)}</div>` : ""}
-            <select class="invite-chip-status" aria-label="改變狀態" title="改變狀態">
-              ${INVITE_STATUSES.map(
-                (s) =>
-                  `<option value="${escapeHtml(s)}" ${s === status ? "selected" : ""}>${escapeHtml(s)}</option>`
-              ).join("")}
-            </select>
           </div>`;
       })
       .join("");
@@ -3819,7 +3822,7 @@ function renderInviteList() {
       <div class="invite-col" data-status="${status}">
         <div class="invite-col-head">${status}<span class="invite-col-count">${members.length}</span></div>
         <div class="invite-col-body">${
-          chips || '<div class="invite-col-empty">用卡片上的下拉選單移到這裡（電腦也可以直接拖曳）</div>'
+          chips || '<div class="invite-col-empty">拖曳卡片至此</div>'
         }</div>
       </div>`;
   }).join("");
@@ -3960,14 +3963,6 @@ inviteBoard.addEventListener("click", async (e) => {
   if (e.target.closest(".invite-chip-name")) openInviteNoteEditor(chip.dataset.entryId);
 });
 
-// 卡片上的狀態下拉：手機上沒有拖放，這才是主要的改法
-inviteBoard.addEventListener("change", async (e) => {
-  const sel = e.target.closest(".invite-chip-status");
-  if (!sel) return;
-  const entryId = sel.closest(".invite-chip")?.dataset.entryId;
-  await setInviteStatus(entryId, sel.value);
-});
-
 async function setInviteStatus(entryId, status) {
   const inv = editingEventInvites.find((i) => i.entryId === entryId);
   if (!inv || inv.status === status) {
@@ -4045,15 +4040,9 @@ inviteBoard.addEventListener("drop", async (e) => {
   const col = e.target.closest(".invite-col");
   if (!col || !dragInviteEntryId) return;
   e.preventDefault();
-  const inv = editingEventInvites.find((i) => i.entryId === dragInviteEntryId);
+  const entryId = dragInviteEntryId;
   dragInviteEntryId = null;
-  if (!inv || inv.status === col.dataset.status) {
-    renderInviteList();
-    return;
-  }
-  inv.status = col.dataset.status;
-  renderInviteList();
-  await persistInvites();
+  await setInviteStatus(entryId, col.dataset.status);
 });
 
 // ---------- AI 建議邀約：挑出適合這個活動的對象，加進「預定邀約」 ----------

@@ -177,7 +177,7 @@
             </select>
             <span id="class-count" class="toolbar-count"></span>
             <button id="course-manage-btn" class="btn-secondary">課程管理</button>
-            <button id="class-add-btn" class="btn-primary">＋ 新增班務名單</button>
+            <button id="class-add-btn" class="btn-primary">＋ 新增名單</button>
           </div>
 
           <div id="class-list" class="cards-wrap">
@@ -190,7 +190,7 @@
       <div id="class-modal" class="modal hidden">
         <div class="modal-content">
           <button type="button" id="class-close-x" class="modal-close" aria-label="取消">×</button>
-          <h2 id="class-modal-title">新增班務名單</h2>
+          <h2 id="class-modal-title">新增名單</h2>
           <form id="class-form" autocomplete="off">
             <label class="class-name-field">
               姓名 <span class="required">*</span>
@@ -246,12 +246,12 @@
           <div class="course-form">
             <div class="course-form-grid">
               <label>
-                佛堂 <span class="required">*</span>
+                <span class="course-field-label">佛堂 <span class="required">*</span></span>
                 <input type="text" id="course-venue" placeholder="例：崇慧佛院" autocomplete="off" />
                 <span id="course-venue-recent" class="course-venue-recent"></span>
               </label>
               <label>
-                班別
+                <span class="course-field-label">班別</span>
                 <select id="course-group">
                   <option value="新民">新民</option>
                   <option value="至善">至善</option>
@@ -263,11 +263,11 @@
                 </select>
               </label>
               <label>
-                日期 <span class="required">*</span>
+                <span class="course-field-label">日期 <span class="required">*</span></span>
                 <input type="date" id="course-date" />
               </label>
               <label>
-                課程名稱 <span class="required">*</span>
+                <span class="course-field-label">課程名稱 <span class="required">*</span></span>
                 <input type="text" id="course-name" placeholder="例：新民班第三堂" autocomplete="off" />
               </label>
             </div>
@@ -538,8 +538,7 @@
           <button type="button" id="members-close-btn" class="modal-close" aria-label="關閉">×</button>
           <h2>使用者管理 - <span id="members-unit-name"></span></h2>
           <p class="hint-text">
-            這裡管理可以登入本單位的 Google 帳號與他們的身分。道務與班務<strong>各自授權</strong>：
-            設成「未授權」的那一邊他就進不去。身分只能設到自己這一階以下，也不能改自己的。
+            管理可以登入本單位的 Google 帳號與他們的身分。
           </p>
 
           <div class="member-add-card">
@@ -599,7 +598,7 @@
         <div class="modal-content events-modal-content">
           <button type="button" id="events-close-x" class="modal-close" aria-label="關閉">×</button>
           <h2>活動管理</h2>
-          <p class="hint-text">活動類型：廣結善緣／獻供／求道／成全／法會／幹訓／會議，AI 產生建議時會參照。點日期格可帶入該天新增活動，點活動可編輯。結束日期留空表示單日活動。</p>
+          <p class="hint-text">點日期格可帶入該天新增活動，點活動可編輯。</p>
 
           <div class="cal-header">
             <button type="button" id="cal-prev" class="btn-secondary btn-small">‹</button>
