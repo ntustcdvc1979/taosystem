@@ -19,13 +19,32 @@ service cloud.firestore {
     function inUnit(unitId) {
       return hasMember() && myUnit() == unitId;
     }
-    // 身分階梯：點傳師 4 ＞ 忠義字班講師 3 ＞ 成全組長 2 ＞ 組員 1 ＞ 非組員 0。
-    // 帳號的身分寫在 memberEmails/{gmail}.roleRank（沒寫就當組員），由講師或道務組組長設定；
+    // 身分階梯：點傳師 4 ＞ 忠義字班講師 3 ＞ 成全組長 2 ＞ 組員 1。
+    // **沒寫 roleRank ＝ 沒有道務系統的權限（0）**，班務也是同一套（classRank）；
+    // 兩個系統各自授權，成全組長不會自動變成班務組長，反之亦然。
     // 名單每一筆也有 roleRank，一個人只看得到「比自己目前檢視身分更低階」的名單，
     // 所以同階之間互相看不到。
-    function myRank() {
+    function rawRank() {
       return get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email))
-               .data.get('roleRank', 1);
+               .data.get('roleRank', 0);
+    }
+    function rawClassRank() {
+      return get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email))
+               .data.get('classRank', 0);
+    }
+    // 點傳師與忠義字班講師（3、4）兩邊共通，所以任一邊有就兩邊都算
+    function myRank() {
+      return rawClassRank() >= 3 && rawClassRank() > rawRank() ? rawClassRank() : rawRank();
+    }
+    function myClassRank() {
+      return rawRank() >= 3 && rawRank() > rawClassRank() ? rawRank() : rawClassRank();
+    }
+    // 有沒有進得了那個系統
+    function canDao() {
+      return hasMember() && myRank() >= 1;
+    }
+    function canClass() {
+      return hasMember() && myClassRank() >= 1;
     }
     // 忠義字班講師以上（含點傳師）：可以設定名單每一筆的身分
     function isTeacher() {
@@ -38,14 +57,6 @@ service cloud.firestore {
     // 能把別人設到哪一階：組長只能設到自己這階以下，講師以上可以指派到點傳師（4）
     function maxAssignableRank() {
       return myRank() >= 3 ? 4 : myRank();
-    }
-    // 班務身分（classRank）：跟道務分開存，所以「成全組長」不等於「班務組長」；
-    // 但點傳師與忠義字班講師（3、4）兩邊共通，直接沿用道務身分。
-    function myClassRank() {
-      return myRank() >= 3
-        ? myRank()
-        : get(/databases/$(database)/documents/memberEmails/$(request.auth.token.email))
-            .data.get('classRank', 1);
     }
     function maxAssignableClassRank() {
       return myClassRank() >= 3 ? 4 : myClassRank();
@@ -81,47 +92,49 @@ service cloud.firestore {
       allow read: if inUnit(unitId);
       allow write: if false;
 
-      // 團隊名單：同單位共管，但只看得到比自己低階的人（roleRank 沒寫就當 0＝非組員）
+      // 團隊名單：要有道務權限，而且只看得到比自己低階的人（roleRank 沒寫就當 0＝非組員）
       match /entries/{entryId} {
-        allow read: if inUnit(unitId) && resource.data.get('roleRank', 0) < myRank();
+        allow read: if inUnit(unitId) && canDao() && resource.data.get('roleRank', 0) < myRank();
         // 一般成員只能建立／維護非組員；要把某一筆標成組員以上，得是講師
-        allow create: if inUnit(unitId)
+        allow create: if inUnit(unitId) && canDao()
                       && (request.resource.data.get('roleRank', 0) == 0 || isTeacher());
-        allow update: if inUnit(unitId)
+        allow update: if inUnit(unitId) && canDao()
                       && resource.data.get('roleRank', 0) < myRank()
                       && (request.resource.data.get('roleRank', 0)
                             == resource.data.get('roleRank', 0)
                           || isTeacher());
-        allow delete: if inUnit(unitId) && resource.data.get('roleRank', 0) < myRank();
+        allow delete: if inUnit(unitId) && canDao() && resource.data.get('roleRank', 0) < myRank();
       }
 
-      // 個人名單：同單位、且只有建立者本人存取得到
+      // 個人名單：同單位、有道務權限、且只有建立者本人存取得到
       match /personalEntries/{entryId} {
-        allow read, delete: if inUnit(unitId) && resource.data.ownerUid == request.auth.uid;
-        allow create: if inUnit(unitId) && request.resource.data.ownerUid == request.auth.uid;
-        allow update: if inUnit(unitId)
+        allow read, delete: if inUnit(unitId) && canDao() && resource.data.ownerUid == request.auth.uid;
+        allow create: if inUnit(unitId) && canDao()
+                      && request.resource.data.ownerUid == request.auth.uid;
+        allow update: if inUnit(unitId) && canDao()
                       && resource.data.ownerUid == request.auth.uid
                       && request.resource.data.ownerUid == request.auth.uid;
       }
 
-      // 活動
+      // 活動（道務）
       match /events/{eventId} {
-        allow read, write: if inUnit(unitId);
+        allow read, write: if inUnit(unitId) && canDao();
       }
 
       // ===== 班務系統 =====
       // 跟道務分開的兩個集合：班務名單（班員／護班人員，含上課紀錄）與課程。
-      // 班務沒有道務那種身分階梯——同單位的人共同維護班務資料。
+      // 要有班務權限（classRank ≥ 1）才進得來；班務內部沒有再分階梯，
+      // 有權限的人共同維護。
       match /classEntries/{entryId} {
-        allow read, write: if inUnit(unitId);
+        allow read, write: if inUnit(unitId) && canClass();
       }
       match /courses/{courseId} {
-        allow read, write: if inUnit(unitId);
+        allow read, write: if inUnit(unitId) && canClass();
       }
 
       // AI 成全助手的對話紀錄：只有本人讀寫得到
       match /chatHistories/{userId} {
-        allow read, write: if inUnit(unitId) && request.auth.uid == userId;
+        allow read, write: if inUnit(unitId) && canDao() && request.auth.uid == userId;
       }
 
       // 帳號綁定到名單中的哪一位：同單位可讀（才知道誰是誰），但只能設定自己的
@@ -130,8 +143,9 @@ service cloud.firestore {
         allow write: if inUnit(unitId) && request.auth.uid == userId;
       }
 
-      // 綁定用的姓名索引：只有姓名、系級、身分，同單位都讀得到，
+      // 綁定用的姓名索引：只有姓名、系級、性別、身分，同單位都讀得到，
       // 身分階梯不擋這裡——不然看不到高階名單的人就永遠綁不到自己那一筆。
+      // 班務系統也讀它（打姓名時對應到道務的同一位），所以不限道務權限。
       match /rosterIndex/{entryId} {
         allow read, write: if inUnit(unitId);
       }

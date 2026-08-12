@@ -41,7 +41,8 @@ body {
 }
 
 #login-form label,
-#entry-form label {
+#entry-form label,
+#class-form label {
   display: block;
   margin-bottom: 1rem;
   font-size: 0.9rem;
@@ -51,7 +52,10 @@ body {
 #login-form input,
 #entry-form input,
 #entry-form textarea,
-#entry-form select {
+#entry-form select,
+#class-form input,
+#class-form textarea,
+#class-form select {
   width: 100%;
   margin-top: 0.35rem;
   padding: 0.55rem 0.7rem;
@@ -286,9 +290,18 @@ button {
   color: #2559c4;
 }
 
+/* 姓名欄要當作下拉的定位基準 */
+.class-name-field {
+  position: relative;
+}
+
 .class-linked {
-  margin-top: 0.3rem;
+  margin: -0.6rem 0 1rem;
   font-size: 0.85rem;
+}
+
+.class-linked:empty {
+  display: none;
 }
 
 /* 課程管理 */

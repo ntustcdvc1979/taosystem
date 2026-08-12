@@ -190,57 +190,56 @@
         <div class="modal-content">
           <button type="button" id="class-close-x" class="modal-close" aria-label="取消">×</button>
           <h2 id="class-modal-title">新增班務名單</h2>
-          <label>
-            姓名 <span class="required">*</span>
-            <input type="text" id="class-field-name" />
-          </label>
-          <label>
-            班別
-            <select id="class-field-group">
-              <option value="新民">新民</option>
-              <option value="至善">至善</option>
-              <option value="行德">行德</option>
-              <option value="崇德">崇德</option>
-              <option value="人才儲訓">人才儲訓</option>
-              <option value="講培">講培</option>
-              <option value="講師">講師</option>
-            </select>
-          </label>
-          <label>
-            身分
-            <select id="class-field-type">
-              <option value="班員">班員</option>
-              <option value="護班人員">護班人員</option>
-            </select>
-            <span class="hint-text">班員記學習狀況（筆記、準時、提問）；護班人員記承擔狀況（準時抵達、與班員互動、學習項目）。</span>
-          </label>
-          <label>
-            性別
-            <select id="class-field-gender">
-              <option value="">請選擇</option>
-              <option value="乾">乾</option>
-              <option value="坤">坤</option>
-            </select>
-          </label>
-          <label>
-            系級
-            <input type="text" id="class-field-department" placeholder="例：資工三" />
-          </label>
-          <label>
-            關聯道務名單
-            <input type="text" id="class-link-search" placeholder="輸入姓名搜尋道務名單" autocomplete="off" />
-            <div id="class-link-results" class="bind-results"></div>
+          <form id="class-form" autocomplete="off">
+            <label class="class-name-field">
+              姓名 <span class="required">*</span>
+              <input type="text" id="class-field-name" required autocomplete="off" />
+              <div id="class-name-suggest" class="invite-suggestions hidden"></div>
+              <span class="hint-text">打名字時會查道務名單，選到同一位就自動帶入性別與系級，並記住兩邊是同一個人。</span>
+            </label>
             <div id="class-linked-current" class="class-linked"></div>
-          </label>
-          <label>
-            備註
-            <textarea id="class-field-note" rows="2"></textarea>
-          </label>
-          <div class="modal-actions">
-            <button type="button" id="class-delete-btn" class="btn-danger modal-delete hidden">刪除這筆</button>
-            <button type="button" id="class-cancel-btn" class="btn-secondary">取消</button>
-            <button type="button" id="class-save-btn" class="btn-primary">儲存</button>
-          </div>
+            <label>
+              班別
+              <select id="class-field-group">
+                <option value="新民">新民</option>
+                <option value="至善">至善</option>
+                <option value="行德">行德</option>
+                <option value="崇德">崇德</option>
+                <option value="人才儲訓">人才儲訓</option>
+                <option value="講培">講培</option>
+                <option value="講師">講師</option>
+              </select>
+            </label>
+            <label>
+              身分
+              <select id="class-field-type">
+                <option value="班員">班員</option>
+                <option value="護班人員">護班人員</option>
+              </select>
+              <span class="hint-text">班員記學習狀況（筆記、準時、提問）；護班人員記承擔狀況（準時抵達、與班員互動、學習項目）。</span>
+            </label>
+            <label>
+              性別
+              <select id="class-field-gender">
+                <option value="">請選擇</option>
+                <option value="乾">乾</option>
+                <option value="坤">坤</option>
+              </select>
+            </label>
+            <label>
+              系級
+              <input type="text" id="class-field-department" placeholder="例：資工三" />
+            </label>
+            <label>
+              備註
+              <textarea id="class-field-note" rows="2"></textarea>
+            </label>
+            <div class="modal-actions">
+              <button type="button" id="class-delete-btn" class="btn-danger modal-delete hidden">刪除這筆</button>
+              <button type="button" id="class-cancel-btn" class="btn-secondary">取消</button>
+              <button type="submit" id="class-save-btn" class="btn-primary">儲存</button>
+            </div>
+          </form>
         </div>
       </div>
 
@@ -526,11 +525,19 @@
 
           <div class="member-add-row">
             <input type="email" id="new-member-email" placeholder="對方的 Gmail" autocomplete="off" />
-            <select id="new-member-role">
-              <option value="1">組員</option>
-              <option value="2">成全組長</option>
-              <option value="3">忠義字班講師</option>
-              <option value="4">點傳師</option>
+            <select id="new-member-role" title="道務身分">
+              <option value="0">道務：未授權</option>
+              <option value="1" selected>道務：組員</option>
+              <option value="2">道務：成全組長</option>
+              <option value="3">道務：忠義字班講師</option>
+              <option value="4">道務：點傳師</option>
+            </select>
+            <select id="new-member-class-role" title="班務身分">
+              <option value="0" selected>班務：未授權</option>
+              <option value="1">班務：班務人員</option>
+              <option value="2">班務：班務組長</option>
+              <option value="3">班務：忠義字班講師</option>
+              <option value="4">班務：點傳師</option>
             </select>
             <button type="button" id="add-member-btn" class="btn-primary btn-small">加入</button>
           </div>

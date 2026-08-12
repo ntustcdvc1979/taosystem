@@ -188,8 +188,7 @@ function openClassModal(entry = null) {
   $("class-field-type").value = entry?.memberType || MEMBER_TYPES[0];
   $("class-field-note").value = entry?.note || "";
   linkedPick = { id: entry?.linkedEntryId || "", name: entry?.linkedName || "" };
-  $("class-link-search").value = "";
-  $("class-link-results").innerHTML = "";
+  hideNameSuggest();
   renderLinkedPick();
   $("class-delete-btn").classList.toggle("hidden", !entry);
   $("class-modal").classList.remove("hidden");
@@ -197,29 +196,52 @@ function openClassModal(entry = null) {
 }
 
 function renderLinkedPick() {
-  const el = $("class-linked-current");
-  el.innerHTML = linkedPick.id
-    ? `已關聯道務名單：<strong>${esc(linkedPick.name)}</strong>
-       <button type="button" class="btn-link-plain" id="class-link-clear">取消關聯</button>`
-    : `<span class="hint-text">尚未關聯道務名單（可留空）</span>`;
+  $("class-linked-current").innerHTML = linkedPick.id
+    ? `<span class="linked-badge">已對應道務名單：<strong>${esc(linkedPick.name)}</strong></span>
+       <button type="button" class="btn-link-plain" id="class-link-clear">取消對應</button>`
+    : "";
 }
 
-function renderLinkResults() {
-  const q = $("class-link-search").value.trim().toLowerCase();
+// 打姓名時直接查道務名單：選到同一位就帶入性別、系級，並記住兩邊是同一個人
+function renderNameSuggest() {
+  const box = $("class-name-suggest");
+  if (document.activeElement !== $("class-field-name")) return hideNameSuggest();
+  const q = $("class-field-name").value.trim().toLowerCase();
+  if (!q) return hideNameSuggest();
   const matches = ctx
     .daoNames()
-    .filter((p) => !q || (p.name || "").toLowerCase().includes(q))
-    .slice(0, 8);
-  $("class-link-results").innerHTML = matches.length
-    ? matches
-        .map(
-          (p) =>
-            `<button type="button" class="bind-result" data-link-id="${esc(p.id)}" data-link-name="${esc(p.name || "")}">${esc(p.name)}${
-              p.department ? `<span class="suggestion-meta">${esc(p.department)}</span>` : ""
-            }</button>`
-        )
-        .join("")
-    : `<p class="hint-text">${q ? `道務名單裡找不到「${esc($("class-link-search").value.trim())}」` : "輸入姓名搜尋道務名單"}</p>`;
+    .filter((p) => (p.name || "").toLowerCase().includes(q))
+    .filter((p) => p.id !== linkedPick.id)
+    .slice(0, 6);
+  if (matches.length === 0) return hideNameSuggest();
+  box.innerHTML = matches
+    .map(
+      (p) =>
+        `<div class="invite-suggestion" data-link-id="${esc(p.id)}" data-link-name="${esc(p.name || "")}"
+           data-link-dept="${esc(p.department || "")}" data-link-gender="${esc(p.gender || "")}">
+           ${esc(p.name)}<span class="suggestion-meta">道務名單${p.department ? `・${esc(p.department)}` : ""}</span>
+         </div>`
+    )
+    .join("");
+  box.classList.remove("hidden");
+}
+
+function hideNameSuggest() {
+  $("class-name-suggest").classList.add("hidden");
+}
+
+function pickDaoPerson(el) {
+  linkedPick = { id: el.dataset.linkId, name: el.dataset.linkName };
+  $("class-field-name").value = el.dataset.linkName;
+  // 只在還沒填的欄位帶入，不覆蓋使用者自己打的
+  if (el.dataset.linkGender && !$("class-field-gender").value) {
+    $("class-field-gender").value = el.dataset.linkGender;
+  }
+  if (el.dataset.linkDept && !$("class-field-department").value.trim()) {
+    $("class-field-department").value = el.dataset.linkDept;
+  }
+  hideNameSuggest();
+  renderLinkedPick();
 }
 
 async function saveClassEntry() {
@@ -475,7 +497,10 @@ export function initClassroom(context) {
   });
 
   // 新增／編輯名單
-  $("class-save-btn").addEventListener("click", saveClassEntry);
+  $("class-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveClassEntry();
+  });
   $("class-delete-btn").addEventListener("click", deleteClassEntry);
   $("class-cancel-btn").addEventListener("click", () => $("class-modal").classList.add("hidden"));
   $("class-close-x").addEventListener("click", () => $("class-modal").classList.add("hidden"));
@@ -487,17 +512,16 @@ export function initClassroom(context) {
     applyLessonFields($("class-field-type").value);
   });
 
-  // 關聯道務名單
-  $("class-link-search").addEventListener("input", renderLinkResults);
-  $("class-link-search").addEventListener("focus", renderLinkResults);
-  $("class-link-results").addEventListener("mousedown", (e) => {
-    const btn = e.target.closest("[data-link-id]");
-    if (!btn) return;
+  // 姓名打一打就查道務名單
+  $("class-field-name").addEventListener("input", renderNameSuggest);
+  $("class-field-name").addEventListener("focus", renderNameSuggest);
+  $("class-field-name").addEventListener("blur", () => setTimeout(hideNameSuggest, 0));
+  // 用 mousedown：click 之前 input 會先 blur，清單已經收起來就點不到
+  $("class-name-suggest").addEventListener("mousedown", (e) => {
+    const item = e.target.closest("[data-link-id]");
+    if (!item) return;
     e.preventDefault();
-    linkedPick = { id: btn.dataset.linkId, name: btn.dataset.linkName };
-    $("class-link-search").value = "";
-    $("class-link-results").innerHTML = "";
-    renderLinkedPick();
+    pickDaoPerson(item);
   });
   $("class-linked-current").addEventListener("click", (e) => {
     if (!e.target.closest("#class-link-clear")) return;

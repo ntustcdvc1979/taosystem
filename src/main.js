@@ -50,8 +50,8 @@ let myUnitId = null;
 let myUnitName = "";
 let myEntryId = null; // 這支帳號綁定到名單中的哪一位
 let myEntryName = ""; // 那一筆的名字（自己那筆常常因為同階而讀不到，名字改從索引取）
-let myRank = 1; // 道務身分（4 點傳師／3 講師／2 成全組長／1 組員／0 非組員）
-let myClassRank = 1; // 班務身分（4 點傳師／3 講師／2 班務組長／1 班務人員）
+let myRank = 0; // 道務身分（4 點傳師／3 講師／2 成全組長／1 組員／0 沒有道務權限）
+let myClassRank = 0; // 班務身分（4 點傳師／3 講師／2 班務組長／1 班務人員／0 沒有班務權限）
 let viewRank = 1; // 目前用哪個身分在看名單（不會超過 myRank）
 
 // units/{unitId}/{name} 的集合參考
@@ -102,6 +102,7 @@ const membersList = document.getElementById("members-list");
 const membersStatus = document.getElementById("members-status");
 const newMemberEmail = document.getElementById("new-member-email");
 const newMemberRole = document.getElementById("new-member-role");
+const newMemberClassRole = document.getElementById("new-member-class-role");
 const addMemberBtn = document.getElementById("add-member-btn");
 
 // 身分（權限階梯）
@@ -216,7 +217,22 @@ function systemKey() {
 }
 
 function showSystem(system) {
-  currentSystem = system === "class" ? "class" : "dao";
+  const want = system === "class" ? "class" : "dao";
+  // 沒被授權的系統進不去；兩邊都沒授權的帳號在登入時就被擋掉了
+  const allowed = (s) => (s === "class" ? myClassRank : myRank) >= 1;
+  if (!allowed(want)) {
+    alert(
+      want === "class"
+        ? "你沒有班務系統的權限，請聯絡管理員在「使用者管理」裡指定班務身分。"
+        : "你沒有道務系統的權限，請聯絡管理員在「使用者管理」裡指定道務身分。"
+    );
+    // 目前停留的那一邊如果也沒權限（例如剛被改掉身分），就換到有權限的那邊
+    if (allowed(currentSystem)) return;
+    system = want === "class" ? "dao" : "class";
+    if (!allowed(system)) return;
+    return showSystem(system);
+  }
+  currentSystem = want;
   const isClass = currentSystem === "class";
   daoView.classList.toggle("hidden", isClass);
   classView.classList.toggle("hidden", !isClass);
@@ -224,6 +240,8 @@ function showSystem(system) {
   systemClassBtn.classList.toggle("is-on", isClass);
   appTitle.textContent = isClass ? "班務名單管理" : "成全名單管理";
   document.title = appTitle.textContent;
+  // 沒授權的那一頁把分頁標成「未授權」，點了會說明原因
+  applySystemTabs();
   // AI 成全助手看的是道務名單，班務系統就不出現
   chatFab.classList.toggle("hidden", isClass || !auth.currentUser);
   if (isClass) chatPanel.classList.add("hidden");
@@ -233,6 +251,29 @@ function showSystem(system) {
     // 記不起來也不影響使用
   }
   window.scrollTo({ top: 0 });
+}
+
+function applySystemTabs() {
+  const setTab = (btn, ok, label) => {
+    btn.classList.toggle("is-locked", !ok);
+    btn.textContent = ok ? label : `${label}（未授權）`;
+    btn.title = ok ? "" : "這個帳號沒有這個系統的權限";
+  };
+  setTab(systemDaoBtn, myRank >= 1, "道務系統");
+  setTab(systemClassBtn, myClassRank >= 1, "班務系統");
+}
+
+// 登入後自己有權限的那一邊；兩邊都有就用上次選的
+function defaultSystem() {
+  let saved = "dao";
+  try {
+    saved = localStorage.getItem(systemKey()) || "dao";
+  } catch {
+    // 讀不到就用預設
+  }
+  if (saved === "class" && myClassRank >= 1) return "class";
+  if (saved === "dao" && myRank >= 1) return "dao";
+  return myRank >= 1 ? "dao" : "class";
 }
 
 systemDaoBtn.addEventListener("click", () => showSystem("dao"));
@@ -369,17 +410,16 @@ onAuthStateChanged(auth, async (user) => {
     loadTagFilter(); // 這個帳號上次點亮／點暗了哪些標籤
     showPage("roster");
     renderTagFilter();
-    subscribeEntries();
-    subscribeEvents();
-    loadMyLink();
-    loadChatHistory();
-    // 班務系統：自己的名單與課程，跟道務完全分開
-    startClassroom(classroomContext);
-    try {
-      showSystem(localStorage.getItem(systemKey()) || "dao");
-    } catch {
-      showSystem("dao");
+    // 沒有道務權限就不要去訂閱道務資料，不然只會拿到 permission-denied
+    if (myRank >= 1) {
+      subscribeEntries();
+      subscribeEvents();
+      loadMyLink();
+      loadChatHistory();
     }
+    // 班務系統：自己的名單與課程，跟道務完全分開（沒權限就不訂閱）
+    if (myClassRank >= 1) startClassroom(classroomContext);
+    showSystem(defaultSystem());
     loadRosterNames();
   } else {
     appView.classList.add("hidden");
@@ -408,8 +448,8 @@ onAuthStateChanged(auth, async (user) => {
     }
     stopClassroom();
     unitLinks = [];
-    myRank = 1;
-    myClassRank = 1;
+    myRank = 0;
+    myClassRank = 0;
     viewRank = 1;
     membersBtn.classList.add("hidden");
     membersModal.classList.add("hidden");
@@ -444,12 +484,16 @@ async function loadMyUnit() {
       return false;
     }
     myUnitId = unitId;
-    // 身分（點傳師 4 ／忠義字班講師 3 ／成全組長 2 ／組員 1 ／非組員 0），沒設定就當組員
-    const rank = memberSnap.data().roleRank;
-    myRank = typeof rank === "number" ? rank : 1;
-    viewRank = myRank;
-    // 班務身分獨立設定；但點傳師與忠義字班講師兩邊共通，所以自動比照道務身分
+    // 兩個系統各自授權：沒設定那一邊的身分就是「沒有權限」（0），進不去那個系統。
+    // 點傳師與忠義字班講師（3、4）兩邊共通，任一邊有就兩邊都算。
+    myRank = effectiveDaoRank(memberSnap.data());
     myClassRank = effectiveClassRank(memberSnap.data());
+    viewRank = Math.max(myRank, 1);
+    if (myRank < 1 && myClassRank < 1) {
+      loginError.textContent =
+        "這個帳號還沒被授權任何系統，請聯絡管理員在「使用者管理」裡指定道務或班務身分。";
+      return false;
+    }
 
     const unitSnap = await getDoc(doc(db, "units", myUnitId));
     myUnitName = (unitSnap.exists() ? unitSnap.data().name : "") || myUnitId;
@@ -467,18 +511,32 @@ async function loadMyUnit() {
   return true;
 }
 
-// 班務身分＝自己設定的 classRank，但講師以上（3、4）兩邊共通，取比較高的那個
+// 兩邊各自授權：沒寫那個欄位＝0＝沒有權限。
+// 例外是點傳師與忠義字班講師（3、4），那兩階兩邊共通，任一邊有就兩邊都算。
+function rawRank(memberData, field) {
+  return typeof memberData?.[field] === "number" ? memberData[field] : 0;
+}
+
+function effectiveDaoRank(memberData = {}) {
+  const dao = rawRank(memberData, "roleRank");
+  const cls = rawRank(memberData, "classRank");
+  return Math.max(dao, cls >= ENTRY_ROLE_RANK ? cls : 0);
+}
+
 function effectiveClassRank(memberData = {}) {
-  const own = typeof memberData.classRank === "number" ? memberData.classRank : 1;
-  const dao = typeof memberData.roleRank === "number" ? memberData.roleRank : 1;
-  return Math.max(own, dao >= ENTRY_ROLE_RANK ? dao : 0);
+  const dao = rawRank(memberData, "roleRank");
+  const cls = rawRank(memberData, "classRank");
+  return Math.max(cls, dao >= ENTRY_ROLE_RANK ? dao : 0);
 }
 
 // 身分階梯：只看得到比「目前檢視身分」更低階的名單，所以同階彼此看不到
 const ROLE_LABELS = ["非組員", "組員", "成全組長", "忠義字班講師", "點傳師"];
+// 帳號的身分（0 代表沒有那個系統的權限，跟名單上的「非組員」不是同一回事）
+const ACCOUNT_ROLE_LABELS = ["未授權", "組員", "成全組長", "忠義字班講師", "點傳師"];
 // 班務系統的身分：點傳師與忠義字班講師兩邊共通，中間那一階換成「班務組長」，
 // 所以「成全組長」不等於「班務組長」，兩邊分開設定。
-const CLASS_ROLE_LABELS = ["—", "班務人員", "班務組長", "忠義字班講師", "點傳師"];
+const CLASS_ROLE_LABELS = ["未授權", "班務人員", "班務組長", "忠義字班講師", "點傳師"];
+const RANK_CHOICES = [0, 1, 2, 3, 4];
 const MANAGE_MEMBERS_RANK = 2; // 成全組長以上才能管理使用者（增減帳號、設定身分）
 const ENTRY_ROLE_RANK = 3; // 名單本身的身分欄位仍然只有忠義字班講師以上改得動
 
@@ -501,11 +559,13 @@ function applyMyRank() {
   viewRankWrap.classList.toggle("hidden", myRank < 2);
   // 只有忠義字班講師以上能設定名單上的身分
   fieldRoleWrap.classList.toggle("hidden", myRank < ENTRY_ROLE_RANK);
-  // 加使用者時也只能設到自己這一階以下
-  [...newMemberRole.options].forEach((opt) => {
-    opt.hidden = Number(opt.value) > maxAssignableRank();
+  // 加使用者時也只能設到自己這一階以下（兩個系統各一個下拉）
+  [newMemberRole, newMemberClassRole].forEach((sel) => {
+    [...sel.options].forEach((opt) => {
+      opt.hidden = Number(opt.value) > maxAssignableRank();
+    });
+    if (Number(sel.value) > maxAssignableRank()) sel.value = "0";
   });
-  if (Number(newMemberRole.value) > myRank) newMemberRole.value = "1";
 }
 
 // 換一個身分檢視：重新訂閱（查詢條件要跟安全規則一致）
@@ -611,6 +671,7 @@ async function writeRosterIndex(entryId, data) {
     await setDoc(unitDoc(ROSTER_INDEX_COLLECTION, entryId), {
       name: data.name || "",
       department: data.department || "",
+      gender: data.gender || "",
       roleRank: Number(data.roleRank) || 0,
     });
     return true;
@@ -649,6 +710,7 @@ async function loadRosterNames() {
       id: en.id,
       name: en.name,
       department: en.department,
+      gender: en.gender,
     }));
   }
   return rosterNames;
@@ -873,25 +935,27 @@ function renderMembers() {
   membersList.innerHTML = unitMembers
     .map((m) => {
       const isMe = m.email.toLowerCase() === me;
-      const rank = typeof m.roleRank === "number" ? m.roleRank : 1;
+      // 兩個系統各自授權：沒設定就是「未授權」，那邊進不去
+      const rank = effectiveDaoRank(m);
+      const classRank = effectiveClassRank(m);
       // 身分只能設到自己這一階以下，也不能改自己的（規則也擋著）
       const roleCell = isMe
-        ? `<span class="member-role-label">${ROLE_LABELS[rank]}</span>`
+        ? `<span class="member-role-label">道務：${ACCOUNT_ROLE_LABELS[rank]}</span>`
         : `<select class="member-role" data-email="${escapeHtml(m.email)}" title="道務身分">
-             ${[1, 2, 3, 4]
-               .filter((r) => r <= maxAssignableRank())
-               .map((r) => `<option value="${r}" ${r === rank ? "selected" : ""}>${ROLE_LABELS[r]}</option>`)
+             ${RANK_CHOICES.filter((r) => r <= maxAssignableRank())
+               .map(
+                 (r) =>
+                   `<option value="${r}" ${r === rank ? "selected" : ""}>道務：${ACCOUNT_ROLE_LABELS[r]}</option>`
+               )
                .join("")}
            </select>`;
       // 班務身分另外設；講師以上兩邊共通，所以那兩階由道務身分帶過來、這裡不重複設定
-      const classRank = effectiveClassRank(m);
       const sharedRank = classRank >= ENTRY_ROLE_RANK && rank >= ENTRY_ROLE_RANK;
       const classCell =
         isMe || sharedRank
           ? `<span class="member-role-label">班務：${CLASS_ROLE_LABELS[classRank]}</span>`
           : `<select class="member-class-role" data-email="${escapeHtml(m.email)}" title="班務身分">
-               ${[1, 2, 3, 4]
-                 .filter((r) => r <= maxAssignableRank())
+               ${RANK_CHOICES.filter((r) => r <= maxAssignableRank())
                  .map(
                    (r) =>
                      `<option value="${r}" ${r === classRank ? "selected" : ""}>班務：${CLASS_ROLE_LABELS[r]}</option>`
@@ -930,7 +994,7 @@ async function setMemberRole(email, rank) {
       { unitId: myUnitId, roleRank: rank },
       { merge: true }
     );
-    membersStatus.textContent = `已把 ${email} 設為「${ROLE_LABELS[rank]}」。`;
+    membersStatus.textContent = `已把 ${email} 的道務身分設為「${ACCOUNT_ROLE_LABELS[rank]}」。`;
   } catch (err) {
     membersStatus.textContent =
       err.code === "permission-denied"
@@ -972,15 +1036,22 @@ async function addMember() {
   }
   addMemberBtn.disabled = true;
   try {
-    const rank = Math.min(Number(newMemberRole.value) || 1, maxAssignableRank());
+    const cap = maxAssignableRank();
+    const rank = Math.min(Number(newMemberRole.value) || 0, cap);
+    const classRank = Math.min(Number(newMemberClassRole.value) || 0, cap);
+    if (rank < 1 && classRank < 1) {
+      membersStatus.textContent = "至少要給他一個系統的權限（道務或班務），否則他登入不了。";
+      return;
+    }
     await setDoc(doc(db, "memberEmails", email), {
       unitId: myUnitId,
       roleRank: rank,
+      classRank,
       addedBy: auth.currentUser?.email || null,
       addedAt: serverTimestamp(),
     });
     newMemberEmail.value = "";
-    membersStatus.textContent = `已加入 ${email}（${ROLE_LABELS[rank]}），他用這個 Google 帳號登入就進得來。`;
+    membersStatus.textContent = `已加入 ${email}（道務：${ACCOUNT_ROLE_LABELS[rank]}／班務：${CLASS_ROLE_LABELS[classRank]}），他用這個 Google 帳號登入就進得來。`;
   } catch (err) {
     membersStatus.textContent =
       err.code === "permission-denied"
@@ -1016,10 +1087,10 @@ membersList.addEventListener("click", async (e) => {
   if (!btn) return;
   const email = btn.dataset.email;
   const member = unitMembers.find((m) => m.email === email);
-  const rank = typeof member?.roleRank === "number" ? member.roleRank : 1;
+  const roles = `道務：${ACCOUNT_ROLE_LABELS[effectiveDaoRank(member)]}／班務：${CLASS_ROLE_LABELS[effectiveClassRank(member)]}`;
   if (
     !confirm(
-      `確定要把「${email}」（${ROLE_LABELS[rank]}）移出「${myUnitName}」嗎？\n\n` +
+      `確定要把「${email}」（${roles}）移出「${myUnitName}」嗎？\n\n` +
         "他下次登入就進不來了。\n" +
         "已建立的名單資料不受影響；之後要恢復，把同一個 Gmail 再加回來即可。"
     )

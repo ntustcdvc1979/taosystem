@@ -80,12 +80,14 @@ async function backfillUnit(unitId) {
     const wanted = {
       name: data.name || "",
       department: data.department || "",
+      gender: data.gender || "",
       roleRank: rank,
     };
     const stale =
       !current ||
       current.name !== wanted.name ||
       current.department !== wanted.department ||
+      current.gender !== wanted.gender ||
       current.roleRank !== wanted.roleRank;
     if (stale) {
       needIndex += 1;
