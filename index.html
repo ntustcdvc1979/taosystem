@@ -239,20 +239,44 @@
         <div class="modal-content">
           <button type="button" id="course-close-x" class="modal-close" aria-label="關閉">×</button>
           <h2>課程管理</h2>
-          <p class="hint-text">課程是班務系統的活動：登錄之後，寫上課紀錄時可以直接從清單挑。</p>
+          <p class="hint-text">
+            課程是班務系統的活動：登錄之後，寫上課紀錄時直接從清單挑，日期會跟著課程帶入。
+            同一個班別在不同佛堂各自開課，所以要填<strong>佛堂</strong>（例：崇慧佛院的新民班）。
+          </p>
           <div class="course-form">
-            <input type="date" id="course-date" />
-            <input type="text" id="course-name" placeholder="課程名稱，例：新民班第三堂" />
-            <select id="course-group">
-              <option value="新民">新民</option>
-              <option value="至善">至善</option>
-              <option value="行德">行德</option>
-              <option value="崇德">崇德</option>
-              <option value="人才儲訓">人才儲訓</option>
-              <option value="講培">講培</option>
-              <option value="講師">講師</option>
-            </select>
-            <button type="button" id="course-save-btn" class="btn-primary btn-small">新增課程</button>
+            <div class="course-form-grid">
+              <label>
+                佛堂 <span class="required">*</span>
+                <input type="text" id="course-venue" placeholder="例：崇慧佛院" autocomplete="off" />
+                <span id="course-venue-recent" class="course-venue-recent"></span>
+              </label>
+              <label>
+                班別
+                <select id="course-group">
+                  <option value="新民">新民</option>
+                  <option value="至善">至善</option>
+                  <option value="行德">行德</option>
+                  <option value="崇德">崇德</option>
+                  <option value="人才儲訓">人才儲訓</option>
+                  <option value="講培">講培</option>
+                  <option value="講師">講師</option>
+                </select>
+              </label>
+              <label>
+                日期 <span class="required">*</span>
+                <input type="date" id="course-date" />
+              </label>
+              <label>
+                課程名稱 <span class="required">*</span>
+                <input type="text" id="course-name" placeholder="例：新民班第三堂" autocomplete="off" />
+              </label>
+            </div>
+            <p id="course-editing-hint" class="course-editing-hint hidden"></p>
+            <div class="course-form-actions">
+              <button type="button" id="course-add-btn" class="btn-primary btn-small">新增課程</button>
+              <button type="button" id="course-update-btn" class="btn-primary btn-small hidden">儲存變更</button>
+              <button type="button" id="course-cancel-btn" class="btn-secondary btn-small hidden">取消編輯</button>
+            </div>
           </div>
           <div id="course-list" class="course-list"></div>
         </div>
@@ -263,13 +287,15 @@
         <div class="modal-content">
           <button type="button" id="lesson-close-x" class="modal-close" aria-label="關閉">×</button>
           <h2>上課紀錄 - <span id="lesson-modal-name"></span></h2>
-          <p class="hint-text">最新的紀錄排在最上面。</p>
+          <p class="hint-text">
+            只列得出<strong>他自己那幾班</strong>的課程，日期跟著課程帶入，不用再選一次。
+            找不到那一堂課的話，請先到「課程管理」把課登錄起來。最新的紀錄排在最上面。
+          </p>
 
           <div class="lesson-form">
             <div class="lesson-form-row">
-              <input type="date" id="lesson-date" />
               <select id="lesson-course"></select>
-              <select id="lesson-role" title="這筆紀錄算在哪一班、什麼身分"></select>
+              <span id="lesson-role-label" class="lesson-role-label"></span>
               <select id="lesson-attend">
                 <option value="準時">準時</option>
                 <option value="遲到">遲到</option>
@@ -639,12 +665,20 @@
               <span class="field-label">備註 — <span id="invite-note-name"></span></span>
               <textarea id="invite-note-text" rows="2" placeholder="例：最近在忙期末考，考完再約"></textarea>
               <div class="invite-note-actions">
-                <button type="button" id="invite-note-save" class="btn-primary btn-small">儲存備註</button>
+                <label class="invite-note-status-field">
+                  狀態
+                  <select id="invite-note-status"></select>
+                </label>
+                <button type="button" id="invite-note-save" class="btn-primary btn-small">儲存備註與狀態</button>
                 <button type="button" id="invite-note-cancel" class="btn-secondary btn-small">取消</button>
               </div>
             </div>
 
-            <p class="hint-text">把名字拖到其他框即可改變狀態，點名字可加備註。邀約狀況會即時儲存，AI 產生建議時也會參照（例如已回覆不行的就不會再推薦同一個活動）。</p>
+            <p class="hint-text">
+              改狀態用每張卡片上的下拉選單（手機也能用）；電腦上也可以直接把名字拖到其他框。
+              點名字可以編輯備註，並在同一個地方順手改狀態。
+              邀約狀況會即時儲存，AI 產生建議時也會參照（例如已回覆不行的就不會再推薦同一個活動）。
+            </p>
           </div>
 
         </div>

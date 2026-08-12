@@ -367,27 +367,133 @@ button {
 
 /* 課程管理 */
 .course-form {
+  margin: 0.6rem 0 0.8rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #e3e6ea;
+  border-radius: 10px;
+  background: #f8f9fb;
+}
+
+/* 課程表單：欄位排成格狀，按鈕自己一排 */
+.course-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.course-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
+  font-size: 0.82rem;
+  color: #5a6472;
+}
+
+.course-form-grid input,
+.course-form-grid select {
+  width: 100%;
+  flex: none;
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: #fff;
+}
+
+.course-form-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.course-venue-recent {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  margin: 0.6rem 0;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #8a919b;
 }
 
-.course-form input[type="text"] {
-  flex: 1 1 12rem;
-  margin: 0;
+.course-venue-recent:empty {
+  display: none;
 }
 
-.course-form input[type="date"],
-.course-form select {
-  width: auto;
-  margin: 0;
+.venue-chip {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid #dfe3e8;
+  border-radius: 999px;
+  background: #f6f7f9;
+  color: #3a5fa8;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.venue-chip:hover {
+  background: #eef2fb;
+}
+
+.course-editing-hint {
+  margin: 0 0 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  background: #fff7e6;
+  color: #8a6116;
+  font-size: 0.8rem;
 }
 
 .course-list {
-  max-height: 300px;
+  max-height: 320px;
   overflow-y: auto;
+}
+
+/* 一個佛堂的一個班別一組，可以收合 */
+.course-group {
+  margin-bottom: 0.45rem;
+  border: 1px solid #e6e9ec;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.course-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 0;
+  background: #f6f7f9;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.course-group-head:hover {
+  background: #eef0f3;
+}
+
+.course-group-caret {
+  color: #8a919b;
+  font-size: 0.75rem;
+}
+
+.course-group-venue {
+  font-weight: 600;
+}
+
+.course-group-meta {
+  margin-left: auto;
+  color: #8a919b;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.course-group-body {
+  padding: 0 0.55rem;
 }
 
 .course-row {
@@ -399,6 +505,16 @@ button {
   padding: 0.45rem 0.2rem;
   border-bottom: 1px solid #f2f2f2;
   font-size: 0.88rem;
+}
+
+.course-row:last-child {
+  border-bottom: none;
+}
+
+/* 正在編輯的那一堂標出來，才知道上面的表單在改誰 */
+.course-row.is-editing {
+  background: #fff7e6;
+  border-radius: 6px;
 }
 
 .course-info {
@@ -440,6 +556,16 @@ button {
 .lesson-form-row input[type="text"] {
   flex: 1 1 10rem;
   margin: 0;
+}
+
+/* 日期與身分都由課程帶入，這裡只顯示帶出來的結果 */
+.lesson-role-label {
+  color: #8a919b;
+  font-size: 0.8rem;
+}
+
+.lesson-role-label.is-set {
+  color: #3a5fa8;
 }
 
 .lesson-form-row input[type="date"],
@@ -2265,8 +2391,39 @@ button {
 
 .invite-note-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.4rem;
   margin-top: 0.4rem;
+}
+
+/* 備註跟狀態一起改，省得存完再去拉一次 */
+.invite-note-status-field {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0;
+  font-size: 0.8rem;
+  color: #5a6472;
+}
+
+.invite-note-status-field select {
+  width: auto;
+  margin: 0;
+  padding: 0.2rem 0.3rem;
+  font-size: 0.8rem;
+}
+
+/* 手機上沒有拖放，狀態下拉才是改狀態的主要方式 */
+.invite-chip-status {
+  width: 100%;
+  margin: 0.3rem 0 0;
+  padding: 0.15rem 0.2rem;
+  border: 1px solid #e3e6ea;
+  border-radius: 5px;
+  background: #f8f9fb;
+  color: #5a6472;
+  font-size: 0.72rem;
 }
 
 .invite-chip.dragging {

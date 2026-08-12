@@ -368,6 +368,7 @@ const inviteAiStatus = document.getElementById("invite-ai-status");
 const inviteNoteEditor = document.getElementById("invite-note-editor");
 const inviteNoteName = document.getElementById("invite-note-name");
 const inviteNoteText = document.getElementById("invite-note-text");
+const inviteNoteStatus = document.getElementById("invite-note-status");
 const inviteNoteSave = document.getElementById("invite-note-save");
 const inviteNoteCancel = document.getElementById("invite-note-cancel");
 
@@ -3790,7 +3791,8 @@ function renderInviteList() {
   ).join("／");
   inviteSummary.textContent = editingEventInvites.length ? `（${counts}）` : "";
 
-  // 四個狀態各一框，可把人拖到別框改狀態
+  // 一個狀態一框。電腦上可以把人拖到別框，手機／平板則用每張卡上的狀態下拉——
+  // iOS 上的瀏覽器（Safari、Firefox…）沒有 HTML5 拖放，只靠拖曳等於改不了狀態。
   inviteBoard.innerHTML = INVITE_STATUSES.map((status) => {
     const members = editingEventInvites.filter((i) => i.status === status);
     const chips = members
@@ -3804,13 +3806,21 @@ function renderInviteList() {
               <button type="button" class="invite-remove" title="移除">×</button>
             </div>
             ${note ? `<div class="invite-chip-note" title="${escapeHtml(note)}">${escapeHtml(note)}</div>` : ""}
+            <select class="invite-chip-status" aria-label="改變狀態" title="改變狀態">
+              ${INVITE_STATUSES.map(
+                (s) =>
+                  `<option value="${escapeHtml(s)}" ${s === status ? "selected" : ""}>${escapeHtml(s)}</option>`
+              ).join("")}
+            </select>
           </div>`;
       })
       .join("");
     return `
       <div class="invite-col" data-status="${status}">
         <div class="invite-col-head">${status}<span class="invite-col-count">${members.length}</span></div>
-        <div class="invite-col-body">${chips || '<div class="invite-col-empty">拖曳名字到這裡</div>'}</div>
+        <div class="invite-col-body">${
+          chips || '<div class="invite-col-empty">用卡片上的下拉選單移到這裡（電腦也可以直接拖曳）</div>'
+        }</div>
       </div>`;
   }).join("");
 
@@ -3950,6 +3960,25 @@ inviteBoard.addEventListener("click", async (e) => {
   if (e.target.closest(".invite-chip-name")) openInviteNoteEditor(chip.dataset.entryId);
 });
 
+// 卡片上的狀態下拉：手機上沒有拖放，這才是主要的改法
+inviteBoard.addEventListener("change", async (e) => {
+  const sel = e.target.closest(".invite-chip-status");
+  if (!sel) return;
+  const entryId = sel.closest(".invite-chip")?.dataset.entryId;
+  await setInviteStatus(entryId, sel.value);
+});
+
+async function setInviteStatus(entryId, status) {
+  const inv = editingEventInvites.find((i) => i.entryId === entryId);
+  if (!inv || inv.status === status) {
+    renderInviteList();
+    return;
+  }
+  inv.status = status;
+  renderInviteList();
+  await persistInvites();
+}
+
 // ---------- 邀約備註（在看板下方編輯） ----------
 let noteEditingEntryId = null;
 
@@ -3959,6 +3988,11 @@ function openInviteNoteEditor(entryId) {
   noteEditingEntryId = entryId;
   inviteNoteName.textContent = entryName(entryId) || "（對象已刪除）";
   inviteNoteText.value = inv.note || "";
+  // 備註跟狀態常常是一起更新的（「他說可以來」＝備註＋改成已回覆可以），
+  // 所以這裡也放狀態，存備註時一起寫進去
+  inviteNoteStatus.innerHTML = INVITE_STATUSES.map(
+    (s) => `<option value="${escapeHtml(s)}" ${s === inv.status ? "selected" : ""}>${escapeHtml(s)}</option>`
+  ).join("");
   inviteNoteEditor.classList.remove("hidden");
   inviteNoteText.focus();
 }
@@ -3972,7 +4006,10 @@ function closeInviteNoteEditor() {
 inviteNoteSave.addEventListener("click", async () => {
   if (!noteEditingEntryId) return;
   const inv = editingEventInvites.find((i) => i.entryId === noteEditingEntryId);
-  if (inv) inv.note = inviteNoteText.value.trim();
+  if (inv) {
+    inv.note = inviteNoteText.value.trim();
+    if (inviteNoteStatus.value) inv.status = inviteNoteStatus.value;
+  }
   closeInviteNoteEditor();
   renderInviteList();
   await persistInvites();

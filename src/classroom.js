@@ -519,37 +519,115 @@ async function deleteClassEntry() {
 }
 
 // ---------- 課程 ----------
+// 同一個班別在不同佛堂各自開課（「崇慧新民」＝崇慧佛院的新民班），
+// 所以課程的身分是「佛堂＋班別」，清單也照這個分組。
+function courseVenue(course) {
+  return (course?.venue || "").trim() || "未填佛堂";
+}
+function courseGroupKey(course) {
+  return `${courseVenue(course)}｜${course?.classGroup || "未分班"}`;
+}
+function courseLabel(course) {
+  return [courseVenue(course), course?.classGroup, course?.name].filter(Boolean).join("・");
+}
+
+// 這個人只看得到自己那幾班的課：新民班的班員不該看到至善班的課
+function coursesFor(entry) {
+  const groups = new Set(entryRoles(entry).map((r) => r.group));
+  return courses.filter((c) => groups.has(c.classGroup));
+}
+
 function renderCourseOptions() {
   const sel = $("lesson-course");
   if (!sel) return;
-  sel.innerHTML =
-    `<option value="">（未對應課程）</option>` +
-    courses
-      .map((c) => `<option value="${esc(c.name)}">${esc(c.date || "")} ${esc(c.name)}</option>`)
-      .join("");
+  const entry = classEntries.find((e) => e.id === lessonEntryId);
+  const mine = entry ? coursesFor(entry) : [];
+  const keep = sel.value;
+  sel.innerHTML = mine.length
+    ? `<option value="">請選擇課程</option>` +
+      mine
+        .map(
+          (c) =>
+            `<option value="${esc(c.id)}">${esc(c.date || "未定日期")}・${esc(courseLabel(c))}</option>`
+        )
+        .join("")
+    : `<option value="">（他的班別還沒有登錄課程）</option>`;
+  if (keep && mine.some((c) => c.id === keep)) sel.value = keep;
 }
+
+// 已經展開的「佛堂｜班別」；預設全部展開，收合狀態記在這裡
+let collapsedCourseGroups = new Set();
 
 function renderCourseList() {
   const list = $("course-list");
   if (!list) return;
-  list.innerHTML = courses.length
-    ? courses
-        .map(
-          (c) => `
-        <div class="course-row" data-id="${c.id}">
-          <div class="course-info">
-            <span class="course-date">${esc(c.date || "未定")}</span>
-            <span class="course-name">${esc(c.name)}</span>
-            <span class="class-badge group-${esc(c.classGroup || "")}">${esc(c.classGroup || "全班")}</span>
-          </div>
-          <div class="course-actions">
-            <button type="button" class="btn-secondary btn-small" data-course-edit="${c.id}">編輯</button>
-            <button type="button" class="btn-danger btn-small" data-course-del="${c.id}">刪除</button>
-          </div>
-        </div>`
-        )
+  renderVenueSuggestions();
+  if (courses.length === 0) {
+    list.innerHTML = `<p class="hint-text">還沒有課程。填上面的欄位按「新增課程」。</p>`;
+    return;
+  }
+  // 佛堂＋班別分組，組內日期新到舊
+  const groups = new Map();
+  for (const c of courses) {
+    const key = courseGroupKey(c);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  const sorted = [...groups.entries()].sort(
+    (a, b) =>
+      a[0].split("｜")[0].localeCompare(b[0].split("｜")[0], "zh-Hant") ||
+      CLASS_GROUPS.indexOf(a[1][0].classGroup) - CLASS_GROUPS.indexOf(b[1][0].classGroup)
+  );
+
+  list.innerHTML = sorted
+    .map(([key, rows]) => {
+      const [venue, group] = key.split("｜");
+      const open = !collapsedCourseGroups.has(key);
+      const latest = rows.map((c) => c.date || "").sort().at(-1) || "";
+      return `
+      <div class="course-group ${open ? "is-open" : ""}">
+        <button type="button" class="course-group-head" data-course-group="${esc(key)}"
+          aria-expanded="${open}">
+          <span class="course-group-caret">${open ? "▾" : "▸"}</span>
+          <span class="course-group-venue">${esc(venue)}</span>
+          <span class="class-badge">${esc(group)}</span>
+          <span class="course-group-meta">${rows.length} 堂${latest ? `・最近 ${esc(latest)}` : ""}</span>
+        </button>
+        <div class="course-group-body" ${open ? "" : "hidden"}>
+          ${rows
+            .map(
+              (c) => `
+            <div class="course-row ${c.id === editingCourseId ? "is-editing" : ""}" data-id="${esc(c.id)}">
+              <div class="course-info">
+                <span class="course-date">${esc(c.date || "未定")}</span>
+                <span class="course-name">${esc(c.name)}</span>
+              </div>
+              <div class="course-actions">
+                <button type="button" class="btn-secondary btn-small" data-course-edit="${esc(c.id)}">編輯</button>
+                <button type="button" class="btn-danger btn-small" data-course-del="${esc(c.id)}">刪除</button>
+              </div>
+            </div>`
+            )
+            .join("")}
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+// 已經用過的佛堂列出來給人點，不用每次重打
+function renderVenueSuggestions() {
+  const box = $("course-venue-recent");
+  if (!box) return;
+  const venues = [...new Set(courses.map((c) => (c.venue || "").trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "zh-Hant")
+  );
+  box.innerHTML = venues.length
+    ? `已用過：` +
+      venues
+        .map((v) => `<button type="button" class="venue-chip" data-venue="${esc(v)}">${esc(v)}</button>`)
         .join("")
-    : `<p class="hint-text">還沒有課程。</p>`;
+    : "";
 }
 
 function resetCourseForm() {
@@ -557,31 +635,65 @@ function resetCourseForm() {
   $("course-date").value = today();
   $("course-name").value = "";
   $("course-group").value = CLASS_GROUPS[0];
-  $("course-save-btn").textContent = "新增課程";
+  applyCourseFormMode();
 }
 
-async function saveCourse() {
+// 新增與儲存分開：編輯中才出現「儲存變更」與「取消編輯」
+function applyCourseFormMode() {
+  const editing = !!editingCourseId;
+  const course = editing ? courses.find((c) => c.id === editingCourseId) : null;
+  $("course-add-btn").classList.toggle("hidden", editing);
+  $("course-update-btn").classList.toggle("hidden", !editing);
+  $("course-cancel-btn").classList.toggle("hidden", !editing);
+  const hint = $("course-editing-hint");
+  hint.classList.toggle("hidden", !editing);
+  hint.textContent = editing ? `正在編輯：${courseLabel(course) || "這一堂"}` : "";
+}
+
+function readCourseForm() {
+  const venue = $("course-venue").value.trim();
   const name = $("course-name").value.trim();
   const date = $("course-date").value;
-  if (!name || !date) {
-    (!name ? $("course-name") : $("course-date")).focus();
-    return;
+  if (!venue || !name || !date) {
+    (!venue ? $("course-venue") : !name ? $("course-name") : $("course-date")).focus();
+    alert("佛堂、課程名稱與日期都要填。");
+    return null;
   }
-  const data = {
+  return {
+    venue,
     name,
     date,
     classGroup: $("course-group").value,
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.email || null,
   };
+}
+
+async function addCourse() {
+  const data = readCourseForm();
+  if (!data) return;
   try {
-    if (editingCourseId) await updateDoc(ref(COURSES, editingCourseId), data);
-    else
-      await addDoc(col(COURSES), {
-        ...data,
-        createdAt: serverTimestamp(),
-        createdBy: auth.currentUser?.email || null,
-      });
+    await addDoc(col(COURSES), {
+      ...data,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.email || null,
+    });
+    // 佛堂與班別留著，接著登錄同一班的下一堂會比較快
+    editingCourseId = null;
+    $("course-name").value = "";
+    applyCourseFormMode();
+    $("course-name").focus();
+  } catch (err) {
+    alert("新增失敗：" + err.message);
+  }
+}
+
+async function updateCourse() {
+  if (!editingCourseId) return;
+  const data = readCourseForm();
+  if (!data) return;
+  try {
+    await updateDoc(ref(COURSES, editingCourseId), data);
     resetCourseForm();
   } catch (err) {
     alert("儲存失敗：" + err.message);
@@ -594,30 +706,31 @@ function openLessonModal(entry) {
   lessonRows = [...(entry.lessons || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const roles = entryRoles(entry);
   $("lesson-modal-name").textContent = `${entry.name}（${roles.map(roleLabel).join("、")}）`;
-  // 他有好幾個班就要挑一個：這筆紀錄算在哪一班、以什麼身分
-  $("lesson-role").innerHTML = roles
-    .map((r, i) => `<option value="${i}">${esc(roleLabel(r))}</option>`)
-    .join("");
-  $("lesson-role").classList.toggle("hidden", roles.length < 2);
-  $("lesson-date").value = today();
   $("lesson-course").value = "";
+  renderCourseOptions(); // 只列他自己那幾班的課
   $("lesson-attend").value = ATTEND_OPTIONS[0];
   $("lesson-notes").checked = false;
   $("lesson-asked").checked = false;
   $("lesson-interaction").value = "";
   $("lesson-duties").value = "";
   $("lesson-comment").value = "";
-  applyLessonFields(currentLessonRole()?.type);
+  applyLessonRole();
   renderLessonRows();
   $("lesson-modal").classList.remove("hidden");
 }
 
-// 正在登錄的那一筆算哪個角色
+// 挑了哪一堂課，就決定了日期、班別與身分——不用再各選一次
+function selectedCourse() {
+  return courses.find((c) => c.id === $("lesson-course").value) || null;
+}
+
+// 這一筆紀錄算他在哪一班的什麼身分：由課程的班別決定
 function currentLessonRole() {
   const entry = classEntries.find((e) => e.id === lessonEntryId);
   if (!entry) return null;
   const roles = entryRoles(entry);
-  return roles[Number($("lesson-role").value) || 0] || roles[0];
+  const course = selectedCourse();
+  return roles.find((r) => r.group === course?.classGroup) || null;
 }
 
 // 班員記學習狀況、護班人員記承擔狀況，欄位不一樣
@@ -627,16 +740,16 @@ function applyLessonFields(memberType) {
   $("lesson-hu-fields").classList.toggle("hidden", !isHu);
 }
 
-// 挑了課程就順便對到那個班：課程屬於哪一班，他在那一班的身分就是這筆紀錄的身分
-function syncLessonRoleToCourse() {
-  const entry = classEntries.find((e) => e.id === lessonEntryId);
-  if (!entry) return;
-  const course = courses.find((c) => c.name === $("lesson-course").value);
-  if (course?.classGroup) {
-    const idx = entryRoles(entry).findIndex((r) => r.group === course.classGroup);
-    if (idx >= 0) $("lesson-role").value = String(idx);
-  }
-  applyLessonFields(currentLessonRole()?.type);
+// 課程換了就把「以什麼身分紀錄」與日期一起帶出來
+function applyLessonRole() {
+  const role = currentLessonRole();
+  const course = selectedCourse();
+  const label = $("lesson-role-label");
+  label.textContent = course
+    ? `${course.date || "未定日期"}・以「${roleLabel(role || { group: course.classGroup, type: MEMBER_TYPES[0] })}」紀錄`
+    : "選了課程就會帶入日期與身分";
+  label.classList.toggle("is-set", !!course);
+  applyLessonFields(role?.type);
 }
 
 function renderLessonRows() {
@@ -658,11 +771,12 @@ function renderLessonRows() {
                 l.asked ? `<span class="lesson-chip is-on">有提問</span>` : "",
               ];
           const detail = isHu ? l.interaction : "";
+          const courseText = [l.venue, l.course].filter(Boolean).join("・");
           return `
           <div class="lesson-row">
             <div class="lesson-row-head">
               <span class="lesson-date">${esc(l.date || "未填日期")}</span>
-              <span class="lesson-course">${esc(l.course || "")}</span>
+              <span class="lesson-course">${esc(courseText)}</span>
               ${multi ? `<span class="lesson-role">${esc(roleLabel(role))}</span>` : ""}
               ${chips.join("")}
               <button type="button" class="btn-danger btn-small" data-lesson-del="${i}">刪除</button>
@@ -694,12 +808,25 @@ async function saveLessons() {
 async function addLesson() {
   const entry = classEntries.find((e) => e.id === lessonEntryId);
   if (!entry) return;
+  // 日期跟著課程走，所以一定要挑一堂課
+  const course = selectedCourse();
+  if (!course) {
+    alert(
+      coursesFor(entry).length
+        ? "請先選一堂課，日期會跟著課程帶入。"
+        : "他的班別還沒有登錄課程，請先到「課程管理」新增。"
+    );
+    $("lesson-course").focus();
+    return;
+  }
   const role = currentLessonRole() || entryRoles(entry)[0];
   const isHu = role.type === "護班人員";
   const row = {
-    date: $("lesson-date").value || today(),
-    course: $("lesson-course").value,
-    group: role.group || "",
+    date: course.date || today(),
+    courseId: course.id,
+    course: course.name || "",
+    venue: (course.venue || "").trim(),
+    group: role.group || course.classGroup || "",
     type: role.type || MEMBER_TYPES[0],
     attend: $("lesson-attend").value,
     comment: $("lesson-comment").value.trim(),
@@ -797,23 +924,52 @@ export function initClassroom(context) {
   $("course-modal").addEventListener("click", (e) => {
     if (e.target === $("course-modal")) $("course-modal").classList.add("hidden");
   });
-  $("course-save-btn").addEventListener("click", saveCourse);
+  // 新增與儲存分開，不會按錯把新課程覆蓋掉正在編輯的那一堂
+  $("course-add-btn").addEventListener("click", addCourse);
+  $("course-update-btn").addEventListener("click", updateCourse);
+  $("course-cancel-btn").addEventListener("click", resetCourseForm);
+  // 用過的佛堂點一下就填進去
+  $("course-venue-recent").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-venue]");
+    if (!chip) return;
+    $("course-venue").value = chip.dataset.venue;
+    $("course-name").focus();
+  });
   $("course-list").addEventListener("click", async (e) => {
+    // 佛堂＋班別的分組可以收合
+    const head = e.target.closest("[data-course-group]");
+    if (head) {
+      const key = head.dataset.courseGroup;
+      if (collapsedCourseGroups.has(key)) collapsedCourseGroups.delete(key);
+      else collapsedCourseGroups.add(key);
+      renderCourseList();
+      return;
+    }
     const edit = e.target.closest("[data-course-edit]");
     if (edit) {
       const c = courses.find((x) => x.id === edit.dataset.courseEdit);
       if (!c) return;
       editingCourseId = c.id;
+      $("course-venue").value = c.venue || "";
       $("course-date").value = c.date || "";
       $("course-name").value = c.name || "";
       $("course-group").value = c.classGroup || CLASS_GROUPS[0];
-      $("course-save-btn").textContent = "儲存變更";
+      applyCourseFormMode();
+      renderCourseList();
+      $("course-name").focus();
       return;
     }
     const del = e.target.closest("[data-course-del]");
     if (!del) return;
     const c = courses.find((x) => x.id === del.dataset.courseDel);
-    if (!c || !confirm(`確定要刪除課程「${c.name}」嗎？\n\n已經寫進個人上課紀錄的內容不受影響。`)) return;
+    if (
+      !c ||
+      !confirm(
+        `確定要刪除課程「${courseLabel(c)}」（${c.date || "未定"}）嗎？\n\n已經寫進個人上課紀錄的內容不受影響。`
+      )
+    ) {
+      return;
+    }
     try {
       await deleteDoc(ref(COURSES, c.id));
       if (editingCourseId === c.id) resetCourseForm();
@@ -830,8 +986,7 @@ export function initClassroom(context) {
   $("lesson-modal").addEventListener("click", (e) => {
     if (e.target === $("lesson-modal")) $("lesson-close-x").click();
   });
-  $("lesson-course").addEventListener("change", syncLessonRoleToCourse);
-  $("lesson-role").addEventListener("change", () => applyLessonFields(currentLessonRole()?.type));
+  $("lesson-course").addEventListener("change", applyLessonRole);
   $("lesson-add-btn").addEventListener("click", addLesson);
   $("lesson-list").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-lesson-del]");
