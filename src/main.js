@@ -159,7 +159,7 @@ const reportCloseBtn = document.getElementById("report-close-btn");
 const reportEventLabel = document.getElementById("report-event");
 const reportList = document.getElementById("report-list");
 const reportStatus = document.getElementById("report-status");
-const reportSubmitBtn = document.getElementById("report-submit-btn");
+const reportProgressEl = document.getElementById("report-progress");
 const reportSkipBtn = document.getElementById("report-skip-btn");
 const NOTICE_DISMISS_KEY = "taosystem_notice_dismissed";
 const addEntryBtn = document.getElementById("add-entry-btn");
@@ -1299,6 +1299,8 @@ function subscribeEvents() {
       refreshOpenInviteList();
       renderUpcomingNotice();
       renderReportNotice();
+      // 別人也在回報同一場：開著的回報視窗跟著更新
+      if (reportingEventId) renderReportModal();
       renderEntries(); // 參與度會用到活動資料
     },
     (err) => {
@@ -1387,6 +1389,21 @@ function eventEndDate(ev) {
   return ev.endDate || ev.date;
 }
 
+// 要回報的是「回覆可以參加」的那幾位——會不會來本來就只有他們需要確認
+function reportTargets(ev) {
+  return (ev.invites || []).filter((i) => i.status === "已回覆可以").map((i) => i.entryId);
+}
+
+// 一個一個回報，全部回報完（或有人按了「這場不用回報」）才算結束
+function reportDone(ev, entryId) {
+  return !!(ev.reports || {})[entryId];
+}
+function reportProgress(ev) {
+  const targets = reportTargets(ev);
+  const done = targets.filter((id) => reportDone(ev, id)).length;
+  return { total: targets.length, done, left: targets.length - done };
+}
+
 function eventsNeedingReport() {
   return allEvents
     .filter((ev) => {
@@ -1407,16 +1424,18 @@ function renderReportNotice() {
     .map((ev) => {
       const days = daysSince(eventEndDate(ev));
       const when = days === 1 ? "昨天" : `${days} 天前`;
-      const invited = (ev.invites || []).length;
+      const { total, done, left } = reportProgress(ev);
+      // 還有人沒回報就一直提醒，並且講清楚還剩幾位
+      const summary = total
+        ? `邀約名單 ${total} 人・已回報 ${done} 人・還缺 ${left} 人`
+        : "沒有邀約名單，可自行挑人";
       return `
         <div class="notice-item">
           <div class="notice-item-info">
             <span class="notice-when">${when}結束</span>
             <span class="notice-name">${escapeHtml(ev.name)}</span>
             <span class="notice-type">${escapeHtml(ev.type || "")}</span>
-            <span class="notice-summary${invited ? "" : " notice-warn"}">${
-              invited ? `邀約名單 ${invited} 人` : "沒有邀約名單，可自行挑人"
-            }</span>
+            <span class="notice-summary${total && left === 0 ? "" : " notice-warn"}">${summary}</span>
           </div>
           <button type="button" class="btn-primary btn-small" data-report-event="${ev.id}">回報參與狀況</button>
         </div>`;
@@ -1434,46 +1453,121 @@ reportNoticeList.addEventListener("click", (e) => {
 let reportingEventId = null;
 
 function openReportModal(eventId) {
-  const ev = allEvents.find((x) => x.id === eventId);
-  if (!ev) return;
   reportingEventId = eventId;
-  reportEventLabel.textContent = `${ev.name}（${eventEndDate(ev)}${ev.type ? `・${ev.type}` : ""}）`;
-  reportStatus.textContent = "";
+  renderReportModal();
+  reportModal.classList.remove("hidden");
+}
 
-  // 只列「已回覆可以」的人——會不會來本來就只有他們需要確認
-  const rows = (ev.invites || [])
-    .filter((i) => i.status === "已回覆可以")
-    .map((i) => ({
-      id: i.entryId,
-      name: entryName(i.entryId) || "（對象已刪除）",
-      came: true, // 說可以來的預設就是有來，只要改掉沒來的那幾位
+// 這個人的身分（自己那一階以上的人在 allEntries 裡看不到，改查姓名索引）
+function entryRank(entryId) {
+  const seen = allEntries.find((en) => en.id === entryId);
+  if (seen) return Number(seen.roleRank) || 0;
+  const indexed = rosterNames.find((r) => r.id === entryId);
+  return indexed ? Number(indexed.roleRank) || 0 : 0;
+}
+
+// 我回報得動這一位嗎？寫得進去的條件跟安全規則同一條線：他的身分要比我低。
+// 同階（或更高）的人只能由學長姐回報；被檢視身分擋住的人要先切回自己的身分。
+function reportPermission(entryId) {
+  if (entryRank(entryId) >= myRank) return "senior";
+  if (!allEntries.some((en) => en.id === entryId)) return "hidden";
+  return "ok";
+}
+
+function renderReportModal() {
+  const ev = allEvents.find((x) => x.id === reportingEventId);
+  if (!ev) return;
+  reportEventLabel.textContent = `${ev.name}（${eventEndDate(ev)}${ev.type ? `・${ev.type}` : ""}）`;
+
+  // 自己不列出來——自己有沒有到不用自己回報
+  const rows = reportTargets(ev)
+    .filter((id) => id !== myEntryId)
+    .map((id) => ({
+      id,
+      name: entryName(id) || "（對象已刪除）",
+      done: (ev.reports || {})[id] || null,
+      permission: reportPermission(id),
     }));
 
-  reportList.innerHTML = rows.length
-    ? rows
-        .map(
-          (r) => `
-        <div class="report-row" data-id="${r.id}">
-          <div class="report-row-head">
-            <span class="report-name">${escapeHtml(r.name)}</span>
-            <select class="report-came">
-              <option value="yes" ${r.came ? "selected" : ""}>有參加</option>
-              <option value="no" ${r.came ? "" : "selected"}>沒參加</option>
-            </select>
-          </div>
-          <textarea class="report-note" rows="2"></textarea>
-        </div>`
-        )
-        .join("")
-    : `<p class="hint-text">這場活動沒有人回覆可以參加，沒什麼要回報的。可以直接按「這場不用回報」。</p>`;
+  const { total, done, left } = reportProgress(ev);
+  reportProgressEl.textContent = total
+    ? `共 ${total} 位，已回報 ${done} 位，還缺 ${left} 位。`
+    : "";
+  reportProgressEl.classList.toggle("is-done", total > 0 && left === 0);
 
+  // 別人回報時這個視窗會重畫，先把還沒送出的內容記下來，畫完再填回去
+  const typed = new Map();
+  reportList.querySelectorAll(".report-row:not(.is-done):not(.is-locked)").forEach((row) => {
+    typed.set(row.dataset.id, {
+      came: row.querySelector(".report-came").value,
+      note: row.querySelector(".report-note").value,
+    });
+  });
+
+  reportList.innerHTML = rows.length
+    ? rows.map(reportRowHtml).join("")
+    : `<p class="hint-text">這場活動沒有你可以回報的對象。若還有人沒回報，要由學長姐處理；不然可以按「這場不用回報」關掉提醒。</p>`;
+
+  for (const [id, val] of typed) {
+    const row = reportList.querySelector(`.report-row[data-id="${CSS.escape(id)}"]`);
+    if (!row || row.classList.contains("is-done") || row.classList.contains("is-locked")) continue;
+    row.querySelector(".report-came").value = val.came;
+    row.querySelector(".report-note").value = val.note;
+  }
   applyReportRowState();
-  reportModal.classList.remove("hidden");
+}
+
+function reportRowHtml(r) {
+  const name = escapeHtml(r.name);
+  // 已經有人回報過的就顯示結果，要改再按「重新回報」
+  if (r.done) {
+    const who = r.done.by ? `・${escapeHtml(r.done.by)}` : "";
+    return `
+      <div class="report-row is-done" data-id="${escapeHtml(r.id)}">
+        <div class="report-row-head">
+          <span class="report-name">${name}</span>
+          <span class="report-result ${r.done.came ? "is-came" : "is-absent"}">${
+            r.done.came ? "有參加" : "沒參加"
+          }</span>
+          ${
+            r.permission === "ok"
+              ? `<button type="button" class="btn-link-plain" data-report-redo="${escapeHtml(r.id)}">重新回報</button>`
+              : ""
+          }
+        </div>
+        ${r.done.note ? `<div class="report-done-note">${escapeHtml(r.done.note)}</div>` : ""}
+        <div class="report-done-by">已回報${who}</div>
+      </div>`;
+  }
+  // 同階以上的人我改不動，請學長姐來
+  if (r.permission !== "ok") {
+    return `
+      <div class="report-row is-locked" data-id="${escapeHtml(r.id)}">
+        <div class="report-row-head">
+          <span class="report-name">${name}</span>
+          <span class="report-locked">${
+            r.permission === "senior" ? "請學長姐填寫" : "請先切回自己的身分再回報"
+          }</span>
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="report-row" data-id="${escapeHtml(r.id)}">
+      <div class="report-row-head">
+        <span class="report-name">${name}</span>
+        <select class="report-came">
+          <option value="yes" selected>有參加</option>
+          <option value="no">沒參加</option>
+        </select>
+        <button type="button" class="btn-primary btn-small" data-report-one="${escapeHtml(r.id)}">回報</button>
+      </div>
+      <textarea class="report-note" rows="2"></textarea>
+    </div>`;
 }
 
 // 有參加填「反應」，沒參加填「原因」——兩邊都留得下紀錄，只是寫到不同地方
 function applyReportRowState() {
-  reportList.querySelectorAll(".report-row").forEach((row) => {
+  reportList.querySelectorAll(".report-row:not(.is-done):not(.is-locked)").forEach((row) => {
     const came = row.querySelector(".report-came").value === "yes";
     const note = row.querySelector(".report-note");
     row.classList.toggle("is-came", came);
@@ -1500,94 +1594,112 @@ async function markEventReported(ev, attendedIds) {
   });
 }
 
-async function submitReport() {
+// 一位一位回報：先把紀錄寫進他的名單，再把「這一位回報過了」記在活動上。
+// 全部回報完才把活動標成已回報，提醒才會消失。
+async function submitOneReport(entryId, btn) {
   const ev = allEvents.find((x) => x.id === reportingEventId);
   if (!ev) return;
-  // 每個人各自的出席與備註
-  const rows = [...reportList.querySelectorAll(".report-row")].map((row) => ({
-    id: row.dataset.id,
-    came: row.querySelector(".report-came").value === "yes",
-    note: row.querySelector(".report-note").value.trim(),
-  }));
+  const row = reportList.querySelector(`.report-row[data-id="${CSS.escape(entryId)}"]`);
+  if (!row) return;
+  const came = row.querySelector(".report-came").value === "yes";
+  const note = row.querySelector(".report-note").value.trim();
   const date = eventEndDate(ev);
+  const entry = allEntries.find((en) => en.id === entryId);
+  const ref = entry && entryRef(entry);
+  if (!ref) {
+    reportStatus.textContent = `${entryName(entryId)} 這一筆你改不動，請學長姐回報。`;
+    return;
+  }
 
-  reportSubmitBtn.disabled = true;
+  btn.disabled = true;
   reportStatus.textContent = "處理中...";
-  let added = 0;
-  let absent = 0;
-  let skipped = 0;
-  const failures = [];
-
-  for (const { id, came, note } of rows) {
-    const entry = allEntries.find((en) => en.id === id);
-    const ref = entry && entryRef(entry);
-    if (!ref) {
-      // 身分階梯擋住的人這邊改不動（規則也會擋），如實回報
-      failures.push(entryName(id) || id);
-      continue;
-    }
-
+  try {
     if (came) {
       const activities = entry.activities || [];
       // 同一場活動同一天已經有紀錄就不重複寫
-      if (activities.some((a) => (a.activity || "").trim() === ev.name.trim() && a.date === date)) {
-        skipped += 1;
-        continue;
-      }
-      try {
+      const already = activities.some(
+        (a) => (a.activity || "").trim() === ev.name.trim() && a.date === date
+      );
+      if (!already) {
         await updateDoc(ref, {
           activities: [...activities, { activity: ev.name, date, reaction: note }],
           updatedAt: serverTimestamp(),
           updatedBy: auth.currentUser?.email || null,
         });
-        added += 1;
-      } catch (err) {
-        failures.push(`${entry.name}：${err.code || err.message}`);
       }
-      continue;
+    } else if (note) {
+      // 沒來的人不能寫成活動紀錄（那會讓參與度變高），改記在聯絡紀錄裡
+      const talks = entry.talks || [];
+      const content = `未參加「${ev.name}」：${note}`;
+      if (!talks.some((t) => t.date === date && (t.content || "").trim() === content)) {
+        await updateDoc(ref, {
+          talks: [...talks, { date, content }],
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser?.email || null,
+        });
+      }
     }
 
-    // 沒來的人不能寫成活動紀錄（那會讓參與度變高），改記在聯絡紀錄裡
-    if (!note) continue;
-    const talks = entry.talks || [];
-    const content = `未參加「${ev.name}」：${note}`;
-    if (talks.some((t) => t.date === date && (t.content || "").trim() === content)) {
-      skipped += 1;
-      continue;
-    }
-    try {
-      await updateDoc(ref, {
-        talks: [...talks, { date, content }],
-        updatedAt: serverTimestamp(),
-        updatedBy: auth.currentUser?.email || null,
-      });
-      absent += 1;
-    } catch (err) {
-      failures.push(`${entry.name}：${err.code || err.message}`);
-    }
-  }
-
-  try {
-    await markEventReported(
-      ev,
-      rows.filter((r) => r.came).map((r) => r.id)
-    );
+    const reports = {
+      ...(ev.reports || {}),
+      [entryId]: {
+        came,
+        note,
+        by: auth.currentUser?.email || null,
+        at: new Date().toISOString(),
+      },
+    };
+    const targets = reportTargets(ev);
+    const allDone = targets.every((id) => reports[id]);
+    await updateDoc(unitDoc(EVENTS_COLLECTION, ev.id), {
+      reports,
+      ...(allDone
+        ? {
+            attendanceReported: true,
+            attendedIds: targets.filter((id) => reports[id]?.came),
+            reportedAt: serverTimestamp(),
+            reportedBy: auth.currentUser?.email || null,
+          }
+        : {}),
+    });
+    reportStatus.textContent = allDone
+      ? "全部回報完了，提醒會消失。"
+      : `已回報 ${entryName(entryId)}。`;
+    if (allDone) closeReportModal();
   } catch (err) {
-    failures.push(`活動標記：${err.code || err.message}`);
+    btn.disabled = false;
+    reportStatus.textContent =
+      err.code === "permission-denied"
+        ? `${entryName(entryId)} 這一筆你改不動，請學長姐回報。`
+        : "回報失敗：" + err.message;
   }
-
-  reportSubmitBtn.disabled = false;
-  const parts = [`已寫入 ${added} 人的活動紀錄`];
-  if (absent > 0) parts.push(`${absent} 人的缺席原因記到聯絡紀錄`);
-  if (skipped > 0) parts.push(`${skipped} 人本來就有這筆`);
-  if (failures.length > 0) parts.push(`${failures.length} 人失敗（${failures[0]}）`);
-  alert(parts.join("，") + "。");
-  if (failures.length === 0) closeReportModal();
-  else reportStatus.textContent = parts.join("，") + "。";
-  renderReportNotice();
 }
 
-reportSubmitBtn.addEventListener("click", submitReport);
+// 回報錯了要能改：把那一列還原成可以填的樣子
+function redoReport(entryId) {
+  const ev = allEvents.find((x) => x.id === reportingEventId);
+  if (!ev) return;
+  const row = reportList.querySelector(`.report-row[data-id="${CSS.escape(entryId)}"]`);
+  if (!row) return;
+  row.outerHTML = reportRowHtml({
+    id: entryId,
+    name: entryName(entryId) || "（對象已刪除）",
+    done: null,
+    permission: reportPermission(entryId),
+  });
+  applyReportRowState();
+}
+
+reportList.addEventListener("click", (e) => {
+  const one = e.target.closest("[data-report-one]");
+  if (one) {
+    submitOneReport(one.dataset.reportOne, one);
+    return;
+  }
+  const redo = e.target.closest("[data-report-redo]");
+  if (redo) redoReport(redo.dataset.reportRedo);
+});
+
 reportCloseBtn.addEventListener("click", closeReportModal);
 reportModal.addEventListener("click", (e) => {
   if (e.target === reportModal) closeReportModal();
@@ -1595,11 +1707,22 @@ reportModal.addEventListener("click", (e) => {
 reportSkipBtn.addEventListener("click", async () => {
   const ev = allEvents.find((x) => x.id === reportingEventId);
   if (!ev) return;
-  if (!confirm(`「${ev.name}」不用回報參與狀況嗎？\n\n提醒會消失，之後仍可在活動管理裡手動補紀錄。`)) {
+  const { left } = reportProgress(ev);
+  if (
+    !confirm(
+      `「${ev.name}」不用再回報了嗎？${left ? `\n\n還有 ${left} 位沒回報。` : ""}\n\n` +
+        "提醒會對所有人消失，之後仍可在活動管理裡手動補紀錄。"
+    )
+  ) {
     return;
   }
   try {
-    await markEventReported(ev, []);
+    // 已經回報過「有參加」的人照舊算進出席名單
+    const reports = ev.reports || {};
+    await markEventReported(
+      ev,
+      reportTargets(ev).filter((id) => reports[id]?.came)
+    );
     closeReportModal();
     renderReportNotice();
   } catch (err) {

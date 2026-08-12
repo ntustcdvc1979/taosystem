@@ -1327,6 +1327,62 @@ button {
   font-size: 0.8rem;
 }
 
+/* 已經有人回報過的那一列：只顯示結果 */
+.report-row.is-done {
+  background: #f6f7f9;
+  border-color: #e6e9ec;
+}
+
+.report-result {
+  margin-left: auto;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
+.report-result.is-came {
+  background: #e6f4ec;
+  color: #1e8a4c;
+}
+
+.report-result.is-absent {
+  background: #f1f2f4;
+  color: #7a828c;
+}
+
+.report-done-note,
+.report-done-by {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: #7a828c;
+}
+
+/* 同階以上的人我改不動，請學長姐填 */
+.report-row.is-locked {
+  background: #fffaf0;
+  border-color: #f0e0bd;
+}
+
+.report-locked {
+  margin-left: auto;
+  color: #a4761a;
+  font-size: 0.8rem;
+}
+
+.report-progress {
+  margin: 0.2rem 0 0;
+  color: #a4761a;
+  font-size: 0.85rem;
+}
+
+.report-progress.is-done {
+  color: #1e8a4c;
+}
+
+.report-progress:empty {
+  display: none;
+}
+
 .report-note {
   display: block;
   width: 100%;
