@@ -12,7 +12,10 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  getDocs,
   onSnapshot,
+  query,
+  where,
   serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "./firebase.js";
@@ -38,6 +41,8 @@ let lessonRows = [];
 let editingClassId = null;
 let editingCourseId = null;
 let linkedPick = { id: "", name: "" };
+// 新增／編輯視窗裡正在編的「班別＋身分」清單（一個人可以有好幾組）
+let roleRows = [];
 
 const $ = (id) => document.getElementById(id);
 
@@ -71,6 +76,7 @@ export function startClassroom(context) {
       classEntries = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderClassList();
       if (lessonEntryId) refreshLessonModal();
+      reconcileProfiles();
     },
     (err) => {
       if (err.code !== "permission-denied") console.error(err);
@@ -103,26 +109,58 @@ export function stopClassroom() {
 }
 
 // ---------- 名單 ----------
+// 一個人可以同時在好幾個班、而且每個班的身分未必一樣（新民的班員、至善的護班人員）。
+// 舊資料只有單一的 classGroup／memberType，讀的時候一律轉成同一種形狀。
+export function entryRoles(entry) {
+  const roles = Array.isArray(entry?.roles)
+    ? entry.roles.filter((r) => r && r.group)
+    : [];
+  if (roles.length) return roles.map((r) => ({ group: r.group, type: r.type || MEMBER_TYPES[0] }));
+  return [{ group: entry?.classGroup || "", type: entry?.memberType || MEMBER_TYPES[0] }];
+}
+
+function roleLabel(role) {
+  return `${role.group || "未分班"}・${role.type || MEMBER_TYPES[0]}`;
+}
+
+// 名單排序用：他最前面的那個班在班別清單裡的位置
+function firstGroupOrder(entry) {
+  return Math.min(
+    ...entryRoles(entry).map((r) => {
+      const i = CLASS_GROUPS.indexOf(r.group);
+      return i < 0 ? CLASS_GROUPS.length : i;
+    })
+  );
+}
+
 function visibleClassEntries() {
   const q = $("class-search").value.trim().toLowerCase();
   const group = $("class-filter-group").value;
   const type = $("class-filter-type").value;
   return classEntries
-    .filter((en) => !group || en.classGroup === group)
-    .filter((en) => !type || en.memberType === type)
+    .filter((en) =>
+      // 挑某個班別＝該班的班員與護班人員都算；兩個條件一起用時要同一組角色同時符合
+      entryRoles(en).some((r) => (!group || r.group === group) && (!type || r.type === type))
+    )
     .filter((en) => {
       if (!q) return true;
-      return [en.name, en.department, en.linkedName, en.note]
+      return [en.name, en.department, en.linkedName, en.note, ...entryRoles(en).map(roleLabel)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(q);
     })
     .sort(
-      (a, b) =>
-        CLASS_GROUPS.indexOf(a.classGroup) - CLASS_GROUPS.indexOf(b.classGroup) ||
-        (a.name || "").localeCompare(b.name || "")
+      (a, b) => firstGroupOrder(a) - firstGroupOrder(b) || (a.name || "").localeCompare(b.name || "")
     );
+}
+
+// 每一筆上課紀錄記在哪一班、以什麼身分（舊紀錄沒有就用名單上的第一個角色頂著）
+function lessonRole(entry, lesson) {
+  if (lesson?.group || lesson?.type) {
+    return { group: lesson.group || "", type: lesson.type || MEMBER_TYPES[0] };
+  }
+  return entryRoles(entry)[0];
 }
 
 // 這個人最近一次上課紀錄的摘要
@@ -130,8 +168,9 @@ function lastLessonText(entry) {
   const lessons = [...(entry.lessons || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   if (lessons.length === 0) return "尚無上課紀錄";
   const l = lessons[0];
+  const role = lessonRole(entry, l);
   const bits = [l.date, l.course].filter(Boolean);
-  if (entry.memberType === "護班人員") {
+  if (role.type === "護班人員") {
     if (l.attend) bits.push(l.attend);
     if (l.duties) bits.push(l.duties);
   } else {
@@ -142,10 +181,27 @@ function lastLessonText(entry) {
   return bits.join("・");
 }
 
+function roleBadges(entry, highlightGroup) {
+  return entryRoles(entry)
+    .map((r) => {
+      const hit = highlightGroup && r.group === highlightGroup ? " is-match" : "";
+      return `<span class="class-badge role-badge type-${r.type === "護班人員" ? "hu" : "ban"}${hit}">
+        <span class="role-group">${esc(r.group || "未分班")}</span>${esc(r.type || MEMBER_TYPES[0])}</span>`;
+    })
+    .join("");
+}
+
 function renderClassList() {
   const list = $("class-list");
   if (!list) return;
   const entries = visibleClassEntries();
+  const group = $("class-filter-group").value;
+  const count = $("class-count");
+  if (count) {
+    count.textContent = classEntries.length
+      ? `${entries.length} / ${classEntries.length} 人`
+      : "";
+  }
   if (entries.length === 0) {
     list.innerHTML = `<p class="empty-text">${classEntries.length === 0 ? "尚無班務名單" : "沒有符合條件的人"}</p>`;
     return;
@@ -157,8 +213,7 @@ function renderClassList() {
       <div class="person-card class-card" data-id="${en.id}">
         <div class="class-card-head">
           <span class="class-name">${esc(en.name)}</span>
-          <span class="class-badge group-${esc(en.classGroup || "")}">${esc(en.classGroup || "未分班")}</span>
-          <span class="class-badge type-${en.memberType === "護班人員" ? "hu" : "ban"}">${esc(en.memberType || "班員")}</span>
+          ${roleBadges(en, group)}
           ${en.gender ? `<span class="gender-badge ${en.gender === "坤" ? "gender-kun" : "gender-qian"}">${esc(en.gender)}</span>` : ""}
         </div>
         <div class="class-card-meta">
@@ -184,8 +239,12 @@ function openClassModal(entry = null) {
   $("class-field-name").value = entry?.name || "";
   $("class-field-gender").value = entry?.gender || "";
   $("class-field-department").value = entry?.department || "";
-  $("class-field-group").value = entry?.classGroup || CLASS_GROUPS[0];
-  $("class-field-type").value = entry?.memberType || MEMBER_TYPES[0];
+  // 目前工具列選著哪個班，新增時就先帶那個班
+  const preset = $("class-filter-group").value;
+  roleRows = entry
+    ? entryRoles(entry).map((r) => ({ ...r }))
+    : [{ group: preset || CLASS_GROUPS[0], type: MEMBER_TYPES[0] }];
+  renderRoleRows();
   $("class-field-note").value = entry?.note || "";
   linkedPick = { id: entry?.linkedEntryId || "", name: entry?.linkedName || "" };
   hideNameSuggest();
@@ -193,6 +252,43 @@ function openClassModal(entry = null) {
   $("class-delete-btn").classList.toggle("hidden", !entry);
   $("class-modal").classList.remove("hidden");
   $("class-field-name").focus();
+}
+
+// 「班別＋身分」一組一列，可以再加、也可以移除（至少留一列）
+function renderRoleRows() {
+  $("class-roles").innerHTML = roleRows
+    .map(
+      (r, i) => `
+      <div class="class-role-row" data-i="${i}">
+        <select class="class-role-group" aria-label="班別">
+          ${CLASS_GROUPS.map(
+            (g) => `<option value="${esc(g)}" ${g === r.group ? "selected" : ""}>${esc(g)}</option>`
+          ).join("")}
+        </select>
+        <select class="class-role-type" aria-label="身分">
+          ${MEMBER_TYPES.map(
+            (t) => `<option value="${esc(t)}" ${t === r.type ? "selected" : ""}>${esc(t)}</option>`
+          ).join("")}
+        </select>
+        <button type="button" class="btn-secondary btn-small class-role-del"
+          ${roleRows.length === 1 ? "disabled" : ""} aria-label="移除這個班別">✕</button>
+      </div>`
+    )
+    .join("");
+}
+
+function readRoleRows() {
+  const rows = [...$("class-roles").querySelectorAll(".class-role-row")].map((row) => ({
+    group: row.querySelector(".class-role-group").value,
+    type: row.querySelector(".class-role-type").value,
+  }));
+  // 同一個班只留一筆，避免重複
+  const seen = new Set();
+  return rows.filter((r) => {
+    if (!r.group || seen.has(r.group)) return false;
+    seen.add(r.group);
+    return true;
+  });
 }
 
 function renderLinkedPick() {
@@ -250,14 +346,25 @@ async function saveClassEntry() {
     $("class-field-name").focus();
     return;
   }
+  const roles = readRoleRows();
+  if (roles.length === 0) {
+    alert("至少要有一個班別。");
+    return;
+  }
+  const gender = $("class-field-gender").value;
+  const department = $("class-field-department").value.trim();
   const data = {
     name,
-    gender: $("class-field-gender").value,
-    department: $("class-field-department").value.trim(),
-    classGroup: $("class-field-group").value,
-    memberType: $("class-field-type").value,
+    gender,
+    department,
+    roles,
+    // 第一個角色也照舊寫進 classGroup／memberType，舊版本讀得懂
+    classGroup: roles[0].group,
+    memberType: roles[0].type,
     linkedEntryId: linkedPick.id || null,
     linkedName: linkedPick.name || "",
+    // 記下這次跟道務名單對齊時的樣子，之後才分得出是哪一邊改的
+    daoProfile: linkedPick.id ? { gender, department } : null,
     note: $("class-field-note").value.trim(),
     updatedAt: serverTimestamp(),
     updatedBy: auth.currentUser?.email || null,
@@ -274,9 +381,116 @@ async function saveClassEntry() {
       });
     }
     $("class-modal").classList.add("hidden");
+    if (linkedPick.id) await pushProfileToDao(linkedPick.id, { gender, department });
   } catch (err) {
     alert("儲存失敗：" + err.message);
   }
+}
+
+// ---------- 性別／系級兩邊同步 ----------
+// 關聯到道務名單的人，性別與系級是同一份資料：改班務這邊就推回道務那邊。
+// 姓名索引（rosterIndex）同單位都寫得進去，道務名單本身則要有道務權限，
+// 沒有的話只更新索引，並老實跟使用者說道務那邊沒改到。
+async function pushProfileToDao(daoEntryId, { gender, department }) {
+  const local = ctx.daoNames().find((p) => p.id === daoEntryId);
+  if (local && (local.gender || "") === (gender || "") && (local.department || "") === (department || "")) {
+    return; // 本來就一樣，不用寫
+  }
+  try {
+    await setDoc(
+      doc(db, "units", ctx.unitId(), "rosterIndex", daoEntryId),
+      { gender: gender || "", department: department || "" },
+      { merge: true }
+    );
+    if (local) {
+      local.gender = gender || "";
+      local.department = department || "";
+    }
+  } catch (err) {
+    if (err.code !== "permission-denied") console.error("同步姓名索引失敗", err);
+  }
+  try {
+    await updateDoc(doc(db, "units", ctx.unitId(), "entries", daoEntryId), {
+      gender: gender || "",
+      department: department || "",
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+  } catch (err) {
+    if (err.code === "permission-denied") {
+      alert(
+        "班務名單已儲存。\n\n" +
+          "但性別／系級沒能同步到道務名單——你看不到道務系統的那一筆（沒有道務權限，或那一位跟你同階以上）。\n" +
+          "請有權限的人到道務名單改一次，或直接由他那邊改，班務這邊會自動跟上。"
+      );
+    } else {
+      console.error("同步道務名單失敗", err);
+    }
+  }
+}
+
+// 道務那邊改了性別／系級 → 關聯到他的班務名單跟著改。
+// 由 main.js 在存完道務名單之後呼叫；沒有班務權限就寫不進去，靜靜略過，
+// 之後班務那邊自己會從姓名索引補回來（reconcileProfiles）。
+export async function syncProfileFromDao(daoEntryId, { gender, department }) {
+  if (!ctx?.unitId?.()) return;
+  try {
+    const snap = await getDocs(query(col(ENTRIES), where("linkedEntryId", "==", daoEntryId)));
+    await Promise.all(
+      snap.docs.map((d) =>
+        updateDoc(d.ref, {
+          gender: gender || "",
+          department: department || "",
+          daoProfile: { gender: gender || "", department: department || "" },
+        })
+      )
+    );
+  } catch (err) {
+    if (err.code !== "permission-denied") console.error("同步班務名單失敗", err);
+  }
+}
+
+// 這一筆班務名單要不要跟著道務改？
+// 只有在「道務那邊自從上次對齊之後改過」才跟著改，
+// 這樣班務自己剛改、還沒推回道務的內容不會被蓋掉。回傳 null 代表不用動。
+export function profilePatch(entry, person) {
+  if (!person) return null;
+  const seen = entry.daoProfile || {};
+  const aligned = { gender: person.gender || "", department: person.department || "" };
+  const patch = {};
+  for (const field of ["gender", "department"]) {
+    if (aligned[field] === (seen[field] || "")) continue; // 道務那邊沒動過
+    if ((entry[field] || "") !== aligned[field]) patch[field] = aligned[field];
+  }
+  const alreadyAligned =
+    (seen.gender || "") === aligned.gender && (seen.department || "") === aligned.department;
+  if (Object.keys(patch).length === 0 && alreadyAligned) return null;
+  return { ...patch, daoProfile: aligned };
+}
+
+// 補救用：班務名單載入時，比對姓名索引裡的性別／系級。
+// 道務那邊改完可能寫不進班務名單（那個人沒有班務權限），這裡補上。
+async function reconcileProfiles() {
+  const dao = ctx?.daoNames?.() || [];
+  if (dao.length === 0) return;
+  const jobs = [];
+  for (const en of classEntries) {
+    if (!en.linkedEntryId) continue;
+    const patch = profilePatch(en, dao.find((p) => p.id === en.linkedEntryId));
+    if (patch) jobs.push(updateDoc(ref(ENTRIES, en.id), patch));
+  }
+  if (jobs.length === 0) return;
+  try {
+    await Promise.all(jobs);
+  } catch (err) {
+    if (err.code !== "permission-denied") console.error("對齊道務資料失敗", err);
+  }
+}
+
+// 道務名單重新載入之後（切到班務、或剛存完道務名單）叫一次
+export function refreshDaoNames() {
+  if (!unsubEntries) return;
+  reconcileProfiles();
 }
 
 async function deleteClassEntry() {
@@ -378,7 +592,13 @@ async function saveCourse() {
 function openLessonModal(entry) {
   lessonEntryId = entry.id;
   lessonRows = [...(entry.lessons || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  $("lesson-modal-name").textContent = `${entry.name}（${entry.memberType || "班員"}）`;
+  const roles = entryRoles(entry);
+  $("lesson-modal-name").textContent = `${entry.name}（${roles.map(roleLabel).join("、")}）`;
+  // 他有好幾個班就要挑一個：這筆紀錄算在哪一班、以什麼身分
+  $("lesson-role").innerHTML = roles
+    .map((r, i) => `<option value="${i}">${esc(roleLabel(r))}</option>`)
+    .join("");
+  $("lesson-role").classList.toggle("hidden", roles.length < 2);
   $("lesson-date").value = today();
   $("lesson-course").value = "";
   $("lesson-attend").value = ATTEND_OPTIONS[0];
@@ -387,9 +607,17 @@ function openLessonModal(entry) {
   $("lesson-interaction").value = "";
   $("lesson-duties").value = "";
   $("lesson-comment").value = "";
-  applyLessonFields(entry.memberType);
-  renderLessonRows(entry.memberType);
+  applyLessonFields(currentLessonRole()?.type);
+  renderLessonRows();
   $("lesson-modal").classList.remove("hidden");
+}
+
+// 正在登錄的那一筆算哪個角色
+function currentLessonRole() {
+  const entry = classEntries.find((e) => e.id === lessonEntryId);
+  if (!entry) return null;
+  const roles = entryRoles(entry);
+  return roles[Number($("lesson-role").value) || 0] || roles[0];
 }
 
 // 班員記學習狀況、護班人員記承擔狀況，欄位不一樣
@@ -399,11 +627,26 @@ function applyLessonFields(memberType) {
   $("lesson-hu-fields").classList.toggle("hidden", !isHu);
 }
 
-function renderLessonRows(memberType) {
-  const isHu = memberType === "護班人員";
+// 挑了課程就順便對到那個班：課程屬於哪一班，他在那一班的身分就是這筆紀錄的身分
+function syncLessonRoleToCourse() {
+  const entry = classEntries.find((e) => e.id === lessonEntryId);
+  if (!entry) return;
+  const course = courses.find((c) => c.name === $("lesson-course").value);
+  if (course?.classGroup) {
+    const idx = entryRoles(entry).findIndex((r) => r.group === course.classGroup);
+    if (idx >= 0) $("lesson-role").value = String(idx);
+  }
+  applyLessonFields(currentLessonRole()?.type);
+}
+
+function renderLessonRows() {
+  const entry = classEntries.find((e) => e.id === lessonEntryId);
+  const multi = entry ? entryRoles(entry).length > 1 : false;
   $("lesson-list").innerHTML = lessonRows.length
     ? lessonRows
         .map((l, i) => {
+          const role = lessonRole(entry, l);
+          const isHu = role.type === "護班人員";
           const chips = isHu
             ? [
                 l.attend ? `<span class="lesson-chip">${esc(l.attend)}</span>` : "",
@@ -420,6 +663,7 @@ function renderLessonRows(memberType) {
             <div class="lesson-row-head">
               <span class="lesson-date">${esc(l.date || "未填日期")}</span>
               <span class="lesson-course">${esc(l.course || "")}</span>
+              ${multi ? `<span class="lesson-role">${esc(roleLabel(role))}</span>` : ""}
               ${chips.join("")}
               <button type="button" class="btn-danger btn-small" data-lesson-del="${i}">刪除</button>
             </div>
@@ -435,7 +679,7 @@ function refreshLessonModal() {
   const entry = classEntries.find((e) => e.id === lessonEntryId);
   if (!entry) return;
   lessonRows = [...(entry.lessons || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  renderLessonRows(entry.memberType);
+  renderLessonRows();
 }
 
 async function saveLessons() {
@@ -450,10 +694,13 @@ async function saveLessons() {
 async function addLesson() {
   const entry = classEntries.find((e) => e.id === lessonEntryId);
   if (!entry) return;
-  const isHu = entry.memberType === "護班人員";
+  const role = currentLessonRole() || entryRoles(entry)[0];
+  const isHu = role.type === "護班人員";
   const row = {
     date: $("lesson-date").value || today(),
     course: $("lesson-course").value,
+    group: role.group || "",
+    type: role.type || MEMBER_TYPES[0],
     attend: $("lesson-attend").value,
     comment: $("lesson-comment").value.trim(),
   };
@@ -472,7 +719,7 @@ async function addLesson() {
     $("lesson-duties").value = "";
     $("lesson-notes").checked = false;
     $("lesson-asked").checked = false;
-    renderLessonRows(entry.memberType);
+    renderLessonRows();
   } catch (err) {
     alert("儲存失敗：" + err.message);
   }
@@ -507,9 +754,21 @@ export function initClassroom(context) {
   $("class-modal").addEventListener("click", (e) => {
     if (e.target === $("class-modal")) $("class-modal").classList.add("hidden");
   });
-  $("class-field-type").addEventListener("change", () => {
-    // 換身分時，紀錄欄位的種類也跟著換（下次開紀錄視窗才會用到）
-    applyLessonFields($("class-field-type").value);
+  // 班別＋身分：可以再加一組、也可以移除
+  $("class-role-add").addEventListener("click", () => {
+    const used = new Set(readRoleRows().map((r) => r.group));
+    const next = CLASS_GROUPS.find((g) => !used.has(g));
+    if (!next) return; // 每個班都加過了
+    roleRows = [...readRoleRows(), { group: next, type: MEMBER_TYPES[0] }];
+    renderRoleRows();
+  });
+  $("class-roles").addEventListener("click", (e) => {
+    const del = e.target.closest(".class-role-del");
+    if (!del) return;
+    const i = Number(del.closest(".class-role-row").dataset.i);
+    roleRows = readRoleRows().filter((_, idx) => idx !== i);
+    if (roleRows.length === 0) roleRows = [{ group: CLASS_GROUPS[0], type: MEMBER_TYPES[0] }];
+    renderRoleRows();
   });
 
   // 姓名打一打就查道務名單
@@ -571,6 +830,8 @@ export function initClassroom(context) {
   $("lesson-modal").addEventListener("click", (e) => {
     if (e.target === $("lesson-modal")) $("lesson-close-x").click();
   });
+  $("lesson-course").addEventListener("change", syncLessonRoleToCourse);
+  $("lesson-role").addEventListener("change", () => applyLessonFields(currentLessonRole()?.type));
   $("lesson-add-btn").addEventListener("click", addLesson);
   $("lesson-list").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-lesson-del]");
@@ -580,7 +841,7 @@ export function initClassroom(context) {
     lessonRows.splice(Number(btn.dataset.lessonDel), 1);
     try {
       await saveLessons();
-      renderLessonRows(entry.memberType);
+      renderLessonRows();
     } catch (err) {
       alert("刪除失敗：" + err.message);
     }
@@ -591,4 +852,5 @@ export function initClassroom(context) {
 export function classInfoFor(daoEntryId) {
   return classEntries.find((c) => c.linkedEntryId === daoEntryId) || null;
 }
+
 

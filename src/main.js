@@ -1,7 +1,13 @@
 import "./style.css";
 import { handleInAppBrowser } from "./inapp.js";
 import { createTagEditor } from "./tageditor.js";
-import { initClassroom, startClassroom, stopClassroom } from "./classroom.js";
+import {
+  initClassroom,
+  startClassroom,
+  stopClassroom,
+  syncProfileFromDao,
+  refreshDaoNames,
+} from "./classroom.js";
 import { auth, db } from "./firebase.js";
 import {
   getSharedApiKey,
@@ -104,6 +110,8 @@ const newMemberEmail = document.getElementById("new-member-email");
 const newMemberRole = document.getElementById("new-member-role");
 const newMemberClassRole = document.getElementById("new-member-class-role");
 const addMemberBtn = document.getElementById("add-member-btn");
+const memberSearch = document.getElementById("member-search");
+const membersCount = document.getElementById("members-count");
 
 // 身分（權限階梯）
 const viewRankWrap = document.getElementById("view-rank-wrap");
@@ -245,6 +253,10 @@ function showSystem(system) {
   // AI 成全助手看的是道務名單，班務系統就不出現
   chatFab.classList.toggle("hidden", isClass || !auth.currentUser);
   if (isClass) chatPanel.classList.add("hidden");
+  // 切進班務時對一次姓名索引：道務那邊改過的性別／系級要跟上
+  if (isClass && auth.currentUser) {
+    loadRosterNames().then(() => refreshDaoNames());
+  }
   try {
     localStorage.setItem(systemKey(), currentSystem);
   } catch {
@@ -668,12 +680,21 @@ let rosterNames = [];
 // 寫不進去不該擋住存檔，但一定要講出來——不然使用者只會發現「綁定時找不到人」卻不知道為什麼。
 async function writeRosterIndex(entryId, data) {
   try {
-    await setDoc(unitDoc(ROSTER_INDEX_COLLECTION, entryId), {
+    const indexed = {
       name: data.name || "",
       department: data.department || "",
       gender: data.gender || "",
       roleRank: Number(data.roleRank) || 0,
-    });
+    };
+    await setDoc(unitDoc(ROSTER_INDEX_COLLECTION, entryId), indexed);
+    // 本地那份也跟著更新，班務那邊才對得起來（它讀的是同一個陣列）
+    const local = rosterNames.find((p) => p.id === entryId);
+    if (local) Object.assign(local, indexed);
+    else rosterNames.push({ id: entryId, ...indexed });
+    // 性別與系級兩個系統共用：關聯到這一位的班務名單跟著改
+    if (myClassRank >= 1) {
+      syncProfileFromDao(entryId, { gender: indexed.gender, department: indexed.department });
+    }
     return true;
   } catch (err) {
     console.error("寫入綁定索引失敗", err);
@@ -865,6 +886,7 @@ function openMembersModal() {
   membersUnitName.textContent = myUnitName;
   membersStatus.textContent = "";
   newMemberEmail.value = "";
+  memberSearch.value = "";
   membersModal.classList.remove("hidden");
   subscribeMembers();
 }
@@ -926,60 +948,87 @@ function effectiveEntryId(member) {
   return assigned.at > self.at ? assigned.entryId : self.entryId;
 }
 
+// 頭像顏色：同一個 Email 永遠同一色，一眼分得出誰是誰
+const MEMBER_COLORS = ["#2f6fed", "#7b5cd6", "#0f9b8e", "#d97706", "#c2417a", "#4f7a2b"];
+function memberColor(email) {
+  let h = 0;
+  for (const ch of email) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  return MEMBER_COLORS[h % MEMBER_COLORS.length];
+}
+
+function roleSelect(cls, email, labels, current, prefix) {
+  return `<select class="${cls}" data-email="${escapeHtml(email)}" aria-label="${prefix}身分">
+      ${RANK_CHOICES.filter((r) => r <= maxAssignableRank())
+        .map((r) => `<option value="${r}" ${r === current ? "selected" : ""}>${labels[r]}</option>`)
+        .join("")}
+    </select>`;
+}
+
 function renderMembers() {
   const me = (auth.currentUser?.email || "").toLowerCase();
+  const q = memberSearch.value.trim().toLowerCase();
+  const rows = unitMembers.filter((m) => {
+    if (!q) return true;
+    const bound = entryName(effectiveEntryId(m)) || "";
+    return `${m.email} ${bound}`.toLowerCase().includes(q);
+  });
+  membersCount.textContent = unitMembers.length
+    ? `${rows.length} / ${unitMembers.length} 人`
+    : "";
   if (unitMembers.length === 0) {
     membersList.innerHTML = `<p class="hint-text">目前沒有任何使用者。</p>`;
     return;
   }
-  membersList.innerHTML = unitMembers
+  if (rows.length === 0) {
+    membersList.innerHTML = `<p class="hint-text">沒有符合「${escapeHtml(memberSearch.value.trim())}」的帳號。</p>`;
+    return;
+  }
+  membersList.innerHTML = rows
     .map((m) => {
       const isMe = m.email.toLowerCase() === me;
       // 兩個系統各自授權：沒設定就是「未授權」，那邊進不去
       const rank = effectiveDaoRank(m);
       const classRank = effectiveClassRank(m);
-      // 身分只能設到自己這一階以下，也不能改自己的（規則也擋著）
-      const roleCell = isMe
-        ? `<span class="member-role-label">道務：${ACCOUNT_ROLE_LABELS[rank]}</span>`
-        : `<select class="member-role" data-email="${escapeHtml(m.email)}" title="道務身分">
-             ${RANK_CHOICES.filter((r) => r <= maxAssignableRank())
-               .map(
-                 (r) =>
-                   `<option value="${r}" ${r === rank ? "selected" : ""}>道務：${ACCOUNT_ROLE_LABELS[r]}</option>`
-               )
-               .join("")}
-           </select>`;
-      // 班務身分另外設；講師以上兩邊共通，所以那兩階由道務身分帶過來、這裡不重複設定
-      const sharedRank = classRank >= ENTRY_ROLE_RANK && rank >= ENTRY_ROLE_RANK;
-      const classCell =
-        isMe || sharedRank
-          ? `<span class="member-role-label">班務：${CLASS_ROLE_LABELS[classRank]}</span>`
-          : `<select class="member-class-role" data-email="${escapeHtml(m.email)}" title="班務身分">
-               ${RANK_CHOICES.filter((r) => r <= maxAssignableRank())
-                 .map(
-                   (r) =>
-                     `<option value="${r}" ${r === classRank ? "selected" : ""}>班務：${CLASS_ROLE_LABELS[r]}</option>`
-                 )
-                 .join("")}
-             </select>`;
       // 幫他指定「他是名單上的誰」——對方沒登入過也設得起來（寫在他的 memberEmails 上）。
       // 顯示的是實際生效的那一筆，所以他自己綁的也看得到。
       const entryId = effectiveEntryId(m);
       const bound = entryId ? entryName(entryId) || "（找不到那一筆）" : "";
+      // 身分只能設到自己這一階以下，也不能改自己的（規則也擋著）
+      const daoField = isMe
+        ? `<span class="role-chip ${rank ? "" : "is-off"}">${ACCOUNT_ROLE_LABELS[rank]}</span>`
+        : roleSelect("member-role", m.email, ACCOUNT_ROLE_LABELS, rank, "道務");
+      // 講師以上兩邊共通，那兩階由道務身分帶過來、這裡不重複設定
+      const sharedRank = classRank >= ENTRY_ROLE_RANK && rank >= ENTRY_ROLE_RANK;
+      const classField =
+        isMe || sharedRank
+          ? `<span class="role-chip ${classRank ? "" : "is-off"}">${CLASS_ROLE_LABELS[classRank]}</span>`
+          : roleSelect("member-class-role", m.email, CLASS_ROLE_LABELS, classRank, "班務");
+      const avatar = (bound || m.email).trim().charAt(0).toUpperCase();
       return `
-        <div class="member-row">
-          <span class="member-email">${escapeHtml(m.email)}${isMe ? '<span class="member-self">你</span>' : ""}</span>
-          ${roleCell}
-          ${classCell}
-          <button type="button" class="btn-secondary btn-small member-bind"
-            data-email="${escapeHtml(m.email)}" data-entry="${escapeHtml(entryId)}">
-            ${bound ? `綁定：${escapeHtml(bound)}` : "指定綁定"}
-          </button>
-          ${
-            isMe
-              ? `<span class="hint-text">不能移除自己</span>`
-              : `<button type="button" class="btn-danger btn-small member-remove" data-email="${escapeHtml(m.email)}">移除</button>`
-          }
+        <div class="member-card${isMe ? " is-me" : ""}">
+          <div class="member-card-top">
+            <span class="member-avatar" style="background:${memberColor(m.email)}">${escapeHtml(avatar)}</span>
+            <div class="member-id">
+              <div class="member-email">${escapeHtml(m.email)}${isMe ? '<span class="member-self">你</span>' : ""}</div>
+              <div class="member-bound ${bound ? "" : "is-unbound"}">
+                ${bound ? `名單：${escapeHtml(bound)}` : "尚未綁定名單"}
+              </div>
+            </div>
+            ${
+              isMe
+                ? `<span class="member-note">不能移除自己</span>`
+                : `<button type="button" class="member-remove" title="移除這個帳號"
+                     aria-label="移除 ${escapeHtml(m.email)}" data-email="${escapeHtml(m.email)}">✕</button>`
+            }
+          </div>
+          <div class="member-fields">
+            <label class="member-field"><span class="member-field-label">道務</span>${daoField}</label>
+            <label class="member-field"><span class="member-field-label">班務</span>${classField}</label>
+            <button type="button" class="btn-secondary btn-small member-bind"
+              data-email="${escapeHtml(m.email)}" data-entry="${escapeHtml(entryId)}">
+              ${bound ? "重新綁定" : "指定綁定"}
+            </button>
+          </div>
         </div>`;
     })
     .join("");
@@ -1083,7 +1132,7 @@ membersList.addEventListener("click", async (e) => {
     return;
   }
 
-  const btn = e.target.closest("button.member-remove");
+  const btn = e.target.closest(".member-remove");
   if (!btn) return;
   const email = btn.dataset.email;
   const member = unitMembers.find((m) => m.email === email);
@@ -1107,16 +1156,39 @@ membersList.addEventListener("click", async (e) => {
   }
 });
 
+// 兩邊都設成未授權＝這個帳號完全登不進來，先問一次
+function confirmLockout(email, daoRank, classRank) {
+  if (daoRank >= 1 || classRank >= 1) return true;
+  return confirm(
+    `這樣「${email}」道務與班務都會是未授權，他下次登入會被擋在門外。\n\n確定要這樣設定嗎？`
+  );
+}
+
 membersList.addEventListener("change", (e) => {
+  // 0＝未授權也是一個有效選項，所以不能用 `|| 1` 當預設
   const classSel = e.target.closest("select.member-class-role");
   if (classSel) {
-    setMemberClassRole(classSel.dataset.email, Number(classSel.value) || 1);
+    const rank = Number(classSel.value) || 0;
+    const member = unitMembers.find((m) => m.email === classSel.dataset.email);
+    if (!confirmLockout(classSel.dataset.email, effectiveDaoRank(member), rank)) {
+      renderMembers();
+      return;
+    }
+    setMemberClassRole(classSel.dataset.email, rank);
     return;
   }
   const sel = e.target.closest("select.member-role");
   if (!sel) return;
-  setMemberRole(sel.dataset.email, Number(sel.value) || 1);
+  const rank = Number(sel.value) || 0;
+  const member = unitMembers.find((m) => m.email === sel.dataset.email);
+  if (!confirmLockout(sel.dataset.email, rank, effectiveClassRank(member))) {
+    renderMembers();
+    return;
+  }
+  setMemberRole(sel.dataset.email, rank);
 });
+
+memberSearch.addEventListener("input", renderMembers);
 
 const googleProvider = new GoogleAuthProvider();
 

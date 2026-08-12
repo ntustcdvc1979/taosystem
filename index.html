@@ -175,6 +175,7 @@
               <option value="班員">只看班員</option>
               <option value="護班人員">只看護班人員</option>
             </select>
+            <span id="class-count" class="toolbar-count"></span>
             <button id="course-manage-btn" class="btn-secondary">課程管理</button>
             <button id="class-add-btn" class="btn-primary">＋ 新增班務名單</button>
           </div>
@@ -198,26 +199,16 @@
               <span class="hint-text">打名字時會查道務名單，選到同一位就自動帶入性別與系級，並記住兩邊是同一個人。</span>
             </label>
             <div id="class-linked-current" class="class-linked"></div>
-            <label>
-              班別
-              <select id="class-field-group">
-                <option value="新民">新民</option>
-                <option value="至善">至善</option>
-                <option value="行德">行德</option>
-                <option value="崇德">崇德</option>
-                <option value="人才儲訓">人才儲訓</option>
-                <option value="講培">講培</option>
-                <option value="講師">講師</option>
-              </select>
-            </label>
-            <label>
-              身分
-              <select id="class-field-type">
-                <option value="班員">班員</option>
-                <option value="護班人員">護班人員</option>
-              </select>
-              <span class="hint-text">班員記學習狀況（筆記、準時、提問）；護班人員記承擔狀況（準時抵達、與班員互動、學習項目）。</span>
-            </label>
+            <div class="class-roles-field">
+              <span class="field-label">班別與身分 <span class="required">*</span></span>
+              <div id="class-roles" class="class-roles"></div>
+              <button type="button" id="class-role-add" class="btn-secondary btn-small">＋ 再加一個班別</button>
+              <span class="hint-text">
+                同一個人可以同時在好幾個班：例如「新民・班員」再加「至善・護班人員」。
+                搜尋某個班別時，該班的班員與護班人員都會列出來。
+                班員記學習狀況（筆記、準時、提問）；護班人員記承擔狀況（準時抵達、與班員互動、學習項目）。
+              </span>
+            </div>
             <label>
               性別
               <select id="class-field-gender">
@@ -278,6 +269,7 @@
             <div class="lesson-form-row">
               <input type="date" id="lesson-date" />
               <select id="lesson-course"></select>
+              <select id="lesson-role" title="這筆紀錄算在哪一班、什麼身分"></select>
               <select id="lesson-attend">
                 <option value="準時">準時</option>
                 <option value="遲到">遲到</option>
@@ -515,33 +507,41 @@
 
       <!-- 使用者管理 對話框：成全組長以上才看得到 -->
       <div id="members-modal" class="modal hidden">
-        <div class="modal-content">
+        <div class="modal-content members-modal-content">
           <button type="button" id="members-close-btn" class="modal-close" aria-label="關閉">×</button>
           <h2>使用者管理 - <span id="members-unit-name"></span></h2>
           <p class="hint-text">
-            這裡管理可以登入本單位的 Google 帳號與他們的身分。
-            身分只能設到自己這一階以下，也不能改自己的。
+            這裡管理可以登入本單位的 Google 帳號與他們的身分。道務與班務<strong>各自授權</strong>：
+            設成「未授權」的那一邊他就進不去。身分只能設到自己這一階以下，也不能改自己的。
           </p>
 
-          <div class="member-add-row">
-            <input type="email" id="new-member-email" placeholder="對方的 Gmail" autocomplete="off" />
-            <select id="new-member-role" title="道務身分">
-              <option value="0">道務：未授權</option>
-              <option value="1" selected>道務：組員</option>
-              <option value="2">道務：成全組長</option>
-              <option value="3">道務：忠義字班講師</option>
-              <option value="4">道務：點傳師</option>
-            </select>
-            <select id="new-member-class-role" title="班務身分">
-              <option value="0" selected>班務：未授權</option>
-              <option value="1">班務：班務人員</option>
-              <option value="2">班務：班務組長</option>
-              <option value="3">班務：忠義字班講師</option>
-              <option value="4">班務：點傳師</option>
-            </select>
-            <button type="button" id="add-member-btn" class="btn-primary btn-small">加入</button>
+          <div class="member-add-card">
+            <span class="field-label">加入新帳號</span>
+            <div class="member-add-row">
+              <input type="email" id="new-member-email" placeholder="對方的 Gmail" autocomplete="off" />
+              <select id="new-member-role" title="道務身分">
+                <option value="0">道務：未授權</option>
+                <option value="1" selected>道務：組員</option>
+                <option value="2">道務：成全組長</option>
+                <option value="3">道務：忠義字班講師</option>
+                <option value="4">道務：點傳師</option>
+              </select>
+              <select id="new-member-class-role" title="班務身分">
+                <option value="0" selected>班務：未授權</option>
+                <option value="1">班務：班務人員</option>
+                <option value="2">班務：班務組長</option>
+                <option value="3">班務：忠義字班講師</option>
+                <option value="4">班務：點傳師</option>
+              </select>
+              <button type="button" id="add-member-btn" class="btn-primary btn-small">加入</button>
+            </div>
+            <p id="members-status" class="hint-text"></p>
           </div>
-          <p id="members-status" class="hint-text"></p>
+
+          <div class="members-toolbar">
+            <input type="search" id="member-search" placeholder="搜尋 Email 或綁定的姓名" autocomplete="off" />
+            <span id="members-count" class="members-count"></span>
+          </div>
 
           <div id="members-list" class="members-list"></div>
         </div>
