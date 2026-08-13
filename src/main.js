@@ -161,7 +161,7 @@ const reportEventLabel = document.getElementById("report-event");
 const reportList = document.getElementById("report-list");
 const reportStatus = document.getElementById("report-status");
 const reportProgressEl = document.getElementById("report-progress");
-const reportSkipBtn = document.getElementById("report-skip-btn");
+const reportDoneBtn = document.getElementById("report-done-btn");
 const NOTICE_DISMISS_KEY = "taosystem_notice_dismissed";
 const addEntryBtn = document.getElementById("add-entry-btn");
 const entriesList = document.getElementById("entries-list");
@@ -1395,12 +1395,17 @@ function eventEndDate(ev) {
   return ev.endDate || ev.date;
 }
 
-// 要回報的是「回覆可以參加」的那幾位——會不會來本來就只有他們需要確認
+// 要回報的是「回覆可以參加」的那幾位——會不會來本來就只有他們需要確認。
+// 忠義字班講師以上（含點傳師）不用回報：活動紀錄是給成全對象用的，
+// 講師本來就是辦活動的人，把他們列進來只會讓提醒永遠關不掉。
 function reportTargets(ev) {
-  return (ev.invites || []).filter((i) => i.status === "已回覆可以").map((i) => i.entryId);
+  return (ev.invites || [])
+    .filter((i) => i.status === "已回覆可以")
+    .map((i) => i.entryId)
+    .filter((id) => entryRank(id) < ENTRY_ROLE_RANK);
 }
 
-// 一個一個回報，全部回報完（或有人按了「這場不用回報」）才算結束
+// 一個一個回報，全部回報完（或有人按了「回報完成」）才算結束
 function reportDone(ev, entryId) {
   return !!(ev.reports || {})[entryId];
 }
@@ -1432,9 +1437,10 @@ function renderReportNotice() {
       const when = days === 1 ? "昨天" : `${days} 天前`;
       const { total, done, left } = reportProgress(ev);
       // 還有人沒回報就一直提醒，並且講清楚還剩幾位
+      // （人數是「要回報的」，不含講師以上與沒回覆可以的人）
       const summary = total
-        ? `邀約名單 ${total} 人・已回報 ${done} 人・還缺 ${left} 人`
-        : "沒有邀約名單，可自行挑人";
+        ? `要回報 ${total} 人・已回報 ${done} 人・還缺 ${left} 人`
+        : "沒有要回報的對象，按一下即可結束";
       return `
         <div class="notice-item">
           <div class="notice-item-info">
@@ -1497,8 +1503,8 @@ function renderReportModal() {
 
   const { total, done, left } = reportProgress(ev);
   reportProgressEl.textContent = total
-    ? `共 ${total} 位，已回報 ${done} 位，還缺 ${left} 位。`
-    : "";
+    ? `要回報 ${total} 位，已回報 ${done} 位，還缺 ${left} 位。`
+    : "這場沒有要回報的對象，按「回報完成」即可關掉提醒。";
   reportProgressEl.classList.toggle("is-done", total > 0 && left === 0);
 
   // 別人回報時這個視窗會重畫，先把還沒送出的內容記下來，畫完再填回去
@@ -1512,7 +1518,7 @@ function renderReportModal() {
 
   reportList.innerHTML = rows.length
     ? rows.map(reportRowHtml).join("")
-    : `<p class="hint-text">這場活動沒有你可以回報的對象。若還有人沒回報，要由學長姐處理；不然可以按「這場不用回報」關掉提醒。</p>`;
+    : `<p class="hint-text">這場活動沒有你可以回報的對象。若還有人沒回報，要由學長姐處理；不然可以按「回報完成」關掉提醒。</p>`;
 
   for (const [id, val] of typed) {
     const row = reportList.querySelector(`.report-row[data-id="${CSS.escape(id)}"]`);
@@ -1710,13 +1716,15 @@ reportCloseBtn.addEventListener("click", closeReportModal);
 reportModal.addEventListener("click", (e) => {
   if (e.target === reportModal) closeReportModal();
 });
-reportSkipBtn.addEventListener("click", async () => {
+// 回報完成：不等每一位都回報，直接把這場結掉，提醒就不再出現。
+// 剩下的人多半是只有學長姐才填得動的，總得有人能收尾。
+reportDoneBtn.addEventListener("click", async () => {
   const ev = allEvents.find((x) => x.id === reportingEventId);
   if (!ev) return;
   const { left } = reportProgress(ev);
   if (
     !confirm(
-      `「${ev.name}」不用再回報了嗎？${left ? `\n\n還有 ${left} 位沒回報。` : ""}\n\n` +
+      `「${ev.name}」的回報就到這裡嗎？${left ? `\n\n還有 ${left} 位沒回報。` : ""}\n\n` +
         "提醒會對所有人消失，之後仍可在活動管理裡手動補紀錄。"
     )
   ) {
