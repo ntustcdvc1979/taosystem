@@ -319,6 +319,36 @@
         </div>
       </div>
 
+      <!-- 班務：佛規禮節與經典背誦（同一個視窗，依類別換欄位） -->
+      <div id="record-modal" class="modal hidden">
+        <div class="modal-content">
+          <button type="button" id="record-close-x" class="modal-close" aria-label="關閉">×</button>
+          <h2><span id="record-modal-title"></span> - <span id="record-modal-name"></span></h2>
+          <p id="record-hint" class="hint-text"></p>
+
+          <div class="lesson-form">
+            <div class="lesson-form-row">
+              <input type="date" id="record-date" />
+              <!-- 佛規禮節：哪一天、什麼事情、學了什麼 -->
+              <input type="text" id="record-occasion" class="record-field"
+                placeholder="什麼事情，例：初一獻供" autocomplete="off" />
+              <!-- 經典背誦：哪一天、背了哪一部 -->
+              <input type="text" id="record-scripture" class="record-field"
+                placeholder="哪一部經典，例：彌勒救苦真經" autocomplete="off" />
+            </div>
+            <div id="record-items-row" class="lesson-form-row">
+              <input type="text" id="record-items"
+                placeholder="學習項目，例：上執禮、寫表文" autocomplete="off" />
+            </div>
+            <div id="record-suggest" class="record-suggest"></div>
+            <textarea id="record-comment" rows="2" placeholder="其他備註（選填）"></textarea>
+            <button type="button" id="record-add-btn" class="btn-primary btn-small">新增紀錄</button>
+          </div>
+
+          <div id="record-list" class="lesson-list"></div>
+        </div>
+      </div>
+
       <!-- 新增/編輯 對話框 -->
       <div id="entry-modal" class="modal hidden">
         <div class="modal-content">

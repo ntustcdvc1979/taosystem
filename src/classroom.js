@@ -35,9 +35,35 @@ let courses = [];
 let unsubEntries = null;
 let unsubCourses = null;
 
+// 上課紀錄之外，每個人還有兩種紀錄，欄位不同但操作一樣，所以共用一個視窗：
+//   佛規禮節：哪一天、什麼事情、學了什麼項目（上執禮、寫表文…）
+//   經典背誦：哪一天、背了哪一部經典
+const RECORD_TYPES = {
+  etiquette: {
+    field: "etiquette",
+    title: "佛規禮節",
+    hint: "記哪一天、什麼事情、學了什麼項目（例：初一獻供・上執禮）。最新的排在最上面。",
+    // 主要欄位與拿來做「用過的詞」建議的欄位
+    main: "record-occasion",
+    suggestFrom: "items",
+    suggestLabel: "用過的項目",
+  },
+  recitation: {
+    field: "recitations",
+    title: "經典背誦",
+    hint: "記哪一天背了哪一部經典。最新的排在最上面。",
+    main: "record-scripture",
+    suggestFrom: "scripture",
+    suggestLabel: "背過的經典",
+  },
+};
+
 // 目前開著的紀錄視窗
 let lessonEntryId = null;
 let lessonRows = [];
+let recordEntryId = null;
+let recordType = "etiquette";
+let recordRows = [];
 let editingClassId = null;
 let editingCourseId = null;
 let linkedPick = { id: "", name: "" };
@@ -76,6 +102,7 @@ export function startClassroom(context) {
       classEntries = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderClassList();
       if (lessonEntryId) refreshLessonModal();
+      if (recordEntryId) refreshRecordModal();
       reconcileProfiles();
       ctx.onLessonsChanged?.();
     },
@@ -220,12 +247,16 @@ function renderClassList() {
         </div>
         <div class="class-card-meta">
           ${en.department ? `<span>${esc(en.department)}</span>` : ""}
-          <span>${lessons} 筆上課紀錄</span>
+          <span>上課 ${lessons}</span>
+          <span>佛規 ${(en.etiquette || []).length}</span>
+          <span>背誦 ${(en.recitations || []).length}</span>
         </div>
         <div class="class-card-note">${esc(lastLessonText(en))}</div>
         ${en.note ? `<div class="class-card-note">${esc(en.note)}</div>` : ""}
         <div class="row-actions card-actions">
           <button data-class-action="lessons" data-id="${en.id}" class="btn-secondary">上課紀錄</button>
+          <button data-class-action="etiquette" data-id="${en.id}" class="btn-secondary">佛規禮節</button>
+          <button data-class-action="recitation" data-id="${en.id}" class="btn-secondary">經典背誦</button>
           <button data-class-action="edit" data-id="${en.id}" class="btn-secondary">編輯</button>
         </div>
       </div>`;
@@ -497,10 +528,16 @@ export function refreshDaoNames() {
 async function deleteClassEntry() {
   const entry = classEntries.find((e) => e.id === editingClassId);
   if (!entry) return;
-  const lessons = (entry.lessons || []).length;
+  const counts = [
+    [(entry.lessons || []).length, "筆上課紀錄"],
+    [(entry.etiquette || []).length, "筆佛規禮節"],
+    [(entry.recitations || []).length, "筆經典背誦"],
+  ].filter(([n]) => n > 0);
   if (
     !confirm(
-      `確定要刪除「${entry.name}」嗎？${lessons ? `\n會連同 ${lessons} 筆上課紀錄一起刪掉。` : ""}\n\n此動作無法復原。`
+      `確定要刪除「${entry.name}」嗎？` +
+        (counts.length ? `\n會連同 ${counts.map(([n, l]) => `${n} ${l}`).join("、")}一起刪掉。` : "") +
+        "\n\n此動作無法復原。"
     )
   ) {
     return;
@@ -875,6 +912,127 @@ async function addLesson() {
   }
 }
 
+// ---------- 佛規禮節／經典背誦 ----------
+// 兩種紀錄的操作一模一樣（記一筆、看清單、刪一筆），只有欄位不同，所以共用一個視窗。
+function openRecordModal(entry, type) {
+  recordEntryId = entry.id;
+  recordType = type;
+  const cfg = RECORD_TYPES[type];
+  recordRows = [...(entry[cfg.field] || [])].sort((a, b) =>
+    (b.date || "").localeCompare(a.date || "")
+  );
+  $("record-modal-title").textContent = cfg.title;
+  $("record-modal-name").textContent = entry.name;
+  $("record-hint").textContent = cfg.hint;
+  $("record-date").value = today();
+  $("record-occasion").value = "";
+  $("record-scripture").value = "";
+  $("record-items").value = "";
+  $("record-comment").value = "";
+  // 佛規禮節才有「學習項目」；經典背誦只要一部經典
+  const isEtiquette = type === "etiquette";
+  $("record-occasion").classList.toggle("hidden", !isEtiquette);
+  $("record-items-row").classList.toggle("hidden", !isEtiquette);
+  $("record-scripture").classList.toggle("hidden", isEtiquette);
+  renderRecordSuggest();
+  renderRecordRows();
+  $("record-modal").classList.remove("hidden");
+  $(cfg.main).focus();
+}
+
+// 這個單位用過的項目／經典，點一下就填，省得每次重打也不會寫成好幾種寫法
+function renderRecordSuggest() {
+  const cfg = RECORD_TYPES[recordType];
+  const used = [
+    ...new Set(
+      classEntries
+        .flatMap((en) => en[cfg.field] || [])
+        .map((r) => (r[cfg.suggestFrom] || "").trim())
+        .filter(Boolean)
+    ),
+  ].sort((a, b) => a.localeCompare(b, "zh-Hant"));
+  $("record-suggest").innerHTML = used.length
+    ? `${cfg.suggestLabel}：` +
+      used
+        .map((v) => `<button type="button" class="venue-chip" data-fill="${esc(v)}">${esc(v)}</button>`)
+        .join("")
+    : "";
+}
+
+function recordText(row) {
+  return recordType === "etiquette"
+    ? [row.occasion, row.items].filter(Boolean).join("・")
+    : row.scripture || "";
+}
+
+function renderRecordRows() {
+  $("record-list").innerHTML = recordRows.length
+    ? recordRows
+        .map(
+          (r, i) => `
+        <div class="lesson-row">
+          <div class="lesson-row-head">
+            <span class="lesson-date">${esc(r.date || "未填日期")}</span>
+            <span class="lesson-course">${esc(recordText(r))}</span>
+            <button type="button" class="btn-danger btn-small" data-record-del="${i}">刪除</button>
+          </div>
+          ${r.comment ? `<div class="lesson-detail">${esc(r.comment)}</div>` : ""}
+        </div>`
+        )
+        .join("")
+    : `<p class="hint-text">還沒有紀錄。</p>`;
+}
+
+function refreshRecordModal() {
+  const entry = classEntries.find((e) => e.id === recordEntryId);
+  if (!entry) return;
+  recordRows = [...(entry[RECORD_TYPES[recordType].field] || [])].sort((a, b) =>
+    (b.date || "").localeCompare(a.date || "")
+  );
+  renderRecordRows();
+  renderRecordSuggest();
+}
+
+async function saveRecords() {
+  if (!recordEntryId) return;
+  await updateDoc(ref(ENTRIES, recordEntryId), {
+    [RECORD_TYPES[recordType].field]: recordRows,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.email || null,
+  });
+}
+
+async function addRecord() {
+  if (!recordEntryId) return;
+  const isEtiquette = recordType === "etiquette";
+  const main = $(RECORD_TYPES[recordType].main).value.trim();
+  if (!main) {
+    alert(isEtiquette ? "請填「什麼事情」。" : "請填是哪一部經典。");
+    $(RECORD_TYPES[recordType].main).focus();
+    return;
+  }
+  const row = {
+    date: $("record-date").value || today(),
+    comment: $("record-comment").value.trim(),
+    ...(isEtiquette
+      ? { occasion: main, items: $("record-items").value.trim() }
+      : { scripture: main }),
+  };
+  recordRows = [row, ...recordRows];
+  try {
+    await saveRecords();
+    $("record-occasion").value = "";
+    $("record-scripture").value = "";
+    $("record-items").value = "";
+    $("record-comment").value = "";
+    renderRecordRows();
+    renderRecordSuggest();
+  } catch (err) {
+    recordRows = recordRows.slice(1);
+    alert("儲存失敗：" + err.message);
+  }
+}
+
 // ---------- 事件綁定（只做一次） ----------
 export function initClassroom(context) {
   ctx = context;
@@ -889,8 +1047,10 @@ export function initClassroom(context) {
     if (!btn) return;
     const entry = classEntries.find((x) => x.id === btn.dataset.id);
     if (!entry) return;
-    if (btn.dataset.classAction === "edit") openClassModal(entry);
-    else openLessonModal(entry);
+    const action = btn.dataset.classAction;
+    if (action === "edit") openClassModal(entry);
+    else if (action === "lessons") openLessonModal(entry);
+    else openRecordModal(entry, action); // etiquette／recitation
   });
 
   // 新增／編輯名單
@@ -1021,6 +1181,37 @@ export function initClassroom(context) {
       await saveLessons();
       renderLessonRows();
     } catch (err) {
+      alert("刪除失敗：" + err.message);
+    }
+  });
+
+  // 佛規禮節／經典背誦
+  $("record-close-x").addEventListener("click", () => {
+    $("record-modal").classList.add("hidden");
+    recordEntryId = null;
+  });
+  $("record-modal").addEventListener("click", (e) => {
+    if (e.target === $("record-modal")) $("record-close-x").click();
+  });
+  $("record-add-btn").addEventListener("click", addRecord);
+  // 用過的項目／經典點一下就填進主要欄位
+  $("record-suggest").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-fill]");
+    if (!chip) return;
+    const target = recordType === "etiquette" ? $("record-items") : $("record-scripture");
+    target.value = chip.dataset.fill;
+    target.focus();
+  });
+  $("record-list").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-record-del]");
+    if (!btn || !confirm(`確定要刪除這筆${RECORD_TYPES[recordType].title}紀錄嗎？`)) return;
+    const removed = recordRows.splice(Number(btn.dataset.recordDel), 1);
+    try {
+      await saveRecords();
+      renderRecordRows();
+      renderRecordSuggest();
+    } catch (err) {
+      recordRows.splice(Number(btn.dataset.recordDel), 0, ...removed);
       alert("刪除失敗：" + err.message);
     }
   });

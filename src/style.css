@@ -565,6 +565,20 @@ button {
   margin: 0;
 }
 
+/* 佛規禮節／經典背誦：用過的項目與經典點一下就填 */
+.record-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #8a919b;
+}
+
+.record-suggest:empty {
+  display: none;
+}
+
 /* 日期與身分都由課程帶入，這裡只顯示帶出來的結果 */
 .lesson-role-label {
   color: #8a919b;
