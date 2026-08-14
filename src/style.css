@@ -1829,6 +1829,15 @@ button {
   border-top: 1px solid #eee;
 }
 
+/* 圖的畫布是 720×230，撐滿整個頁寬會被放大到一倍以上，文字與圓點跟著變粗。
+   限制在原尺寸，電腦上就維持 1:1，手機仍然是 100% 寬。
+   圖例與紀錄清單一起收齊，看起來才是同一塊。 */
+#trend-person-chart,
+#trend-person-records,
+.trend-person-now {
+  max-width: 720px;
+}
+
 .trend-person-now {
   display: flex;
   flex-wrap: wrap;
