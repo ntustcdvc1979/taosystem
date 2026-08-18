@@ -1,6 +1,6 @@
 import "./style.css";
 import { handleInAppBrowser } from "./inapp.js";
-import { createTagEditor } from "./tageditor.js";
+import { createTagEditor, PICK_EVENT } from "./tageditor.js";
 import {
   initClassroom,
   startClassroom,
@@ -2873,6 +2873,13 @@ const TREND_METRICS = [
     title: "道氣",
     labels: SPIRIT_LABELS, // 弱 普 佳 強
     note: SPIRIT_RULE,
+    // 圖例上每一級是什麼意思——只看「熱」「強」猜不出來
+    levelNotes: [
+      "0 分：熱度、參與、互動都掛零",
+      "1–46 分：只有零星的進展",
+      "47–72 分：穩定有進展",
+      "73 分以上：熱度與出席都好",
+    ],
     compute: (entry, period) => spiritIn(entry, period).level,
     score: (entry, period) => spiritIn(entry, period).score,
   },
@@ -2880,18 +2887,34 @@ const TREND_METRICS = [
     key: "heat",
     title: "成全熱度",
     labels: HEAT_LABELS, // 冷 涼 溫 熱
+    note: "熱度＝從談話內容看，他離下一階段（求道／法會／研究班）有多近。由 AI 或手動評估，每過 7 天沒有互動自動降一級。",
+    levelNotes: [
+      "還沒評估，或久沒互動而降下來",
+      "只有一般寒暄",
+      "聊到下一階段，反應普通",
+      "聊到下一階段且對方正面回應",
+    ],
     compute: (entry, period) => heatIn(entry, period).level,
   },
   {
     key: "act",
     title: "互動度",
     labels: ["無", "低", "中", "高"],
+    note: "互動度＝這段期間有幾天跟他有互動（活動紀錄或聯絡紀錄），同一天多筆只算一天。",
+    levelNotes: [
+      "這段期間完全沒有互動",
+      "有互動，但不到每週一天",
+      "平均每週約一天",
+      "平均每週兩天以上",
+    ],
     compute: (entry, period) => interactionIn(entry, period).level,
   },
   {
     key: "part",
     title: "參與度",
     labels: ["無", "低", "中", "高"],
+    note: "參與度＝這段期間辦過的活動裡，他出席了幾成。",
+    levelNotes: ["一場都沒到", "出席不到三成", "出席三到六成", "出席六成以上"],
     compute: (entry, period) => participationIn(entry, period).level,
   },
 ];
@@ -3062,9 +3085,19 @@ function renderTrendChart(metric, total) {
   const legend = metric.labels
     .map(
       (label, level) =>
-        `<button type="button" class="trend-legend-item" data-metric="${metric.key}" data-level="${level}" data-index="${n - 1}">
+        `<button type="button" class="trend-legend-item" data-metric="${metric.key}" data-level="${level}" data-index="${n - 1}"
+           title="${escapeHtml(`${label}＝${metric.levelNotes?.[level] || ""}（點一下只看這一群）`)}">
            <span class="trend-swatch bar-${metric.key}-${level}"></span>${label}
          </button>`
+    )
+    .join("");
+
+  // 光看「熱」「強」不知道是什麼意思，所以把每一級的定義直接寫在圖例下面
+  // （手機沒有 hover，只放 title 等於沒解釋）
+  const legendNotes = (metric.levelNotes || [])
+    .map(
+      (text, level) =>
+        `<span class="trend-legend-note"><span class="trend-swatch bar-${metric.key}-${level}"></span>${escapeHtml(metric.labels[level])}＝${escapeHtml(text)}</span>`
     )
     .join("");
 
@@ -3084,6 +3117,7 @@ function renderTrendChart(metric, total) {
         ${grid}${bars}${xLabels}
       </svg>
       <div class="trend-legend">${legend}</div>
+      <div class="trend-legend-notes">${legendNotes}</div>
     </div>`;
 }
 
@@ -3159,6 +3193,11 @@ function renderPersonTrend() {
     const metric = TREND_METRICS.find((m) => m.key === s.key);
     return {
       ...s,
+      // 圖例要解釋這條線是什麼（滑上去看完整算法），以及各級的意思
+      levels: (metric.levelNotes || [])
+        .map((t, l) => `${metric.labels[l]}＝${t}`)
+        .join("／"),
+      note: metric.note || "",
       // 道氣走右邊的 0–100 分刻度，其餘三條走左邊的 0–3 級刻度
       values: periods.map((p) =>
         s.key === "spirit" ? (spiritIn(entry, p).score / 100) * 3 : metric.compute(entry, p) ?? 0
@@ -3280,7 +3319,15 @@ function renderPersonChart(series, labels, marks = []) {
   const legend = series
     .map(
       (s) =>
-        `<span class="trend-legend-item"><span class="trend-swatch" style="background:${s.color}"></span>${s.title}</span>`
+        `<span class="trend-legend-item" title="${escapeHtml(s.note || "")}"><span class="trend-swatch" style="background:${s.color}"></span>${s.title}</span>`
+    )
+    .join("");
+
+  // 跟整體圖表一樣，把每條線的意思與分級寫出來，不然只看顏色不知道高低代表什麼
+  const legendNotes = series
+    .map(
+      (s) =>
+        `<span class="trend-legend-note"><span class="trend-swatch" style="background:${s.color}"></span>${escapeHtml(s.title)}：${escapeHtml(s.levels || "")}</span>`
     )
     .join("");
 
@@ -3290,7 +3337,8 @@ function renderPersonChart(series, labels, marks = []) {
       ${legend}
       <span class="trend-legend-item">📝 有紀錄（點日期上的圖示看內容）</span>
       <span class="hint-text">左軸＝級（0–3），右軸＝道氣分數（0–100）。</span>
-    </div>`;
+    </div>
+    <div class="trend-legend-notes">${legendNotes}</div>`;
 }
 
 // 點日期上的註記圖示 → 展開那一格的活動／聯絡紀錄
@@ -3899,8 +3947,9 @@ newInvitePerson.addEventListener("input", renderInviteSuggestions);
 newInvitePerson.addEventListener("focus", renderInviteSuggestions);
 newInvitePerson.addEventListener("blur", () => setTimeout(hideInviteSuggestions, 150));
 
-// 用 mousedown：click 之前 input 會先 blur，會把清單關掉而點不到
-inviteSuggestions.addEventListener("mousedown", async (e) => {
+// 用 pointerdown：click 之前 input 會先 blur，會把清單關掉而點不到；
+// 手機上又只有 pointerdown／touchstart，沒有 mousedown（用 mousedown 等於點不動）
+inviteSuggestions.addEventListener(PICK_EVENT, async (e) => {
   const item = e.target.closest(".invite-suggestion");
   if (!item) return;
   e.preventDefault();

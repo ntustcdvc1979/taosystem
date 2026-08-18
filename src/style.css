@@ -2743,3 +2743,25 @@ body:has(.modal:not(.hidden)) .chat-panel {
     font-size: 0.82rem;
   }
 }
+
+/* 圖例只寫「熱」「強」看不出是什麼意思，所以每一級的定義直接列在圖例下面
+   （手機沒有 hover，光靠 title 提示等於沒解釋） */
+.trend-legend-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.3rem;
+  color: #6b7480;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.trend-legend-note {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.trend-legend-note .trend-swatch {
+  flex: 0 0 auto;
+}

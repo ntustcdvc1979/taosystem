@@ -8,6 +8,10 @@
 
 const MAX_SUGGESTIONS = 8;
 
+// 選單要在「按下去」的當下就處理掉，不能等 click（那時輸入框已經 blur、清單收起來了）。
+// 手機沒有 mousedown，所以優先用 pointerdown。
+export const PICK_EVENT = typeof window !== "undefined" && window.PointerEvent ? "pointerdown" : "mousedown";
+
 export function createTagEditor(host, { suggest = () => [], placeholder = "輸入標籤" } = {}) {
   host.classList.add("tag-editor");
   host.innerHTML = `
@@ -87,11 +91,13 @@ export function createTagEditor(host, { suggest = () => [], placeholder = "輸�
     }
   });
 
-  // 用 mousedown：click 會發生在 blur 之後，那時清單已經收起來了
-  suggestBox.addEventListener("mousedown", (e) => {
+  // 用 pointerdown 而不是 click：click 發生在 blur 之後，那時清單已經收起來了。
+  // 也不能用 mousedown——手機點下去只會有 pointerdown／touchstart，沒有 mousedown，
+  // 於是在手機上點清單裡的標籤等於沒反應。pointerdown 三種輸入方式都收得到。
+  suggestBox.addEventListener(PICK_EVENT, (e) => {
     const item = e.target.closest(".tag-suggest-item");
     if (!item) return;
-    e.preventDefault();
+    e.preventDefault(); // 不要讓輸入框失焦，清單才不會在選到之前就收起來
     addTag(item.dataset.tag);
     input.value = "";
     input.focus();

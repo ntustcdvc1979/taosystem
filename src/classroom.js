@@ -19,6 +19,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "./firebase.js";
+import { PICK_EVENT } from "./tageditor.js";
 
 export const CLASS_GROUPS = ["新民", "至善", "行德", "崇德", "人才儲訓", "講培", "講師"];
 export const MEMBER_TYPES = ["班員", "護班人員"];
@@ -1085,8 +1086,9 @@ export function initClassroom(context) {
   $("class-field-name").addEventListener("input", renderNameSuggest);
   $("class-field-name").addEventListener("focus", renderNameSuggest);
   $("class-field-name").addEventListener("blur", () => setTimeout(hideNameSuggest, 0));
-  // 用 mousedown：click 之前 input 會先 blur，清單已經收起來就點不到
-  $("class-name-suggest").addEventListener("mousedown", (e) => {
+  // 用 pointerdown：click 之前 input 會先 blur，清單已經收起來就點不到；
+  // 手機上也沒有 mousedown，只收得到 pointerdown／touchstart
+  $("class-name-suggest").addEventListener(PICK_EVENT, (e) => {
     const item = e.target.closest("[data-link-id]");
     if (!item) return;
     e.preventDefault();
