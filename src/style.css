@@ -828,9 +828,10 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.4rem 0.6rem;
+  padding: 0.55rem 0.6rem; /* 手指點得到：一列至少 40px 高 */
   font-size: 0.85rem;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .invite-suggestion:hover {
@@ -1242,9 +1243,10 @@ button {
 }
 
 .tag-suggest-item {
-  padding: 0.4rem 0.6rem;
+  padding: 0.55rem 0.6rem; /* 手指點得到：一列至少 40px 高 */
   font-size: 0.85rem;
   cursor: pointer;
+  touch-action: manipulation; /* 不要等「是不是要雙擊縮放」，點下去就算 */
 }
 
 .tag-suggest-item:hover {

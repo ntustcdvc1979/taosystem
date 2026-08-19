@@ -8,9 +8,38 @@
 
 const MAX_SUGGESTIONS = 8;
 
-// 選單要在「按下去」的當下就處理掉，不能等 click（那時輸入框已經 blur、清單收起來了）。
-// 手機沒有 mousedown，所以優先用 pointerdown。
-export const PICK_EVENT = typeof window !== "undefined" && window.PointerEvent ? "pointerdown" : "mousedown";
+// 下拉清單「選一項」的通用綁法，三個清單（標籤、活動邀約、班務對應姓名）共用。
+//
+// 為什麼要同時接 pointerdown 與 click：
+//   - 手機點下去只會有 pointerdown／touchstart，沒有 mousedown（原本綁 mousedown 等於點不到）。
+//   - 只綁 click 也不保險：中文選字送出等情況會讓清單在按下與放開之間重畫，
+//     click 的目標就變成外層容器，那一下同樣落空。
+//   - pointerdown 先處理掉，click 再兜底（鍵盤、輔助工具只有 click）；
+//     同一次點擊用 justPicked 擋住，不會選到兩個。
+export function bindPick(box, selector, onPick) {
+  const itemOf = (e) => (e.target instanceof Element ? e.target.closest(selector) : null);
+  let justPicked = false;
+
+  box.addEventListener("pointerdown", (e) => {
+    justPicked = false; // 上一次按下去卻沒放開（手指滑走）不要卡住下一次
+    const item = itemOf(e);
+    if (!item) return;
+    e.preventDefault(); // 不要讓輸入框失焦
+    justPicked = true;
+    onPick(item);
+  });
+
+  box.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (justPicked) {
+      justPicked = false; // pointerdown 已經處理過這一下了
+      return;
+    }
+    const item = itemOf(e);
+    if (item) onPick(item);
+  });
+}
 
 export function createTagEditor(host, { suggest = () => [], placeholder = "輸入標籤" } = {}) {
   host.classList.add("tag-editor");
@@ -36,8 +65,10 @@ export function createTagEditor(host, { suggest = () => [], placeholder = "輸�
   }
 
   function renderSuggestions() {
-    // 只在輸入框有游標時才展開，避免一打開視窗就掛著一張下拉清單
-    if (document.activeElement !== input) return hideSuggestions();
+    // 一打開視窗不要就掛著一張下拉清單；但清單已經開著時不管焦點在哪都要留著，
+    // 不然手機上手指按下去的瞬間輸入框失焦，清單就在「點到」之前消失了。
+    const open = !suggestBox.classList.contains("hidden");
+    if (document.activeElement !== input && !open) return hideSuggestions();
     const q = input.value.trim().toLowerCase();
     const used = new Set(tags.map((t) => t.toLowerCase()));
     const matches = [...new Set(suggest())]
@@ -75,7 +106,13 @@ export function createTagEditor(host, { suggest = () => [], placeholder = "輸�
 
   input.addEventListener("input", renderSuggestions);
   input.addEventListener("focus", renderSuggestions);
-  input.addEventListener("blur", () => setTimeout(hideSuggestions, 0));
+  // 刻意不在 blur 收清單：手機上手指一按下去輸入框就失焦，清單若跟著收起來，
+  // 那一下就落在已經消失的元素上，等於永遠選不到。改成「碰到這個元件以外才收」。
+  const hideIfOutside = (e) => {
+    if (!(e.target instanceof Node) || !host.contains(e.target)) hideSuggestions();
+  };
+  document.addEventListener("pointerdown", hideIfOutside, true);
+  document.addEventListener("focusin", hideIfOutside, true);
 
   input.addEventListener("keydown", (e) => {
     if (e.isComposing) return; // 中文選字中的 Enter 不能當成送出
@@ -91,17 +128,11 @@ export function createTagEditor(host, { suggest = () => [], placeholder = "輸�
     }
   });
 
-  // 用 pointerdown 而不是 click：click 發生在 blur 之後，那時清單已經收起來了。
-  // 也不能用 mousedown——手機點下去只會有 pointerdown／touchstart，沒有 mousedown，
-  // 於是在手機上點清單裡的標籤等於沒反應。pointerdown 三種輸入方式都收得到。
-  suggestBox.addEventListener(PICK_EVENT, (e) => {
-    const item = e.target.closest(".tag-suggest-item");
-    if (!item) return;
-    e.preventDefault(); // 不要讓輸入框失焦，清單才不會在選到之前就收起來
+  bindPick(suggestBox, ".tag-suggest-item", (item) => {
     addTag(item.dataset.tag);
     input.value = "";
-    input.focus();
     renderSuggestions();
+    input.focus();
   });
 
   // 點空白處也當成要打字

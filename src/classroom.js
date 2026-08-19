@@ -19,7 +19,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "./firebase.js";
-import { PICK_EVENT } from "./tageditor.js";
+import { bindPick } from "./tageditor.js";
 
 export const CLASS_GROUPS = ["新民", "至善", "行德", "崇德", "人才儲訓", "講培", "講師"];
 export const MEMBER_TYPES = ["班員", "護班人員"];
@@ -334,7 +334,10 @@ function renderLinkedPick() {
 // 打姓名時直接查道務名單：選到同一位就帶入性別、系級，並記住兩邊是同一個人
 function renderNameSuggest() {
   const box = $("class-name-suggest");
-  if (document.activeElement !== $("class-field-name")) return hideNameSuggest();
+  // 清單已經開著就不管焦點在哪都留著：手機上手指按下去輸入框就失焦，
+  // 清單若跟著收起來，那一下會落在已經消失的元素上（等於點不到）
+  const open = !box.classList.contains("hidden");
+  if (document.activeElement !== $("class-field-name") && !open) return hideNameSuggest();
   const q = $("class-field-name").value.trim().toLowerCase();
   if (!q) return hideNameSuggest();
   const matches = ctx
@@ -1085,15 +1088,17 @@ export function initClassroom(context) {
   // 姓名打一打就查道務名單
   $("class-field-name").addEventListener("input", renderNameSuggest);
   $("class-field-name").addEventListener("focus", renderNameSuggest);
-  $("class-field-name").addEventListener("blur", () => setTimeout(hideNameSuggest, 0));
-  // 用 pointerdown：click 之前 input 會先 blur，清單已經收起來就點不到；
-  // 手機上也沒有 mousedown，只收得到 pointerdown／touchstart
-  $("class-name-suggest").addEventListener(PICK_EVENT, (e) => {
-    const item = e.target.closest("[data-link-id]");
-    if (!item) return;
-    e.preventDefault();
-    pickDaoPerson(item);
-  });
+  // 不在 blur 收清單（手機上會在點到之前就消失），改成碰到姓名欄以外才收
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!(e.target instanceof Element) || !e.target.closest(".class-name-field")) {
+        hideNameSuggest();
+      }
+    },
+    true
+  );
+  bindPick($("class-name-suggest"), "[data-link-id]", pickDaoPerson);
   $("class-linked-current").addEventListener("click", (e) => {
     if (!e.target.closest("#class-link-clear")) return;
     linkedPick = { id: "", name: "" };

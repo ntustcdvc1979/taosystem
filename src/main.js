@@ -1,6 +1,6 @@
 import "./style.css";
 import { handleInAppBrowser } from "./inapp.js";
-import { createTagEditor, PICK_EVENT } from "./tageditor.js";
+import { createTagEditor, bindPick } from "./tageditor.js";
 import {
   initClassroom,
   startClassroom,
@@ -3889,8 +3889,11 @@ function renderInviteList() {
 
 // 自己做的搜尋清單（不用 <datalist>：中文 IME 輸入時它常常不篩選，等於不能搜尋）
 function renderInviteSuggestions() {
-  // 只有點進輸入框時才顯示，避免一開啟活動就掛著一張下拉清單
-  if (document.activeElement !== newInvitePerson) {
+  // 只有點進輸入框時才顯示，避免一開啟活動就掛著一張下拉清單；
+  // 但清單已經開著就留著——手機上手指按下去輸入框會先失焦，
+  // 清單若跟著收起來，那一下就落在已經消失的元素上（點不到）
+  const open = !inviteSuggestions.classList.contains("hidden");
+  if (document.activeElement !== newInvitePerson && !open) {
     hideInviteSuggestions();
     return;
   }
@@ -3945,16 +3948,18 @@ async function addInviteByEntryId(entryId) {
 
 newInvitePerson.addEventListener("input", renderInviteSuggestions);
 newInvitePerson.addEventListener("focus", renderInviteSuggestions);
-newInvitePerson.addEventListener("blur", () => setTimeout(hideInviteSuggestions, 150));
+// 不在 blur 收清單（手機上會在點到之前就消失），改成碰到這一區以外才收
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    if (!(e.target instanceof Element) || !e.target.closest(".invite-person-wrap")) {
+      hideInviteSuggestions();
+    }
+  },
+  true
+);
 
-// 用 pointerdown：click 之前 input 會先 blur，會把清單關掉而點不到；
-// 手機上又只有 pointerdown／touchstart，沒有 mousedown（用 mousedown 等於點不動）
-inviteSuggestions.addEventListener(PICK_EVENT, async (e) => {
-  const item = e.target.closest(".invite-suggestion");
-  if (!item) return;
-  e.preventDefault();
-  await addInviteByEntryId(item.dataset.id);
-});
+bindPick(inviteSuggestions, ".invite-suggestion", (item) => addInviteByEntryId(item.dataset.id));
 
 async function persistInvites() {
   if (!editingEventId) return;
