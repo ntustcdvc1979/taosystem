@@ -40,9 +40,13 @@ body {
   margin: 0 0 1.5rem;
 }
 
+/* .form-field 是「不能用 <label> 的那一格」：裡面有自己的按鈕（例如標籤的 ×），
+   用 <label> 會把點擊轉送給那顆按鈕。長相要跟其他欄位一模一樣。 */
 #login-form label,
 #entry-form label,
-#class-form label {
+#entry-form .form-field,
+#class-form label,
+#class-form .form-field {
   display: block;
   margin-bottom: 1rem;
   font-size: 0.9rem;

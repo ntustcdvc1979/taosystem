@@ -392,11 +392,14 @@
               系級
               <input type="text" id="field-department" placeholder="例：資工三" />
             </label>
-            <label>
-              標籤
+            <!-- 這一格刻意不是 <label>：標籤欄裡每個圓角標籤都有一顆 × 按鈕，
+                 而 <label> 會把點擊轉送給它裡面第一個表單元件——一旦有了標籤，
+                 那個元件就是「×」，於是剛選好的標籤會馬上被自己刪掉。 -->
+            <div class="form-field">
+              <span class="form-field-label">標籤</span>
               <div id="field-tags"></div>
               <span class="hint-text">打字會搜尋用過的標籤，按 Enter 或點選就變成一個標籤；標籤會顯示在卡片上，也可用搜尋框搜到。</span>
-            </label>
+            </div>
             <label>
               背景
               <textarea id="field-background" rows="4" placeholder="用文字描述背景，例如：熱音社社員、大四資工系家教、系排球隊、超商打工"></textarea>
