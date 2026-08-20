@@ -128,6 +128,7 @@ const bindStatus = document.getElementById("bind-status");
 const bindCloseBtn = document.getElementById("bind-close-btn");
 const bindModalTitle = document.getElementById("bind-modal-title");
 const bindSelfHint = document.getElementById("bind-self-hint");
+const bindMissingHint = document.getElementById("bind-missing-hint");
 const bindCurrent = document.getElementById("bind-current");
 const bindCurrentName = document.getElementById("bind-current-name");
 const bindUnbindBtn = document.getElementById("bind-unbind-btn");
@@ -424,11 +425,14 @@ onAuthStateChanged(auth, async (user) => {
     loadTagFilter(); // 這個帳號上次點亮／點暗了哪些標籤
     showPage("roster");
     renderTagFilter();
+    // 綁定「我是名單上的哪一位」不分系統：只有班務權限的人也要綁得起來，
+    // 不然工具列上永遠只有一串 Email，別人也對不出他是誰。
+    // 規則層本來就允許（memberLinks 只能寫自己那一份、rosterIndex 同單位都讀得到）。
+    loadMyLink();
     // 沒有道務權限就不要去訂閱道務資料，不然只會拿到 permission-denied
     if (myRank >= 1) {
       subscribeEntries();
       subscribeEvents();
-      loadMyLink();
       loadChatHistory();
     }
     // 班務系統：自己的名單與課程，跟道務完全分開（沒權限就不訂閱）
@@ -831,6 +835,7 @@ function openBindForMember(email, currentEntryId) {
     : `${email} 還沒綁定。`;
   bindCurrent.classList.add("hidden");
   bindSelfHint.classList.add("hidden");
+  bindMissingHint.classList.add("hidden"); // 幫別人綁時「找不到自己」這句話不適用
   bindResults.innerHTML = `<p class="hint-text">載入中...</p>`;
   // 這是從「使用者管理」疊上來的，要蓋在它上面
   bindModal.classList.add("is-stacked");
@@ -866,6 +871,12 @@ bindMeBtn.addEventListener("click", () => {
   bindModal.classList.remove("is-stacked");
   bindModalTitle.textContent = "綁定我的資料";
   bindSelfHint.classList.remove("hidden");
+  bindMissingHint.classList.remove("hidden");
+  // 沒有道務權限的人自己加不了名單（「＋ 新增名單」在道務系統裡），要請人幫忙
+  bindMissingHint.textContent =
+    myRank >= 1
+      ? "找不到自己？請先關掉這個視窗，用「＋ 新增名單」把自己加進團隊名單，再回來綁定。"
+      : "找不到自己？請道務系統的幹部把你加進團隊名單，再回來綁定。";
   bindSearch.value = "";
   bindStatus.textContent = "";
   bindResults.innerHTML = `<p class="hint-text">載入中...</p>`;

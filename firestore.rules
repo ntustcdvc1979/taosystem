@@ -137,7 +137,8 @@ service cloud.firestore {
         allow read, write: if inUnit(unitId) && canDao() && request.auth.uid == userId;
       }
 
-      // 帳號綁定到名單中的哪一位：同單位可讀（才知道誰是誰），但只能設定自己的
+      // 帳號綁定到名單中的哪一位：同單位可讀（才知道誰是誰），但只能設定自己的。
+      // 不分系統也不分階級——只有班務權限的帳號一樣綁得起來。
       match /memberLinks/{userId} {
         allow read: if inUnit(unitId);
         allow write: if inUnit(unitId) && request.auth.uid == userId;
