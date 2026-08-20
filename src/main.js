@@ -3723,7 +3723,7 @@ async function deleteEntryWithConfirm(entry) {
 }
 
 // ---------- 活動管理（月曆檢視） ----------
-const EVENT_TYPES = ["廣結善緣", "獻供", "求道", "成全", "法會", "幹訓", "會議"];
+const EVENT_TYPES = ["廣結善緣", "獻供", "求道", "成全", "法會", "班程", "幹訓", "會議"];
 
 // 單日活動只出現一個日期選擇；勾了「多日活動」才顯示結束日期
 function applyMultidayToggle() {
