@@ -564,8 +564,14 @@ const ENTRY_ROLE_RANK = 3; // 名單本身的身分欄位仍然只有忠義字�
 
 // 可以把別人設到哪一階：組長只能設到自己這階以下，
 // 忠義字班講師以上則可以一路指派到點傳師（講師要能請點傳師進來）。
+// 兩個系統各看各的——成全組長給不了班務身分，班務組長也給不了道務身分，
+// 這跟安全規則同一條線，才不會在畫面上選得到、送出卻被拒絕。
 function maxAssignableRank() {
   return myRank >= ENTRY_ROLE_RANK ? ROLE_LABELS.length - 1 : myRank;
+}
+
+function maxAssignableClassRank() {
+  return myClassRank >= ENTRY_ROLE_RANK ? CLASS_ROLE_LABELS.length - 1 : myClassRank;
 }
 
 function applyMyRank() {
@@ -973,9 +979,11 @@ function memberColor(email) {
   return MEMBER_COLORS[h % MEMBER_COLORS.length];
 }
 
-function roleSelect(cls, email, labels, current, prefix) {
-  return `<select class="${cls}" data-email="${escapeHtml(email)}" aria-label="${prefix}身分">
-      ${RANK_CHOICES.filter((r) => r <= maxAssignableRank())
+function roleSelect(cls, email, labels, current, prefix, cap) {
+  // 已經是比我高的身分就照樣列出來（只是不能改），不然下拉會顯示成錯的那一階
+  const top = Math.max(cap, current);
+  return `<select class="${cls}" data-email="${escapeHtml(email)}" aria-label="${prefix}身分" ${cap < 1 ? "disabled" : ""}>
+      ${RANK_CHOICES.filter((r) => r <= top)
         .map((r) => `<option value="${r}" ${r === current ? "selected" : ""}>${labels[r]}</option>`)
         .join("")}
     </select>`;
@@ -1013,13 +1021,13 @@ function renderMembers() {
       // 身分只能設到自己這一階以下，也不能改自己的（規則也擋著）
       const daoField = isMe
         ? `<span class="role-chip ${rank ? "" : "is-off"}">${ACCOUNT_ROLE_LABELS[rank]}</span>`
-        : roleSelect("member-role", m.email, ACCOUNT_ROLE_LABELS, rank, "道務");
+        : roleSelect("member-role", m.email, ACCOUNT_ROLE_LABELS, rank, "道務", maxAssignableRank());
       // 講師以上兩邊共通，那兩階由道務身分帶過來、這裡不重複設定
       const sharedRank = classRank >= ENTRY_ROLE_RANK && rank >= ENTRY_ROLE_RANK;
       const classField =
         isMe || sharedRank
           ? `<span class="role-chip ${classRank ? "" : "is-off"}">${CLASS_ROLE_LABELS[classRank]}</span>`
-          : roleSelect("member-class-role", m.email, CLASS_ROLE_LABELS, classRank, "班務");
+          : roleSelect("member-class-role", m.email, CLASS_ROLE_LABELS, classRank, "班務", maxAssignableClassRank());
       const avatar = (bound || m.email).trim().charAt(0).toUpperCase();
       return `
         <div class="member-card${isMe ? " is-me" : ""}">
@@ -1102,11 +1110,12 @@ async function addMember() {
   }
   addMemberBtn.disabled = true;
   try {
-    const cap = maxAssignableRank();
-    const rank = Math.min(Number(newMemberRole.value) || 0, cap);
-    const classRank = Math.min(Number(newMemberClassRole.value) || 0, cap);
+    // 兩個系統各自受自己那一階的限制（規則層也是這樣擋）
+    const rank = Math.min(Number(newMemberRole.value) || 0, maxAssignableRank());
+    const classRank = Math.min(Number(newMemberClassRole.value) || 0, maxAssignableClassRank());
     if (rank < 1 && classRank < 1) {
-      membersStatus.textContent = "至少要給他一個系統的權限（道務或班務），否則他登入不了。";
+      membersStatus.textContent =
+        "至少要給他一個系統的權限（道務或班務），否則他登入不了。你只給得了自己有的那一邊。";
       return;
     }
     await setDoc(doc(db, "memberEmails", email), {

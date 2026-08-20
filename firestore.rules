@@ -54,6 +54,13 @@ service cloud.firestore {
     function canManageMembers() {
       return hasMember() && (myRank() >= 2 || myClassRank() >= 2);
     }
+    // 這次寫入有沒有動到身分（沒動到就不受「只能設到自己這一階以下」的限制）
+    function sameRank() {
+      return request.resource.data.get('roleRank', 0) == resource.data.get('roleRank', 0);
+    }
+    function sameClassRank() {
+      return request.resource.data.get('classRank', 0) == resource.data.get('classRank', 0);
+    }
     // 能把別人設到哪一階：組長只能設到自己這階以下，講師以上可以指派到點傳師（4）
     function maxAssignableRank() {
       return myRank() >= 3 ? 4 : myRank();
@@ -69,18 +76,20 @@ service cloud.firestore {
                       (canManageMembers() && resource.data.unitId == myUnit()));
       // 組長只能設到自己這一階以下；忠義字班講師以上可以一路指派到點傳師（4）
       allow create: if canManageMembers() && request.resource.data.unitId == myUnit()
-                    && request.resource.data.get('roleRank', 1) <= maxAssignableRank()
-                    && request.resource.data.get('classRank', 1) <= maxAssignableClassRank();
+                    && request.resource.data.get('roleRank', 0) <= maxAssignableRank()
+                    && request.resource.data.get('classRank', 0) <= maxAssignableClassRank();
+      // 「只能設到自己這一階以下」只在**真的動到身分**時才檢查。
+      // 不然成全組長光是幫人「指定綁定」（只寫 entryId）就會被擋下來——
+      // 那次寫入雖然沒碰身分，但合併後的文件仍帶著對方原本的 classRank，
+      // 而組長的 maxAssignableClassRank() 可能是 0，一比就不過。
       // 也不能改自己的身分（免得自我升等）。
       // 組長以上也是從這裡幫別人指定「他是名單上的誰」（entryId），
       // 因為對方可能還沒登入過、還沒有 uid 可以寫 memberLinks。
       allow update: if canManageMembers() && resource.data.unitId == myUnit()
                     && request.resource.data.unitId == myUnit()
-                    && request.resource.data.get('roleRank', 1) <= maxAssignableRank()
-                    && request.resource.data.get('classRank', 1) <= maxAssignableClassRank()
-                    && (request.auth.token.email != email
-                        || (request.resource.data.get('roleRank', 1) == resource.data.get('roleRank', 1)
-                            && request.resource.data.get('classRank', 1) == resource.data.get('classRank', 1)));
+                    && (sameRank() || request.resource.data.get('roleRank', 0) <= maxAssignableRank())
+                    && (sameClassRank() || request.resource.data.get('classRank', 0) <= maxAssignableClassRank())
+                    && (request.auth.token.email != email || (sameRank() && sameClassRank()));
       // 不能把自己刪掉，免得整個單位沒人管得動
       allow delete: if canManageMembers() && resource.data.unitId == myUnit()
                     && request.auth.token.email != email;
