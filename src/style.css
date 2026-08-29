@@ -2772,3 +2772,19 @@ body:has(.modal:not(.hidden)) .chat-panel {
 .trend-legend-note .trend-swatch {
   flex: 0 0 auto;
 }
+
+/* 提醒橫幅右邊的按鈕：今天的活動多一顆「提早回報」 */
+.notice-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.notice-done {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: #e6f4ec;
+  color: #1e8a4c;
+  font-size: 0.75rem;
+}

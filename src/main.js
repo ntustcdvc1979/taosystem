@@ -1353,7 +1353,11 @@ function renderUpcomingNotice() {
   const soon = allEvents
     .filter((ev) => {
       const d = daysSince(ev.date);
-      return d !== null && d <= 0 && -d <= NOTICE_DAYS; // 今天到 14 天後
+      if (d === null) return false;
+      if (d <= 0) return -d <= NOTICE_DAYS; // 今天到 14 天後
+      // 已經開始的多日活動，只要還沒過完就繼續列著（今天就結束的也算）
+      const end = daysSince(eventEndDate(ev));
+      return end !== null && end <= 0;
     })
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
@@ -1365,7 +1369,8 @@ function renderUpcomingNotice() {
   noticeList.innerHTML = soon
     .map((ev) => {
       const left = -daysSince(ev.date);
-      const when = left === 0 ? "今天" : left === 1 ? "明天" : `${left} 天後`;
+      const running = left < 0; // 多日活動已經開始了
+      const when = running ? "進行中" : left === 0 ? "今天" : left === 1 ? "明天" : `${left} 天後`;
       const invites = ev.invites || [];
       const ok = invites.filter((i) => i.status === "已回覆可以").length;
       const pending = invites.filter(
@@ -1374,6 +1379,9 @@ function renderUpcomingNotice() {
       const summary = invites.length
         ? `已邀約 ${invites.length} 人（${ok} 人可以${pending ? `、${pending} 人待確認` : ""}）`
         : "尚未邀約任何人";
+      // 今天辦的（或已經開始的多日）活動：辦完當下就想回報，不用等到明天提醒才進得去
+      const today = left <= 0;
+      const reported = !!ev.attendanceReported;
       return `
         <div class="notice-item">
           <div class="notice-item-info">
@@ -1381,16 +1389,30 @@ function renderUpcomingNotice() {
             <span class="notice-name">${escapeHtml(ev.name)}</span>
             <span class="notice-type">${escapeHtml(ev.type || "")}</span>
             <span class="notice-summary${invites.length ? "" : " notice-warn"}">${summary}</span>
+            ${reported ? `<span class="notice-done">已回報</span>` : ""}
           </div>
-          <button type="button" class="btn-primary btn-small" data-notice-event="${ev.id}">安排邀約</button>
+          <div class="notice-item-actions">
+            <button type="button" class="btn-secondary btn-small" data-notice-event="${ev.id}">安排邀約</button>
+            ${
+              today && !reported
+                ? `<button type="button" class="btn-primary btn-small" data-notice-report="${ev.id}">提早回報</button>`
+                : ""
+            }
+          </div>
         </div>`;
     })
     .join("");
   upcomingNotice.classList.remove("hidden");
 }
 
-// 點「安排邀約」：直接開活動管理並進入該活動的編輯（下面就是邀約看板與 AI 建議邀約）
+// 點「提早回報」：活動今天辦完就直接回報，不必等隔天的提醒
 noticeList.addEventListener("click", (e) => {
+  const reportBtn = e.target.closest("[data-notice-report]");
+  if (reportBtn) {
+    openReportModal(reportBtn.dataset.noticeReport);
+    return;
+  }
+  // 點「安排邀約」：直接開活動管理並進入該活動的編輯（下面就是邀約看板與 AI 建議邀約）
   const btn = e.target.closest("[data-notice-event]");
   if (!btn) return;
   const ev = allEvents.find((x) => x.id === btn.dataset.noticeEvent);
