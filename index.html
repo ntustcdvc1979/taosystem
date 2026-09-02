@@ -405,9 +405,15 @@
               <textarea id="field-background" rows="4" placeholder="用文字描述背景，例如：熱音社社員、大四資工系家教、系排球隊、超商打工"></textarea>
             </label>
             <label>
-              聯絡人
-              <input type="text" id="field-contact" placeholder="負責這位的人" />
+              主要聯絡人
+              <input type="text" id="field-contact" placeholder="主要負責這位的人（只有一位）" />
             </label>
+            <!-- 跟標籤欄一樣不能用 <label>：裡面每個圓角名字都有一顆 × 按鈕 -->
+            <div class="form-field">
+              <span class="form-field-label">其他聯絡人</span>
+              <div id="field-contacts"></div>
+              <span class="hint-text">一起關心這位的人，可以有好幾位；打字會出現名單上與其他人用過的名字。</span>
+            </div>
             <label>
               成全狀況
               <select id="field-status">
@@ -711,10 +717,37 @@
             <p class="hint-text">
               改狀態用每張卡片上的下拉選單（手機也能用）；電腦上也可以直接把名字拖到其他框。
               點名字可以編輯備註，並在同一個地方順手改狀態。
+              狀態一改就會順手記一筆聯絡紀錄到那個人身上（「預定邀約」不記，因為還沒去問）。
               邀約狀況會即時儲存，AI 產生建議時也會參照（例如已回覆不行的就不會再推薦同一個活動）。
             </p>
           </div>
 
+          <!-- 活動照片：也只在編輯既有活動時顯示 -->
+          <div id="photo-section" class="photo-section hidden">
+            <div class="invite-header">
+              <span class="field-label">活動照片 <span id="photo-count" class="invite-summary"></span></span>
+              <label class="btn-secondary btn-small photo-add-btn">
+                ＋ 上傳照片
+                <input type="file" id="photo-input" accept="image/*" multiple hidden />
+              </label>
+            </div>
+            <p class="hint-text">
+              拍到誰就傳上來，之後看名單想不起來誰是誰時可以回來對照。
+              上傳時會自動縮小，只留看得清楚臉的解析度。點照片可以放大。
+            </p>
+            <p id="photo-status" class="hint-text"></p>
+            <div id="photo-grid" class="photo-grid"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 照片放大檢視 -->
+      <div id="photo-viewer" class="modal hidden">
+        <div class="modal-content photo-viewer-content">
+          <button type="button" id="photo-viewer-close" class="modal-close" aria-label="關閉">×</button>
+          <img id="photo-viewer-img" alt="活動照片" />
+          <p id="photo-viewer-caption" class="hint-text"></p>
         </div>
       </div>
 

@@ -312,6 +312,11 @@ const fieldTags = createTagEditor(document.getElementById("field-tags"), {
 });
 const fieldBackground = document.getElementById("field-background");
 const fieldContact = document.getElementById("field-contact");
+// 其他聯絡人：可以好幾位，用跟標籤同一個元件（圓角框 + 打字搜尋既有名字）
+const fieldContacts = createTagEditor(document.getElementById("field-contacts"), {
+  suggest: () => knownContacts(),
+  placeholder: "再加一位聯絡人",
+});
 const fieldStatus = document.getElementById("field-status");
 const fieldStrategy = document.getElementById("field-strategy");
 const fieldMethod = document.getElementById("field-method");
@@ -1793,6 +1798,35 @@ function matchesTagFilter(entry) {
 }
 
 // 目前名單上出現過的所有標籤，常用的排前面（標籤輸入框的搜尋來源）
+// 聯絡人的建議名單：已經被指定過的人優先（常用的排前面），再補上名單上的人
+// 卡片上的聯絡人：主要那一位排前面並標「主要」，其他接著列
+function contactLine(entry) {
+  const main = (entry.contact || "").trim();
+  const others = (entry.contacts || []).map((c) => (c || "").trim()).filter((c) => c && c !== main);
+  if (!main && others.length === 0) return "";
+  const parts = [];
+  if (main) parts.push(`${escapeHtml(main)}<span class="contact-main">主要</span>`);
+  parts.push(...others.map((c) => escapeHtml(c)));
+  return `<div class="person-meta">聯絡人：${parts.join("、")}</div>`;
+}
+
+function knownContacts() {
+  const counts = new Map();
+  const bump = (name) => {
+    const v = (name || "").trim();
+    if (v) counts.set(v, (counts.get(v) || 0) + 1);
+  };
+  allEntries.forEach((en) => {
+    bump(en.contact);
+    (en.contacts || []).forEach(bump);
+  });
+  const used = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([n]) => n);
+  const names = rosterNames.map((r) => (r.name || "").trim()).filter(Boolean);
+  return [...new Set([...used, ...names])];
+}
+
 function knownTags() {
   const counts = new Map();
   allEntries.forEach((en) =>
@@ -2119,6 +2153,7 @@ function renderEntries() {
         entry.department,
         getBackground(entry),
         entry.contact,
+        (entry.contacts || []).join(" "),
         (entry.tags || []).join(" "),
       ]
         .filter(Boolean)
@@ -2180,7 +2215,7 @@ function renderEntries() {
         ${entry.status ? `<span class="status-badge">${escapeHtml(entry.status)}</span>` : ""}
       </div>
       ${tagsHtml(entry.tags)}
-      ${entry.contact ? `<div class="person-meta">聯絡人：${escapeHtml(entry.contact)}</div>` : ""}
+      ${contactLine(entry)}
       ${entry.recommendedActivity ? `<div class="card-recommend"><span class="field-label">推薦活動</span>${escapeHtml(entry.recommendedActivity)}</div>` : ""}
       ${field("背景", escapeHtml(getBackground(entry)))}
       ${field("策略", escapeHtml(entry.strategy))}
@@ -2537,6 +2572,7 @@ function buildNameMap() {
   allEntries.forEach((entry) => {
     registerField(entry.name);
     registerField(entry.contact);
+    (entry.contacts || []).forEach(registerField);
   });
   return { forward, reverse };
 }
@@ -2568,6 +2604,7 @@ function maskEntry(entry, forward) {
     tags: (entry.tags || []).map((t) => maskNames(t, forward)),
     background: maskNames(getBackground(entry), forward),
     contact: maskNames(entry.contact, forward),
+    contacts: (entry.contacts || []).map((c) => maskNames(c, forward)),
     status: entry.status,
     strategy: maskNames(entry.strategy, forward),
     method: maskNames(entry.method, forward),
@@ -3551,6 +3588,7 @@ function openModal(entry = null) {
     fieldBackground.value = getBackground(entry);
     fieldContact.readOnly = false;
     fieldContact.value = entry.contact || "";
+    fieldContacts.setTags(entry.contacts || []);
     teamContactDraft = fieldContact.value;
     fieldStatus.value = entry.status || "";
     fieldStrategy.value = entry.strategy || "";
@@ -3566,6 +3604,7 @@ function openModal(entry = null) {
     fieldContact.readOnly = false;
     teamContactDraft = "";
     fieldTags.clear(); // form.reset() 清不到自訂的標籤欄
+    fieldContacts.clear();
     editingRoleRank = 0;
     fieldRole.value = "0";
   }
@@ -3624,6 +3663,7 @@ entryModal.addEventListener("click", (e) => {
 entryForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   fieldTags.commitPending(); // 打了字卻沒按 Enter 的標籤也算數
+  fieldContacts.commitPending();
   // 注意：activities / talks 不在這裡處理，改由各自的對話框獨立新增/編輯，
   // 這裡不能帶入這些欄位，否則 updateDoc 會把既有紀錄整個蓋掉。
   const data = {
@@ -3634,6 +3674,10 @@ entryForm.addEventListener("submit", async (e) => {
     background: fieldBackground.value.trim(),
     // 個人名單的聯絡人固定是自己
     contact: fieldScope.value === "personal" ? myDisplayName() : fieldContact.value.trim(),
+    // 其他聯絡人：不含主要那一位，免得同一個名字出現兩次
+    contacts: fieldContacts
+      .getTags()
+      .filter((c) => c !== (fieldScope.value === "personal" ? myDisplayName() : fieldContact.value.trim())),
     status: fieldStatus.value,
     strategy: fieldStrategy.value.trim(),
     method: fieldMethod.value.trim(),
@@ -3848,6 +3892,9 @@ function startEditEvent(ev) {
   inviteAiStatus.textContent = "";
   closeInviteNoteEditor();
   renderInviteList();
+  photoSection.classList.remove("hidden"); // 照片也只在編輯既有活動時有意義
+  photoStatus.textContent = "";
+  loadEventPhotos(ev.id);
   newEventName.focus();
 }
 
@@ -3867,6 +3914,9 @@ function resetEventForm() {
   deleteEventBtn.classList.add("hidden");
   cancelEditBtn.classList.add("hidden");
   inviteSection.classList.add("hidden");
+  photoSection.classList.add("hidden");
+  photoStatus.textContent = "";
+  eventPhotos = [];
   newInvitePerson.value = "";
   inviteAiStatus.textContent = "";
   closeInviteNoteEditor();
@@ -3980,12 +4030,15 @@ function hideInviteSuggestions() {
 
 async function addInviteByEntryId(entryId) {
   if (!entryId || editingEventInvites.some((i) => i.entryId === entryId)) return;
-  editingEventInvites.push({ entryId, status: newInviteStatus.value });
+  const status = newInviteStatus.value;
+  editingEventInvites.push({ entryId, status });
   newInvitePerson.value = "";
   inviteAiStatus.textContent = "";
   renderInviteList();
   hideInviteSuggestions();
   await persistInvites();
+  // 加進來時就已經是「已邀約待回覆」之類的話，那也是一次聯絡
+  await logInviteTalk(entryId, status);
 }
 
 newInvitePerson.addEventListener("input", renderInviteSuggestions);
@@ -4067,6 +4120,50 @@ inviteBoard.addEventListener("click", async (e) => {
   if (e.target.closest(".invite-chip-name")) openInviteNoteEditor(chip.dataset.entryId);
 });
 
+// 邀約狀況變成「已邀約待回覆／回覆不確定／已回覆可以／已回覆不行」＝真的跟人接觸過了，
+// 順手記一筆聯絡紀錄，省得同一件事要再手動抄一次。
+// 「預定邀約」只是自己先圈起來、還沒去問，所以不記。
+const INVITE_NO_TALK = "預定邀約";
+
+function inviteTalkContent(ev, status, note) {
+  const base = `${status}「${ev.name || "未命名活動"}」`;
+  return note ? `${base}：${note}` : base;
+}
+
+// 這次邀約狀況要寫成什麼樣的聯絡紀錄（純函式，好驗證）。
+// 回傳新的 talks 陣列；不需要寫就回 null。
+function inviteTalkUpdate(entry, ev, status, note, date) {
+  if (!entry || !ev || status === INVITE_NO_TALK) return null;
+  const content = inviteTalkContent(ev, status, note);
+  const talks = entry.talks || [];
+  // 同一天、同一場活動的邀約紀錄只留最新那一筆：狀態拉來拉去不該洗出一長串
+  const mine = (t) =>
+    t.date === date &&
+    typeof t.content === "string" &&
+    t.content.includes(`「${ev.name || "未命名活動"}」`) &&
+    INVITE_STATUSES.some((st) => t.content.startsWith(st));
+  if (talks.some((t) => mine(t) && t.content === content)) return null; // 一模一樣就不用重寫
+  return [...talks.filter((t) => !mine(t)), { date, content }];
+}
+
+async function logInviteTalk(entryId, status, note) {
+  const ev = allEvents.find((x) => x.id === editingEventId);
+  const entry = allEntries.find((en) => en.id === entryId);
+  const ref = entry && entryRef(entry);
+  if (!ref) return; // 身分階梯擋住的人改不動，靜靜略過（規則也會擋）
+  const talks = inviteTalkUpdate(entry, ev, status, note, ymd(new Date()));
+  if (!talks) return;
+  try {
+    await updateDoc(ref, {
+      talks,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+  } catch (err) {
+    if (err.code !== "permission-denied") console.error("寫入邀約聯絡紀錄失敗", err);
+  }
+}
+
 async function setInviteStatus(entryId, status) {
   const inv = editingEventInvites.find((i) => i.entryId === entryId);
   if (!inv || inv.status === status) {
@@ -4076,6 +4173,7 @@ async function setInviteStatus(entryId, status) {
   inv.status = status;
   renderInviteList();
   await persistInvites();
+  await logInviteTalk(entryId, status, inv.note);
 }
 
 // ---------- 邀約備註（在看板下方編輯） ----------
@@ -4104,7 +4202,8 @@ function closeInviteNoteEditor() {
 
 inviteNoteSave.addEventListener("click", async () => {
   if (!noteEditingEntryId) return;
-  const inv = editingEventInvites.find((i) => i.entryId === noteEditingEntryId);
+  const entryId = noteEditingEntryId;
+  const inv = editingEventInvites.find((i) => i.entryId === entryId);
   if (inv) {
     inv.note = inviteNoteText.value.trim();
     if (inviteNoteStatus.value) inv.status = inviteNoteStatus.value;
@@ -4112,6 +4211,8 @@ inviteNoteSave.addEventListener("click", async () => {
   closeInviteNoteEditor();
   renderInviteList();
   await persistInvites();
+  // 備註常常就是對方的回應，一起記進聯絡紀錄
+  if (inv) await logInviteTalk(entryId, inv.status, inv.note);
 });
 
 inviteNoteCancel.addEventListener("click", closeInviteNoteEditor);
@@ -4147,6 +4248,141 @@ inviteBoard.addEventListener("drop", async (e) => {
   const entryId = dragInviteEntryId;
   dragInviteEntryId = null;
   await setInviteStatus(entryId, col.dataset.status);
+});
+
+// ---------- 活動照片 ----------
+// 存在 units/{unitId}/events/{eventId}/photos/{photoId}，一張一份文件。
+// 沒有動用 Firebase Storage：那要另外開通、另一套規則；照片先在瀏覽器縮到
+// 「看得清楚臉」的大小（長邊 1280、JPEG）再存成 data URL，一張約 100–250KB，
+// 遠低於 Firestore 單一文件 1MB 的上限。開啟活動時才讀，不做即時訂閱。
+const PHOTO_MAX_EDGE = 1280;
+const PHOTO_MAX_BYTES = 700 * 1024; // 留餘裕給其他欄位
+const photoSection = document.getElementById("photo-section");
+const photoInput = document.getElementById("photo-input");
+const photoGrid = document.getElementById("photo-grid");
+const photoCount = document.getElementById("photo-count");
+const photoStatus = document.getElementById("photo-status");
+const photoViewer = document.getElementById("photo-viewer");
+const photoViewerImg = document.getElementById("photo-viewer-img");
+const photoViewerCaption = document.getElementById("photo-viewer-caption");
+const photoViewerClose = document.getElementById("photo-viewer-close");
+
+let eventPhotos = []; // 目前這個活動的照片
+
+function photoCol(eventId) {
+  return collection(db, "units", myUnitId, EVENTS_COLLECTION, eventId, "photos");
+}
+
+// 縮圖：長邊不超過 PHOTO_MAX_EDGE，太大就一路降品質，直到塞得進一份文件
+async function shrinkImage(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, PHOTO_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+  bitmap.close?.();
+  for (const quality of [0.72, 0.6, 0.5, 0.4]) {
+    const dataUrl = canvas.toDataURL("image/jpeg", quality);
+    if (dataUrl.length <= PHOTO_MAX_BYTES) return { dataUrl, w, h };
+  }
+  return null; // 壓到最後還是太大（極少見），交給呼叫端說明
+}
+
+async function loadEventPhotos(eventId) {
+  eventPhotos = [];
+  renderPhotos();
+  if (!eventId) return;
+  try {
+    const snap = await getDocs(photoCol(eventId));
+    eventPhotos = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.uploadedAt?.toMillis?.() ?? 0) - (b.uploadedAt?.toMillis?.() ?? 0));
+  } catch (err) {
+    if (err.code !== "permission-denied") console.error("讀取活動照片失敗", err);
+  }
+  renderPhotos();
+}
+
+function renderPhotos() {
+  photoCount.textContent = eventPhotos.length ? `${eventPhotos.length} 張` : "";
+  photoGrid.innerHTML = eventPhotos.length
+    ? eventPhotos
+        .map(
+          (p, i) => `
+        <figure class="photo-item">
+          <img src="${p.dataUrl}" alt="活動照片 ${i + 1}" data-photo-view="${escapeHtml(p.id)}" loading="lazy" />
+          <button type="button" class="photo-remove" data-photo-del="${escapeHtml(p.id)}"
+            title="刪除這張" aria-label="刪除這張照片">×</button>
+        </figure>`
+        )
+        .join("")
+    : `<p class="hint-text">還沒有照片。</p>`;
+}
+
+photoInput.addEventListener("change", async () => {
+  const files = [...photoInput.files].filter((f) => f.type.startsWith("image/"));
+  photoInput.value = ""; // 同一張再選一次也要能觸發
+  if (!files.length || !editingEventId) return;
+
+  let done = 0;
+  const failed = [];
+  for (const file of files) {
+    photoStatus.textContent = `處理中 ${done + 1}/${files.length}...`;
+    try {
+      const shrunk = await shrinkImage(file);
+      if (!shrunk) {
+        failed.push(`${file.name}（壓縮後仍過大）`);
+        continue;
+      }
+      await addDoc(photoCol(editingEventId), {
+        ...shrunk,
+        name: file.name || "",
+        uploadedAt: serverTimestamp(),
+        uploadedBy: auth.currentUser?.email || null,
+      });
+      done += 1;
+    } catch (err) {
+      failed.push(`${file.name}：${err.code || err.message}`);
+    }
+  }
+  photoStatus.textContent = [
+    done ? `已上傳 ${done} 張` : "",
+    failed.length ? `${failed.length} 張失敗（${failed[0]}）` : "",
+  ]
+    .filter(Boolean)
+    .join("，");
+  await loadEventPhotos(editingEventId);
+});
+
+photoGrid.addEventListener("click", async (e) => {
+  const del = e.target.closest("[data-photo-del]");
+  if (del) {
+    if (!confirm("確定要刪除這張照片嗎？此動作無法復原。")) return;
+    try {
+      await deleteDoc(doc(db, "units", myUnitId, EVENTS_COLLECTION, editingEventId, "photos", del.dataset.photoDel));
+      await loadEventPhotos(editingEventId);
+      photoStatus.textContent = "已刪除一張照片。";
+    } catch (err) {
+      photoStatus.textContent = "刪除失敗：" + err.message;
+    }
+    return;
+  }
+  const view = e.target.closest("[data-photo-view]");
+  if (!view) return;
+  const photo = eventPhotos.find((p) => p.id === view.dataset.photoView);
+  if (!photo) return;
+  photoViewerImg.src = photo.dataUrl;
+  photoViewerCaption.textContent = [photo.name, photo.uploadedBy].filter(Boolean).join(" ・ ");
+  photoViewer.classList.add("is-stacked");
+  photoViewer.classList.remove("hidden");
+});
+
+photoViewerClose.addEventListener("click", () => photoViewer.classList.add("hidden"));
+photoViewer.addEventListener("click", (e) => {
+  if (e.target === photoViewer) photoViewer.classList.add("hidden");
 });
 
 // ---------- AI 建議邀約：挑出適合這個活動的對象，加進「預定邀約」 ----------
@@ -4289,9 +4525,26 @@ saveEventBtn.addEventListener("click", async () => {
 
 deleteEventBtn.addEventListener("click", async () => {
   if (!editingEventId) return;
-  if (!confirm(`確定刪除活動「${newEventName.value.trim()}」？`)) return;
+  const photos = eventPhotos.length;
+  if (
+    !confirm(
+      `確定刪除活動「${newEventName.value.trim()}」？` +
+        (photos ? `
+
+會連同 ${photos} 張照片一起刪掉。` : "")
+    )
+  ) {
+    return;
+  }
+  const eventId = editingEventId;
   try {
-    await deleteDoc(unitDoc(EVENTS_COLLECTION, editingEventId));
+    // 子集合不會跟著父文件刪掉，照片要自己清，不然變成看不到卻還佔空間的孤兒
+    await Promise.all(
+      eventPhotos.map((p) =>
+        deleteDoc(doc(db, "units", myUnitId, EVENTS_COLLECTION, eventId, "photos", p.id))
+      )
+    );
+    await deleteDoc(unitDoc(EVENTS_COLLECTION, eventId));
     resetEventForm();
   } catch (err) {
     alert("刪除活動失敗：" + err.message);

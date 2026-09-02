@@ -45,7 +45,8 @@ function formatPerson(person) {
 系級：${person.department || "（未填）"}
 標籤：${(person.tags || []).join("、") || "（無）"}
 背景：${person.background || "（未填）"}
-聯絡人代號：${person.contact || "（未填）"}
+主要聯絡人代號：${person.contact || "（未填）"}
+其他聯絡人代號：${(person.contacts || []).join("、") || "（無）"}
 目前成全狀況：${person.status || "（未填）"}
 目前策略：${person.strategy || "（尚無）"}
 目前做法：${person.method || "（尚無）"}

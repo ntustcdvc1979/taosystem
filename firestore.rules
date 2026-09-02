@@ -128,6 +128,12 @@ service cloud.firestore {
       // 活動（道務）
       match /events/{eventId} {
         allow read, write: if inUnit(unitId) && canDao();
+
+        // 活動照片：一張一份文件（縮圖後的 data URL），幫大家記得誰是誰。
+        // 子集合不會繼承上面那條規則，要自己寫一條。
+        match /photos/{photoId} {
+          allow read, write: if inUnit(unitId) && canDao();
+        }
       }
 
       // ===== 班務系統 =====
