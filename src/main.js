@@ -572,7 +572,9 @@ const ENTRY_ROLE_RANK = 3; // 名單本身的身分欄位仍然只有忠義字�
 // 兩個系統各看各的——成全組長給不了班務身分，班務組長也給不了道務身分，
 // 這跟安全規則同一條線，才不會在畫面上選得到、送出卻被拒絕。
 function maxAssignableRank() {
-  return myRank >= ENTRY_ROLE_RANK ? ROLE_LABELS.length - 1 : myRank;
+  if (myRank >= ENTRY_ROLE_RANK) return ROLE_LABELS.length - 1;
+  // 班務組長在道務沒有身分，但仍給得了最基本的「組員」，才帶得動新人進道務系統
+  return Math.max(myRank, myClassRank >= MANAGE_MEMBERS_RANK ? 1 : 0);
 }
 
 function maxAssignableClassRank() {
@@ -910,8 +912,23 @@ let unsubscribeLinks = null;
 let unitMembers = [];
 let unitLinks = []; // memberLinks：使用者自己綁的那一份
 
+// 新增帳號那一排的兩個下拉也只列自己給得了的身分，
+// 不然選了點傳師卻被默默降成組員，看起來像沒生效
+function fillNewMemberRoles() {
+  const fill = (sel, labels, cap, preferred) => {
+    sel.innerHTML = RANK_CHOICES.filter((r) => r <= cap)
+      .map((r) => `<option value="${r}">${labels[r]}</option>`)
+      .join("");
+    sel.value = String(Math.min(preferred, cap));
+    sel.disabled = cap < 1;
+  };
+  fill(newMemberRole, ACCOUNT_ROLE_LABELS.map((l) => `道務：${l}`), maxAssignableRank(), 1);
+  fill(newMemberClassRole, CLASS_ROLE_LABELS.map((l) => `班務：${l}`), maxAssignableClassRank(), 0);
+}
+
 function openMembersModal() {
   membersUnitName.textContent = myUnitName;
+  fillNewMemberRoles();
   membersStatus.textContent = "";
   newMemberEmail.value = "";
   memberSearch.value = "";
@@ -985,12 +1002,16 @@ function memberColor(email) {
 }
 
 function roleSelect(cls, email, labels, current, prefix, cap) {
-  // 已經是比我高的身分就照樣列出來（只是不能改），不然下拉會顯示成錯的那一階
-  const top = Math.max(cap, current);
+  // 設得動的那幾階正常列出；對方目前的身分若比我能設的還高，就多列一個
+  // 不能選的選項（顯示得出他現在是誰，但改不動——規則層也是這樣擋）
+  const options = RANK_CHOICES.filter((r) => r <= cap).map(
+    (r) => `<option value="${r}" ${r === current ? "selected" : ""}>${labels[r]}</option>`
+  );
+  if (current > cap) {
+    options.push(`<option value="${current}" selected disabled>${labels[current]}</option>`);
+  }
   return `<select class="${cls}" data-email="${escapeHtml(email)}" aria-label="${prefix}身分" ${cap < 1 ? "disabled" : ""}>
-      ${RANK_CHOICES.filter((r) => r <= top)
-        .map((r) => `<option value="${r}" ${r === current ? "selected" : ""}>${labels[r]}</option>`)
-        .join("")}
+      ${options.join("")}
     </select>`;
 }
 

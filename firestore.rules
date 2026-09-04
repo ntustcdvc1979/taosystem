@@ -62,8 +62,12 @@ service cloud.firestore {
       return request.resource.data.get('classRank', 0) == resource.data.get('classRank', 0);
     }
     // 能把別人設到哪一階：組長只能設到自己這階以下，講師以上可以指派到點傳師（4）
+    // 班務組長雖然在道務沒有身分，仍然可以把新帳號開成「組員」——
+    // 他要能把人帶進道務系統，但給不了成全組長以上（那要道務那邊自己有身分）。
     function maxAssignableRank() {
-      return myRank() >= 3 ? 4 : myRank();
+      return myRank() >= 3 ? 4
+           : myRank() >= 1 ? myRank()
+           : (myClassRank() >= 2 ? 1 : 0);
     }
     function maxAssignableClassRank() {
       return myClassRank() >= 3 ? 4 : myClassRank();
