@@ -3913,6 +3913,7 @@ function startEditEvent(ev) {
   inviteAiStatus.textContent = "";
   closeInviteNoteEditor();
   renderInviteList();
+  responseSection.classList.remove("hidden"); // 回應一覽同樣只在編輯既有活動時有意義
   photoSection.classList.remove("hidden"); // 照片也只在編輯既有活動時有意義
   photoStatus.textContent = "";
   loadEventPhotos(ev.id);
@@ -3935,6 +3936,7 @@ function resetEventForm() {
   deleteEventBtn.classList.add("hidden");
   cancelEditBtn.classList.add("hidden");
   inviteSection.classList.add("hidden");
+  responseSection.classList.add("hidden");
   photoSection.classList.add("hidden");
   photoStatus.textContent = "";
   eventPhotos = [];
@@ -3998,6 +4000,7 @@ function renderInviteList() {
 
   // 清單只在使用者正在輸入時才需要更新；沒點進輸入框就不要自己跳出來
   if (document.activeElement === newInvitePerson) renderInviteSuggestions();
+  renderResponseTable();
 }
 
 // 自己做的搜尋清單（不用 <datalist>：中文 IME 輸入時它常常不篩選，等於不能搜尋）
@@ -4270,6 +4273,81 @@ inviteBoard.addEventListener("drop", async (e) => {
   dragInviteEntryId = null;
   await setInviteStatus(entryId, col.dataset.status);
 });
+
+// ---------- 每個人的回應一覽 ----------
+// 同一個人的資料散在三個地方：邀約看板（狀況＋備註）、回報結果（有沒有到）、
+// 他自己的活動紀錄（當天的反應）。這裡把一場活動的全部回應併成一張表。
+const responseSection = document.getElementById("response-section");
+const responseSummary = document.getElementById("response-summary");
+const responseTable = document.getElementById("response-table");
+
+// 這場活動在某個人的活動紀錄裡留下的反應（用活動名稱＋日期對）
+function reactionFor(entryId, ev) {
+  const entry = allEntries.find((en) => en.id === entryId);
+  if (!entry) return "";
+  const name = (ev.name || "").trim();
+  const hit = (entry.activities || []).find(
+    (a) => (a.activity || "").trim() === name && (!a.date || a.date === ev.date || a.date === eventEndDate(ev))
+  );
+  return (hit?.reaction || "").trim();
+}
+
+function renderResponseTable() {
+  const ev = allEvents.find((x) => x.id === editingEventId);
+  if (!ev) return;
+  const invites = editingEventInvites;
+  const reports = ev.reports || {};
+
+  const came = invites.filter((i) => reports[i.entryId]?.came).length;
+  const absent = invites.filter((i) => reports[i.entryId] && !reports[i.entryId].came).length;
+  responseSummary.textContent = invites.length
+    ? `（${invites.length} 人・回報 有 ${came}／沒 ${absent}）`
+    : "";
+
+  if (invites.length === 0) {
+    responseTable.innerHTML = `<p class="hint-text">還沒有邀約名單，加了人之後這裡會列出每個人的回應。</p>`;
+    return;
+  }
+
+  // 依邀約狀況排序，同狀況照加入順序
+  const rows = [...invites].sort(
+    (a, b) => INVITE_STATUSES.indexOf(a.status) - INVITE_STATUSES.indexOf(b.status)
+  );
+
+  responseTable.innerHTML = `
+    <table class="response-grid">
+      <thead>
+        <tr>
+          <th>姓名</th>
+          <th>邀約狀況</th>
+          <th>他的回應</th>
+          <th>出席</th>
+          <th>當天反應／沒來的原因</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map((inv) => {
+            const rep = reports[inv.entryId];
+            const attend = !rep
+              ? `<span class="resp-pending">未回報</span>`
+              : rep.came
+                ? `<span class="resp-came">有參加</span>`
+                : `<span class="resp-absent">沒參加</span>`;
+            const after = rep?.came ? reactionFor(inv.entryId, ev) || rep.note || "" : rep?.note || "";
+            return `
+            <tr>
+              <td>${escapeHtml(entryName(inv.entryId) || "（對象已刪除）")}</td>
+              <td><span class="resp-status">${escapeHtml(inv.status || "")}</span></td>
+              <td class="resp-note">${escapeHtml((inv.note || "").trim())}</td>
+              <td>${attend}</td>
+              <td class="resp-note">${escapeHtml(after)}</td>
+            </tr>`;
+          })
+          .join("")}
+      </tbody>
+    </table>`;
+}
 
 // ---------- 活動照片 ----------
 // 存在 units/{unitId}/events/{eventId}/photos/{photoId}，一張一份文件。

@@ -2867,3 +2867,69 @@ body:has(.modal:not(.hidden)) .chat-panel {
   object-fit: contain;
   border-radius: 8px;
 }
+
+/* 每個人的回應一覽：一場活動的邀約狀況、回應、出席、當天反應併成一張表 */
+.response-section {
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid #eee;
+}
+
+/* 窄螢幕讓表格自己橫向捲，不要把整頁撐寬 */
+.response-table {
+  margin-top: 0.5rem;
+  overflow-x: auto;
+}
+
+.response-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.response-grid th,
+.response-grid td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid #eef0f3;
+  text-align: left;
+  vertical-align: top;
+}
+
+.response-grid th {
+  color: #6b7480;
+  font-weight: 600;
+  font-size: 0.8rem;
+  background: #f8f9fb;
+  position: sticky;
+  top: 0;
+}
+
+/* 回應與反應可能很長，讓它們換行、其餘欄位維持一行 */
+.response-grid .resp-note {
+  white-space: pre-wrap;
+  min-width: 10rem;
+  max-width: 22rem;
+  color: #5a6472;
+}
+
+.resp-status {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: #eef2fb;
+  color: #3a5fa8;
+  font-size: 0.78rem;
+}
+
+.resp-came {
+  color: #1e8a4c;
+  font-weight: 600;
+}
+
+.resp-absent {
+  color: #7a828c;
+}
+
+.resp-pending {
+  color: #a4761a;
+}
