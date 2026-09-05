@@ -4294,6 +4294,23 @@ function activityRecordFor(entry, ev) {
   );
 }
 
+// 這場活動相關的聯絡紀錄：活動那幾天寫的，或內容裡點名這場活動的
+// （邀約狀況與缺席原因都是這樣自動寫進去的，內容會帶著「活動名稱」）
+function eventTalksFor(entry, ev) {
+  const name = (ev.name || "").trim();
+  const start = ev.date || "";
+  const end = eventEndDate(ev) || start;
+  return (entry?.talks || [])
+    .filter((t) => {
+      const content = (t.content || "").trim();
+      if (!content) return false;
+      const onDay = t.date && start && t.date >= start && t.date <= end;
+      const aboutIt = name && content.includes(`「${name}」`);
+      return onDay || aboutIt;
+    })
+    .map((t) => (t.content || "").trim());
+}
+
 // 排序：回覆可以 → 活動紀錄裡有他的 → 其餘還在跟進的 → 回覆不行。
 // 「預定邀約」只是自己先圈的名字，還沒問過人，所以不列（除非他其實有來）。
 function responseOrder(status, hasRecord) {
@@ -4321,10 +4338,14 @@ function renderResponseTable() {
       const entry = allEntries.find((en) => en.id === r.entryId);
       const record = entry ? activityRecordFor(entry, ev) : null;
       const rep = reports[r.entryId];
-      // 當天反應：活動紀錄優先；沒來的話寫沒來的原因，免得那一格空著看不出所以然
-      const reaction = (record?.reaction || "").trim();
-      const text = reaction || (rep && !rep.came && rep.note ? `沒來：${rep.note}` : "");
-      return { ...r, hasRecord: !!record, text };
+      // 當天反應＝活動紀錄的反應 ＋ 那幾天（或點名這場活動）的聯絡紀錄。
+      // 兩邊可能寫同一件事，重複的只留一份。
+      const lines = [(record?.reaction || "").trim(), ...eventTalksFor(entry, ev)].filter(Boolean);
+      const seen = new Set();
+      const unique = lines.filter((l) => !seen.has(l) && seen.add(l));
+      // 什麼都沒有、但回報說沒來，就寫出原因，免得那一格空著看不出所以然
+      if (unique.length === 0 && rep && !rep.came && rep.note) unique.push(`沒來：${rep.note}`);
+      return { ...r, hasRecord: !!record, text: unique.join("\n") };
     })
     // 「預定邀約」還沒問過人，除非活動紀錄裡有他（真的來了）才列
     .filter((r) => r.hasRecord || (r.status && r.status !== "預定邀約"))
