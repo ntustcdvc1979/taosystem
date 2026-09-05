@@ -4281,69 +4281,84 @@ const responseSection = document.getElementById("response-section");
 const responseSummary = document.getElementById("response-summary");
 const responseTable = document.getElementById("response-table");
 
-// 這場活動在某個人的活動紀錄裡留下的反應（用活動名稱＋日期對）
-function reactionFor(entryId, ev) {
-  const entry = allEntries.find((en) => en.id === entryId);
-  if (!entry) return "";
+// 這場活動在某個人的活動紀錄裡的那一筆（用活動名稱＋日期對）
+function activityRecordFor(entry, ev) {
   const name = (ev.name || "").trim();
-  const hit = (entry.activities || []).find(
-    (a) => (a.activity || "").trim() === name && (!a.date || a.date === ev.date || a.date === eventEndDate(ev))
+  if (!entry || !name) return null;
+  return (
+    (entry.activities || []).find(
+      (a) =>
+        (a.activity || "").trim() === name &&
+        (!a.date || a.date === ev.date || a.date === eventEndDate(ev))
+    ) || null
   );
-  return (hit?.reaction || "").trim();
+}
+
+// 排序：回覆可以 → 活動紀錄裡有他的 → 其餘還在跟進的 → 回覆不行。
+// 「預定邀約」只是自己先圈的名字，還沒問過人，所以不列（除非他其實有來）。
+function responseOrder(status, hasRecord) {
+  if (status === "已回覆可以") return 0;
+  if (hasRecord) return 1;
+  if (status === "已回覆不行") return 3;
+  return 2;
 }
 
 function renderResponseTable() {
   const ev = allEvents.find((x) => x.id === editingEventId);
   if (!ev) return;
-  const invites = editingEventInvites;
   const reports = ev.reports || {};
 
-  const came = invites.filter((i) => reports[i.entryId]?.came).length;
-  const absent = invites.filter((i) => reports[i.entryId] && !reports[i.entryId].came).length;
-  responseSummary.textContent = invites.length
-    ? `（${invites.length} 人・回報 有 ${came}／沒 ${absent}）`
-    : "";
+  // 兩個來源：邀約名單，以及活動紀錄裡寫到這場活動的人（沒被邀約也算）
+  const byId = new Map();
+  editingEventInvites.forEach((inv) => byId.set(inv.entryId, { entryId: inv.entryId, status: inv.status }));
+  allEntries.forEach((en) => {
+    if (!activityRecordFor(en, ev)) return;
+    if (!byId.has(en.id)) byId.set(en.id, { entryId: en.id, status: "" });
+  });
 
-  if (invites.length === 0) {
-    responseTable.innerHTML = `<p class="hint-text">還沒有邀約名單，加了人之後這裡會列出每個人的回應。</p>`;
+  const rows = [...byId.values()]
+    .map((r) => {
+      const entry = allEntries.find((en) => en.id === r.entryId);
+      const record = entry ? activityRecordFor(entry, ev) : null;
+      const rep = reports[r.entryId];
+      // 當天反應：活動紀錄優先；沒來的話寫沒來的原因，免得那一格空著看不出所以然
+      const reaction = (record?.reaction || "").trim();
+      const text = reaction || (rep && !rep.came && rep.note ? `沒來：${rep.note}` : "");
+      return { ...r, hasRecord: !!record, text };
+    })
+    // 「預定邀約」還沒問過人，除非活動紀錄裡有他（真的來了）才列
+    .filter((r) => r.hasRecord || (r.status && r.status !== "預定邀約"))
+    .sort(
+      (a, b) =>
+        responseOrder(a.status, a.hasRecord) - responseOrder(b.status, b.hasRecord) ||
+        (entryName(a.entryId) || "").localeCompare(entryName(b.entryId) || "")
+    );
+
+  const withRecord = rows.filter((r) => r.hasRecord).length;
+  responseSummary.textContent = rows.length ? `（${rows.length} 人・活動紀錄 ${withRecord} 人）` : "";
+
+  if (rows.length === 0) {
+    responseTable.innerHTML = `<p class="hint-text">還沒有人回覆，活動紀錄裡也還沒有這場活動。</p>`;
     return;
   }
-
-  // 依邀約狀況排序，同狀況照加入順序
-  const rows = [...invites].sort(
-    (a, b) => INVITE_STATUSES.indexOf(a.status) - INVITE_STATUSES.indexOf(b.status)
-  );
 
   responseTable.innerHTML = `
     <table class="response-grid">
       <thead>
         <tr>
           <th>姓名</th>
-          <th>邀約狀況</th>
-          <th>他的回應</th>
-          <th>出席</th>
-          <th>當天反應／沒來的原因</th>
+          <th>當天反應</th>
         </tr>
       </thead>
       <tbody>
         ${rows
-          .map((inv) => {
-            const rep = reports[inv.entryId];
-            const attend = !rep
-              ? `<span class="resp-pending">未回報</span>`
-              : rep.came
-                ? `<span class="resp-came">有參加</span>`
-                : `<span class="resp-absent">沒參加</span>`;
-            const after = rep?.came ? reactionFor(inv.entryId, ev) || rep.note || "" : rep?.note || "";
-            return `
+          .map(
+            (r) => `
             <tr>
-              <td>${escapeHtml(entryName(inv.entryId) || "（對象已刪除）")}</td>
-              <td><span class="resp-status">${escapeHtml(inv.status || "")}</span></td>
-              <td class="resp-note">${escapeHtml((inv.note || "").trim())}</td>
-              <td>${attend}</td>
-              <td class="resp-note">${escapeHtml(after)}</td>
-            </tr>`;
-          })
+              <td>${escapeHtml(entryName(r.entryId) || "（對象已刪除）")}</td>
+              <td class="resp-note">${escapeHtml(r.text)}</td>
+            </tr>`
+          )
           .join("")}
       </tbody>
     </table>`;
