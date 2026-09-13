@@ -505,6 +505,8 @@ const classroomContext = {
   onLessonsChanged: () => {
     if (myRank >= 1) renderEntries();
   },
+  // 班務的動作也記進同一份更新動態
+  logUpdate: (kind, text) => logUpdate(kind, text),
 };
 initClassroom(classroomContext);
 
@@ -1077,6 +1079,8 @@ function renderUpdates() {
 }
 
 updatesBtn.addEventListener("click", openUpdatesModal);
+// 班務系統的工具列也有一顆，開的是同一份（兩邊的動態都在裡面，可用類型過濾）
+document.getElementById("class-updates-btn").addEventListener("click", openUpdatesModal);
 updatesCloseBtn.addEventListener("click", closeUpdatesModal);
 updatesModal.addEventListener("click", (e) => {
   if (e.target === updatesModal) closeUpdatesModal();
@@ -1853,10 +1857,7 @@ async function submitOneReport(entryId, btn) {
     reportStatus.textContent = allDone
       ? "全部回報完了，提醒會消失。"
       : `已回報 ${entryName(entryId)}。`;
-    logUpdate(
-      "report",
-      `回報「${entryName(entryId)}」在「${ev.name}」${came ? "有參加" : "沒參加"}${note ? `：${note}` : ""}`
-    );
+    logUpdate("report", `回報「${entryName(entryId)}」在「${ev.name}」${came ? "有參加" : "沒參加"}`);
     if (allDone) closeReportModal();
   } catch (err) {
     btn.disabled = false;
@@ -1936,6 +1937,11 @@ const UPDATE_KINDS = {
   invite: "邀約狀況",
   report: "參與回報",
   event: "活動",
+  // 班務系統這幾種
+  classEntry: "班務名單",
+  lesson: "上課紀錄",
+  record: "佛規／背誦",
+  course: "課程",
 };
 
 async function logUpdate(kind, text) {
@@ -3090,7 +3096,9 @@ addTalkBtn.addEventListener("click", async () => {
   newTalkContent.value = "";
   renderTalkModalList();
   await persistTalks();
-  logUpdate("talk", `更新了「${entryName(talkModalEntryId)}」的聯絡近況：${content}`);
+  // 只寫「更新了誰的什麼」，不把紀錄本文放進動態——
+  // 這份流水帳是全單位看得到的，內容留在那一筆紀錄裡就好
+  logUpdate("talk", `更新了「${entryName(talkModalEntryId)}」的聯絡近況`);
 });
 
 talkCloseBtn.addEventListener("click", closeTalkModal);

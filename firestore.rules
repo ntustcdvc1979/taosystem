@@ -142,9 +142,11 @@ service cloud.firestore {
 
       // 更新動態：誰更新了什麼的流水帳，只寫得進去、改不動也刪不掉。
       // 寫的人一定是自己（by 欄位就是自己的 Email），免得有人偽造別人的紀錄。
+      // 兩個系統共用一份（各自的動態用 kind 分辨），所以有任一邊的權限就進得來；
+      // 內容只寫「誰做了什麼」，不放紀錄本文，免得看不到那一筆的人從這裡讀到內容。
       match /updates/{updateId} {
-        allow read: if inUnit(unitId) && canDao();
-        allow create: if inUnit(unitId) && canDao()
+        allow read: if inUnit(unitId) && (canDao() || canClass());
+        allow create: if inUnit(unitId) && (canDao() || canClass())
                       && request.resource.data.by == request.auth.token.email;
         allow update, delete: if false;
       }

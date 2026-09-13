@@ -211,6 +211,56 @@ function lastLessonText(entry) {
   return bits.join("・");
 }
 
+// 出席率：分母是「他那個班、到今天為止已經上過的課」，分子是他有到的堂數。
+// 同一個班別在不同佛堂各自開課，所以只算他真的在上的那個佛堂——
+// 從他的上課紀錄看得出來；還沒有任何紀錄時就先把該班別所有佛堂的課都算進去。
+const ATTENDED_MARKS = new Set(["準時", "遲到"]);
+
+function attendance(entry) {
+  const groups = new Set(entryRoles(entry).map((r) => r.group).filter(Boolean));
+  const lessons = entry.lessons || [];
+  const venues = new Set(lessons.map((l) => (l.venue || "").trim()).filter(Boolean));
+  const now = today();
+
+  const pool = courses.filter(
+    (c) =>
+      groups.has(c.classGroup) &&
+      (c.date || "") <= now && // 還沒上的課不算進分母
+      (venues.size === 0 || venues.has((c.venue || "").trim()))
+  );
+  if (pool.length === 0) return null;
+
+  // 一堂課只算一次：對得到課程 ID 就用 ID，舊紀錄用「課名＋日期」
+  const attended = new Set();
+  lessons.forEach((l) => {
+    if (!ATTENDED_MARKS.has(l.attend)) return; // 請假、缺席不算出席
+    const hit = pool.find((c) =>
+      l.courseId ? c.id === l.courseId : c.name === l.course && c.date === l.date
+    );
+    if (hit) attended.add(hit.id);
+  });
+
+  const rate = attended.size / pool.length;
+  return {
+    attended: attended.size,
+    total: pool.length,
+    rate,
+    // 顏色跟道務那套指標一致：高／中／低／無
+    level: rate >= 0.8 ? 3 : rate >= 0.5 ? 2 : rate > 0 ? 1 : 0,
+    venues: [...venues],
+  };
+}
+
+function attendanceBadge(entry) {
+  const a = attendance(entry);
+  if (!a) return "";
+  const scope = a.venues.length ? a.venues.join("、") : "全部佛堂";
+  const title = `${scope}：已上 ${a.total} 堂，他到了 ${a.attended} 堂（只算準時與遲到）`;
+  return `<span class="metric part-${a.level} attend-badge" title="${esc(title)}">出席 ${a.attended}/${a.total}（${Math.round(
+    a.rate * 100
+  )}%）</span>`;
+}
+
 function roleBadges(entry, highlightGroup) {
   return entryRoles(entry)
     .map((r) => {
@@ -248,6 +298,7 @@ function renderClassList() {
         </div>
         <div class="class-card-meta">
           ${en.department ? `<span>${esc(en.department)}</span>` : ""}
+          ${attendanceBadge(en)}
           <span>上課 ${lessons}</span>
           <span>佛規 ${(en.etiquette || []).length}</span>
           <span>背誦 ${(en.recitations || []).length}</span>
@@ -408,6 +459,7 @@ async function saveClassEntry() {
   try {
     if (editingClassId) {
       await updateDoc(ref(ENTRIES, editingClassId), data);
+      ctx.logUpdate?.("classEntry", `更新了班務名單「${name}」`);
     } else {
       await addDoc(col(ENTRIES), {
         ...data,
@@ -415,6 +467,7 @@ async function saveClassEntry() {
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.email || null,
       });
+      ctx.logUpdate?.("classEntry", `新增了班務名單「${name}」（${roles.map(roleLabel).join("、")}）`);
     }
     $("class-modal").classList.add("hidden");
     if (linkedPick.id) await pushProfileToDao(linkedPick.id, { gender, department });
@@ -554,6 +607,7 @@ async function deleteClassEntry() {
   }
   try {
     await deleteDoc(ref(ENTRIES, entry.id));
+    ctx.logUpdate?.("classEntry", `刪除了班務名單「${entry.name}」`);
     $("class-modal").classList.add("hidden");
   } catch (err) {
     alert("刪除失敗：" + err.message);
@@ -736,6 +790,7 @@ async function addCourse() {
       createdAt: serverTimestamp(),
       createdBy: auth.currentUser?.email || null,
     });
+    ctx.logUpdate?.("course", `新增了課程「${courseLabel(data)}」（${data.date}）`);
     // 佛堂與班別留著，接著登錄同一班的下一堂會比較快
     editingCourseId = null;
     $("course-name").value = "";
@@ -752,6 +807,7 @@ async function updateCourse() {
   if (!data) return;
   try {
     await updateDoc(ref(COURSES, editingCourseId), data);
+    ctx.logUpdate?.("course", `更新了課程「${courseLabel(data)}」（${data.date}）`);
     resetCourseForm();
   } catch (err) {
     alert("儲存失敗：" + err.message);
@@ -937,6 +993,7 @@ async function confirmImport() {
       done += 1;
       $("course-import-status").textContent = `匯入中（${done}/${fresh.length}）...`;
     }
+    ctx.logUpdate?.("course", `匯入了 ${done} 堂課程（${venue}・${group}）`);
     closeImport();
     alert(`已匯入 ${done} 堂課。`);
   } catch (err) {
@@ -1016,16 +1073,19 @@ function renderLessonRows() {
                 l.asked ? `<span class="lesson-chip is-on">有提問</span>` : "",
               ];
           const detail = isHu ? l.interaction : "";
-          const courseText = [l.venue, l.course].filter(Boolean).join("・");
+          // 一張小卡兩行：第一行是時間地點，第二行才是課名。
+          // 課名常常很長（「百孝經聖訓輯要(一)︰第1~4句之訓中訓」），
+          // 全部擠成一行會把整欄撐開。
           return `
           <div class="lesson-row">
             <div class="lesson-row-head">
               <span class="lesson-date">${esc(l.date || "未填日期")}</span>
-              <span class="lesson-course">${esc(courseText)}</span>
+              ${l.venue ? `<span class="lesson-venue">${esc(l.venue)}</span>` : ""}
               ${multi ? `<span class="lesson-role">${esc(roleLabel(role))}</span>` : ""}
-              ${chips.join("")}
-              <button type="button" class="btn-danger btn-small" data-lesson-del="${i}">刪除</button>
+              <button type="button" class="btn-danger btn-small lesson-del" data-lesson-del="${i}">刪除</button>
             </div>
+            ${l.course ? `<div class="lesson-course">${esc(l.course)}</div>` : ""}
+            <div class="lesson-chips">${chips.join("")}</div>
             ${detail ? `<div class="lesson-detail">互動：${esc(detail)}</div>` : ""}
             ${l.comment ? `<div class="lesson-detail">${esc(l.comment)}</div>` : ""}
           </div>`;
@@ -1094,6 +1154,10 @@ async function addLesson() {
     $("lesson-duties").value = "";
     $("lesson-notes").checked = false;
     $("lesson-asked").checked = false;
+    ctx.logUpdate?.(
+      "lesson",
+      `記了「${entry.name}」的上課紀錄：${row.date} ${courseLabel(course)}・${row.attend}`
+    );
     $("lesson-course").value = "";
     renderCourseOptions(); // 記過的課從清單拿掉
     applyLessonRole();
@@ -1216,6 +1280,10 @@ async function addRecord() {
     $("record-scripture").value = "";
     $("record-items").value = "";
     $("record-comment").value = "";
+    ctx.logUpdate?.(
+      "record",
+      `記了「${classEntries.find((e) => e.id === recordEntryId)?.name || ""}」的${RECORD_TYPES[recordType].title}：${row.date} ${main}`
+    );
     renderRecordRows();
     renderRecordSuggest();
   } catch (err) {
