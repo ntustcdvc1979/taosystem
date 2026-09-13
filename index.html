@@ -67,6 +67,8 @@
             <option value="team">團隊名單</option>
             <option value="personal">我的個人名單</option>
           </select>
+          <!-- 聯絡人篩選：選項由名單上用過的聯絡人動態產生（含其他聯絡人） -->
+          <select id="filter-contact" title="只看某位聯絡人負責的對象"></select>
           <!-- 檢視身分：只看得到比它更低階的名單；只有成全組長以上才需要切換 -->
           <span id="view-rank-wrap" class="hidden">
             <select id="view-rank" title="用哪個身分檢視名單"></select>
@@ -74,6 +76,7 @@
           <button id="toggle-view-btn" class="btn-secondary">切換詳細模式</button>
           <button id="ai-heat-btn" class="btn-secondary hidden">AI 評估熱度</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
+          <button id="updates-btn" class="btn-secondary">更新動態</button>
           <button id="trend-btn" class="btn-secondary">趨勢分析</button>
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
@@ -569,6 +572,33 @@
           <div class="modal-actions">
             <button type="button" id="report-done-btn" class="btn-primary">回報完成</button>
           </div>
+        </div>
+      </div>
+
+      <!-- 更新動態：誰改了什麼的流水帳 -->
+      <div id="updates-modal" class="modal hidden">
+        <div class="modal-content updates-modal-content">
+          <button type="button" id="updates-close-btn" class="modal-close" aria-label="關閉">×</button>
+          <h2>更新動態</h2>
+          <p class="hint-text">
+            誰更新了誰的紀錄、誰改了活動的邀約狀況，都會記在這裡（最新的排最上面）。
+            這是流水帳：寫進去就不會被改掉或刪掉。
+          </p>
+          <div class="updates-toolbar">
+            <select id="updates-filter-who" title="只看某個人做的更新"></select>
+            <select id="updates-filter-kind" title="只看某一類的更新">
+              <option value="">所有類型</option>
+              <option value="entry">名單</option>
+              <option value="talk">聯絡紀錄</option>
+              <option value="activity">活動紀錄</option>
+              <option value="heat">熱度</option>
+              <option value="invite">邀約狀況</option>
+              <option value="report">參與回報</option>
+              <option value="event">活動</option>
+            </select>
+            <span id="updates-count" class="members-count"></span>
+          </div>
+          <div id="updates-list" class="updates-list"></div>
         </div>
       </div>
 

@@ -37,6 +37,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
 } from "firebase/firestore";
 
 // 從 LINE 等 App 內建瀏覽器點進來的話，先想辦法轉到系統瀏覽器（Google 登入不接受內建瀏覽器）
@@ -52,6 +53,7 @@ const LINKS_COLLECTION = "memberLinks"; // 帳號 ↔ 名單對應
 // 綁定用的姓名索引：只放姓名與系級，同單位都讀得到（身分階梯不擋這裡），
 // 這樣看不到高階名單的人也能找到自己那一筆來綁定。
 const ROSTER_INDEX_COLLECTION = "rosterIndex";
+const UPDATES_COLLECTION = "updates"; // 誰更新了什麼的流水帳
 
 let myUnitId = null;
 let myUnitName = "";
@@ -80,6 +82,16 @@ const logoutBtn = document.getElementById("logout-btn");
 const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
 const filterScope = document.getElementById("filter-scope");
+const filterContact = document.getElementById("filter-contact");
+
+// 更新動態
+const updatesBtn = document.getElementById("updates-btn");
+const updatesModal = document.getElementById("updates-modal");
+const updatesCloseBtn = document.getElementById("updates-close-btn");
+const updatesList = document.getElementById("updates-list");
+const updatesFilterWho = document.getElementById("updates-filter-who");
+const updatesFilterKind = document.getElementById("updates-filter-kind");
+const updatesCount = document.getElementById("updates-count");
 const unitNameLabel = document.getElementById("unit-name");
 const bindMeBtn = document.getElementById("bind-me-btn");
 
@@ -977,6 +989,101 @@ function subscribeMembers() {
   );
 }
 
+// ---------- 更新動態視窗 ----------
+// 只在視窗開著時訂閱，關掉就退訂——這份流水帳會一直長，不需要隨時掛著。
+const UPDATES_LIMIT = 200;
+let unsubscribeUpdates = null;
+let unitUpdates = [];
+
+function openUpdatesModal() {
+  updatesModal.classList.remove("hidden");
+  updatesList.innerHTML = `<p class="hint-text">載入中...</p>`;
+  if (unsubscribeUpdates) unsubscribeUpdates();
+  unsubscribeUpdates = onSnapshot(
+    query(unitCol(UPDATES_COLLECTION), orderBy("at", "desc"), limit(UPDATES_LIMIT)),
+    (snapshot) => {
+      unitUpdates = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      renderUpdates();
+    },
+    (err) => {
+      updatesList.innerHTML = `<p class="hint-text">讀取失敗：${escapeHtml(err.message)}</p>`;
+    }
+  );
+}
+
+function closeUpdatesModal() {
+  updatesModal.classList.add("hidden");
+  if (unsubscribeUpdates) {
+    unsubscribeUpdates();
+    unsubscribeUpdates = null;
+  }
+}
+
+// 「更新者」的選項照更新次數排，常在動的人排前面
+function renderUpdateWhoOptions() {
+  const counts = new Map();
+  unitUpdates.forEach((u) => {
+    const who = u.byName || u.by || "";
+    if (who) counts.set(who, (counts.get(who) || 0) + 1);
+  });
+  const keep = updatesFilterWho.value;
+  const list = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  updatesFilterWho.innerHTML =
+    `<option value="">所有人</option>` +
+    list
+      .map(([who, n]) => `<option value="${escapeHtml(who)}">${escapeHtml(who)}（${n}）</option>`)
+      .join("");
+  updatesFilterWho.value = list.some(([who]) => who === keep) ? keep : "";
+}
+
+function updateTimeText(at) {
+  const ms = at?.toMillis?.();
+  if (!ms) return "剛剛"; // serverTimestamp 還沒回填的那一瞬間
+  const d = new Date(ms);
+  const days = daysSince(ymd(d));
+  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (days === 0) return `今天 ${time}`;
+  if (days === 1) return `昨天 ${time}`;
+  return `${ymd(d)} ${time}`;
+}
+
+function renderUpdates() {
+  renderUpdateWhoOptions();
+  const who = updatesFilterWho.value;
+  const kind = updatesFilterKind.value;
+  const rows = unitUpdates.filter(
+    (u) => (!who || (u.byName || u.by) === who) && (!kind || u.kind === kind)
+  );
+  updatesCount.textContent = unitUpdates.length
+    ? `${rows.length} / ${unitUpdates.length} 筆`
+    : "";
+  updatesList.innerHTML = rows.length
+    ? rows
+        .map(
+          (u) => `
+        <div class="update-item">
+          <div class="update-head">
+            <span class="update-who">${escapeHtml(u.byName || u.by || "（不明）")}</span>
+            <span class="update-kind">${escapeHtml(UPDATE_KINDS[u.kind] || "其他")}</span>
+            <span class="update-time">${escapeHtml(updateTimeText(u.at))}</span>
+          </div>
+          <div class="update-text">${escapeHtml(u.text || "")}</div>
+        </div>`
+        )
+        .join("")
+    : `<p class="hint-text">${
+        unitUpdates.length ? "沒有符合條件的更新。" : "還沒有任何更新紀錄。"
+      }</p>`;
+}
+
+updatesBtn.addEventListener("click", openUpdatesModal);
+updatesCloseBtn.addEventListener("click", closeUpdatesModal);
+updatesModal.addEventListener("click", (e) => {
+  if (e.target === updatesModal) closeUpdatesModal();
+});
+updatesFilterWho.addEventListener("change", renderUpdates);
+updatesFilterKind.addEventListener("change", renderUpdates);
+
 // 一個帳號實際綁到哪一筆：自己綁的與被指定的，以比較新的為準（跟登入時的判斷同一套）
 function effectiveEntryId(member) {
   const link = unitLinks.find(
@@ -1271,6 +1378,7 @@ function mergeEntries() {
     if (bo != null) return 1;
     return (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0);
   });
+  renderContactFilter(); // 聯絡人選項跟著名單走（要在 renderEntries 之前，篩選才吃得到）
   renderEntries();
   refreshOpenActivityModal();
   refreshOpenTalkModal();
@@ -1745,6 +1853,10 @@ async function submitOneReport(entryId, btn) {
     reportStatus.textContent = allDone
       ? "全部回報完了，提醒會消失。"
       : `已回報 ${entryName(entryId)}。`;
+    logUpdate(
+      "report",
+      `回報「${entryName(entryId)}」在「${ev.name}」${came ? "有參加" : "沒參加"}${note ? `：${note}` : ""}`
+    );
     if (allDone) closeReportModal();
   } catch (err) {
     btn.disabled = false;
@@ -1812,6 +1924,36 @@ reportDoneBtn.addEventListener("click", async () => {
   }
 });
 
+// ---------- 更新動態 ----------
+// 誰更新了什麼，記成一份流水帳（append-only，規則層擋住修改與刪除）。
+// 每一筆只存一句現成的描述：要顯示的時候不必再去湊資料，
+// 就算對象之後被刪掉，這筆紀錄也還讀得懂。
+const UPDATE_KINDS = {
+  entry: "名單",
+  talk: "聯絡紀錄",
+  activity: "活動紀錄",
+  heat: "熱度",
+  invite: "邀約狀況",
+  report: "參與回報",
+  event: "活動",
+};
+
+async function logUpdate(kind, text) {
+  if (!myUnitId || !text) return;
+  try {
+    await addDoc(unitCol(UPDATES_COLLECTION), {
+      kind,
+      text,
+      by: auth.currentUser?.email || null,
+      byName: myDisplayName(),
+      at: serverTimestamp(),
+    });
+  } catch (err) {
+    // 記不成流水帳不該讓原本的操作看起來像失敗了
+    if (err.code !== "permission-denied") console.error("寫入更新動態失敗", err);
+  }
+}
+
 // 標籤篩選：一個都沒選就全部顯示；有選就只留帶有其中任一標籤的人
 function matchesTagFilter(entry) {
   if (selectedTags.size === 0) return true;
@@ -1829,6 +1971,35 @@ function contactLine(entry) {
   if (main) parts.push(`${escapeHtml(main)}<span class="contact-main">主要</span>`);
   parts.push(...others.map((c) => escapeHtml(c)));
   return `<div class="person-meta">聯絡人：${parts.join("、")}</div>`;
+}
+
+// 這一筆的聯絡人（主要 + 其他），去掉空白與重複
+function contactsOf(entry) {
+  return [...new Set([entry?.contact, ...(entry?.contacts || [])].map((c) => (c || "").trim()).filter(Boolean))];
+}
+
+// 篩選用：名單上真的被指定過的聯絡人（不含只是名單上的人），常用的排前面
+function usedContacts() {
+  const counts = new Map();
+  allEntries.forEach((en) =>
+    contactsOf(en).forEach((c) => counts.set(c, (counts.get(c) || 0) + 1))
+  );
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, n]) => ({ name, count: n }));
+}
+
+// 聯絡人篩選的選項：有人負責的名字才列，並附上他負責幾位
+function renderContactFilter() {
+  const keep = filterContact.value;
+  const list = usedContacts();
+  filterContact.innerHTML =
+    `<option value="">所有聯絡人</option>` +
+    list
+      .map((c) => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}（${c.count}）</option>`)
+      .join("");
+  // 原本選的人如果已經沒有負責的對象了，就回到「所有聯絡人」
+  filterContact.value = list.some((c) => c.name === keep) ? keep : "";
 }
 
 function knownContacts() {
@@ -1870,64 +2041,49 @@ function daysSince(dateStr, asOf = null) {
   return Math.floor(((asOf || new Date()) - then) / 86400000);
 }
 
-// 近一個月「辦過的活動」清單：活動管理登錄的活動，加上大家在活動紀錄裡寫到、
-// 但沒登錄在活動管理的活動（例如臨時的聚會）。以活動名稱辨識，避免同一場算兩次。
-function recentActivityPool(asOf = null) {
-  const inWindow = (dateStr) => {
-    const d = daysSince(dateStr, asOf);
-    return d !== null && d >= 0 && d <= 30;
-  };
-  const pool = new Map(); // 名稱 → { name, event }
+// 參與度：近兩週**參加了幾場**活動——看次數，不看比例。
+// 比例會被「那陣子剛好辦幾場」牽著走：只辦一場、他來了就是 100%，
+// 辦了五場、他來三場反而只有 60%。次數直接反映他最近出現得多不多。
+const PARTICIPATION_DAYS = 14;
+const PARTICIPATION_HIGH = 3; // 兩週 3 場以上
+const PARTICIPATION_MID = 2; // 兩週 2 場
+const PARTICIPATION_RULE =
+  `近兩週（${PARTICIPATION_DAYS} 天）參加的場次：` +
+  `${PARTICIPATION_HIGH} 場以上＝高、${PARTICIPATION_MID} 場＝中、1 場＝低、0 場＝無。` +
+  `同一場活動只算一次。`;
 
-  allEvents.forEach((ev) => {
-    if (!inWindow(ev.date)) return;
-    const key = (ev.name || "").trim();
-    if (key) pool.set(key, { name: key, event: ev });
-  });
-
-  allEntries.forEach((en) => {
-    (en.activities || []).forEach((a) => {
-      const key = (a.activity || "").trim();
-      if (!key || !inWindow(a.date) || pool.has(key)) return;
-      pool.set(key, { name: key, event: null });
-    });
-  });
-
-  return [...pool.values()];
+function participationLevel(count, text) {
+  if (count >= PARTICIPATION_HIGH) return { level: 3, label: "高", count, text };
+  if (count >= PARTICIPATION_MID) return { level: 2, label: "中", count, text };
+  if (count > 0) return { level: 1, label: "低", count, text };
+  return { level: 0, label: "無", count, text };
 }
 
-// 參與度：近一個月辦過的活動裡，這個人出席了幾成
+// 參加過哪幾場：自己的活動紀錄算一場，活動管理裡回覆「已回覆可以」也算一場。
+// 同一場活動兩邊都有時只算一次（用活動名稱辨識）。
+function attendedNames(entry, within) {
+  const names = new Set();
+  (entry.activities || []).forEach((a) => {
+    const key = (a.activity || "").trim();
+    if (key && within(a.date)) names.add(key);
+  });
+  allEvents.forEach((ev) => {
+    const key = (ev.name || "").trim();
+    if (!key || names.has(key) || !within(ev.date)) return;
+    if ((ev.invites || []).some((i) => i.entryId === entry.id && i.status === "已回覆可以")) {
+      names.add(key);
+    }
+  });
+  return names;
+}
+
 function participation(entry, asOf = null) {
-  const pool = recentActivityPool(asOf);
-  if (pool.length === 0) {
-    return { level: null, label: "—", text: "近一個月沒有活動" };
-  }
-
-  const myActivityNames = new Set(
-    (entry.activities || [])
-      .filter((a) => {
-        const d = daysSince(a.date, asOf);
-        return d !== null && d >= 0 && d <= 30;
-      })
-      .map((a) => (a.activity || "").trim())
-      .filter(Boolean)
-  );
-
-  const attended = pool.filter((item) => {
-    // 自己的活動紀錄裡有這場
-    if (myActivityNames.has(item.name)) return true;
-    // 或在活動管理的邀約名單中回覆可以
-    return (item.event?.invites || []).some(
-      (i) => i.entryId === entry.id && i.status === "已回覆可以"
-    );
-  }).length;
-
-  const ratio = attended / pool.length;
-  const text = `近一個月 ${pool.length} 場中出席 ${attended} 場`;
-  if (ratio >= 0.6) return { level: 3, label: "高", text };
-  if (ratio >= 0.3) return { level: 2, label: "中", text };
-  if (ratio > 0) return { level: 1, label: "低", text };
-  return { level: 0, label: "無", text };
+  const within = (dateStr) => {
+    const d = daysSince(dateStr, asOf);
+    return d !== null && d >= 0 && d < PARTICIPATION_DAYS;
+  };
+  const count = attendedNames(entry, within).size;
+  return participationLevel(count, `近兩週參加 ${count} 場\n${PARTICIPATION_RULE}`);
 }
 
 // 互動度：近兩週 14 天裡，有幾天跟他有互動（聯絡紀錄或活動紀錄）。
@@ -2025,7 +2181,7 @@ function heatTrend(entry, now = null) {
 }
 
 // ---------- 期間版指標（趨勢分析用） ----------
-// 卡片上的指標看的是「現在」（近兩週互動、近一個月參與）；趨勢分析看的是「那一段期間之內」：
+// 卡片上的指標看的是「現在」（近兩週的互動與參與）；趨勢分析看的是「那一段期間之內」：
 // 週＝那一週內、月＝那一個月內、年＝那一年內。所以另外做一組吃 {start, end} 的算法。
 function inPeriod(dateStr, period) {
   if (!dateStr) return false;
@@ -2056,49 +2212,14 @@ function interactionIn(entry, period) {
   return { level: 0, label: "無", count, text };
 }
 
-// 期間內辦過的活動（活動管理登錄的 + 大家在活動紀錄裡寫到的）
-function activityPoolIn(period) {
-  const pool = new Map();
-  allEvents.forEach((ev) => {
-    if (!inPeriod(ev.date, period)) return;
-    const key = (ev.name || "").trim();
-    if (key) pool.set(key, { name: key, event: ev });
-  });
-  allEntries.forEach((en) => {
-    (en.activities || []).forEach((a) => {
-      const key = (a.activity || "").trim();
-      if (!key || !inPeriod(a.date, period) || pool.has(key)) return;
-      pool.set(key, { name: key, event: null });
-    });
-  });
-  return [...pool.values()];
-}
-
-// 參與度：期間內辦過的活動裡，這個人出席了幾成
+// 參與度：期間內參加了幾場（換算成兩週的場次再分級）
 function participationIn(entry, period) {
-  const pool = activityPoolIn(period);
-  if (pool.length === 0) return { level: null, label: "—", text: "期間內沒有活動" };
-
-  const mine = new Set(
-    (entry.activities || [])
-      .filter((a) => inPeriod(a.date, period))
-      .map((a) => (a.activity || "").trim())
-      .filter(Boolean)
-  );
-  const attended = pool.filter(
-    (item) =>
-      mine.has(item.name) ||
-      (item.event?.invites || []).some(
-        (i) => i.entryId === entry.id && i.status === "已回覆可以"
-      )
-  ).length;
-
-  const ratio = attended / pool.length;
-  const text = `期間內 ${pool.length} 場中出席 ${attended} 場`;
-  if (ratio >= 0.6) return { level: 3, label: "高", text };
-  if (ratio >= 0.3) return { level: 2, label: "中", text };
-  if (ratio > 0) return { level: 1, label: "低", text };
-  return { level: 0, label: "無", text };
+  const count = attendedNames(entry, (dateStr) => inPeriod(dateStr, period)).size;
+  // 一格可能是一天、一週或一個月，場次直接比會失真——換算成「兩週幾場」再分級，
+  // 週／月／年三種尺度才對得起來（跟卡片上看到的是同一把尺）。
+  const rate = count * (PARTICIPATION_DAYS / periodDays(period));
+  const text = `期間內參加 ${count} 場（換算兩週約 ${rate.toFixed(1)} 場）\n${PARTICIPATION_RULE}`;
+  return participationLevel(rate, text);
 }
 
 // 熱度沒有「期間內」的概念（它是一個當下的狀態），取期間結束那天的值
@@ -2157,8 +2278,9 @@ function spiritIn(entry, period) {
 function renderEntries() {
   const searchTerm = searchInput.value.trim().toLowerCase();
   const statusVal = filterStatus.value;
+  const contactVal = filterContact.value;
   // 只有在沒有搜尋/篩選時才能拖曳排序（否則只看到部分卡片，排序會錯亂）
-  const canReorder = !searchTerm && !statusVal && !filterScope.value;
+  const canReorder = !searchTerm && !statusVal && !filterScope.value && !contactVal;
 
   const scopeVal = filterScope.value;
 
@@ -2168,6 +2290,8 @@ function renderEntries() {
     // 點了趨勢圖上的色塊之後，名單卡只留那一群人
     if (trendFilterIds && !trendFilterIds.has(entry.id)) return false;
     if (statusVal && entry.status !== statusVal) return false;
+    // 聯絡人篩選：主要或其他聯絡人是他都算
+    if (contactVal && !contactsOf(entry).includes(contactVal)) return false;
     if (searchTerm) {
       const haystack = [
         entry.name,
@@ -2267,6 +2391,10 @@ async function saveHeat(entryId, level, reason, source) {
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
     });
+    // AI 批次評估會一次跑很多人，那個不必每一位都記一筆流水帳
+    if (source !== "ai-batch") {
+      logUpdate("heat", `把「${entryName(entryId)}」的熱度設為「${HEAT_LABELS[level]}」`);
+    }
   } catch (err) {
     alert("儲存熱度失敗：" + err.message);
   }
@@ -2339,15 +2467,18 @@ async function runHeatAssessment(entries, statusEl, btn) {
     const result = await assessHeat(apiKey, roster);
 
     let updated = 0;
+    // 一次評估很多人：每位各記一筆會把動態洗版，所以整批記一筆就好
+    const batch = entries.length > 1;
     for (const a of result.assessments || []) {
       const target = entries[a.ref - 1];
       if (!target) continue;
-      await saveHeat(target.id, a.level, unmaskNames(a.reason || "", reverse), "ai");
+      await saveHeat(target.id, a.level, unmaskNames(a.reason || "", reverse), batch ? "ai-batch" : "ai");
       updated += 1;
     }
     statusEl.textContent = updated
       ? `AI 已評估 ${updated} 位的熱度。`
       : "AI 沒有回傳可用的評估結果。";
+    if (updated && batch) logUpdate("heat", `用 AI 重新評估了 ${updated} 位的熱度`);
   } catch (err) {
     statusEl.textContent = aiErrorMessage(err, "AI 評估失敗");
   } finally {
@@ -2397,7 +2528,7 @@ function renderHeatList(entries) {
     <div class="compact-legend">
       <span>成全熱度（談話離下一階段多近，每週沒聯絡降一級）：</span>
       ${HEAT_LABELS.map((label, l) => `<span class="metric heat-${l}">${label}</span>`).join("")}
-      <span class="legend-sep">參與度（近一個月活動出席比例）：</span>
+      <span class="legend-sep" title="${escapeHtml(PARTICIPATION_RULE)}">參與度（近兩週參加的場次）：</span>
       ${["無", "低", "中", "高"]
         .map((label, l) => `<span class="metric part-${l}">${label}</span>`)
         .join("")}
@@ -2701,6 +2832,7 @@ function onRosterFilterChange() {
 
 filterStatus.addEventListener("change", onRosterFilterChange);
 filterScope.addEventListener("change", onRosterFilterChange);
+filterContact.addEventListener("change", onRosterFilterChange);
 
 toggleViewBtn.addEventListener("click", () => {
   viewMode = viewMode === "detail" ? "heat" : "detail";
@@ -2857,6 +2989,7 @@ addActivityBtn.addEventListener("click", async () => {
   newActReaction.value = "";
   renderActivityModalList();
   await persistActivities();
+  logUpdate("activity", `幫「${entryName(activityModalEntryId)}」記了一筆活動紀錄：${activity}`);
 });
 
 activityCloseBtn.addEventListener("click", closeActivityModal);
@@ -2957,6 +3090,7 @@ addTalkBtn.addEventListener("click", async () => {
   newTalkContent.value = "";
   renderTalkModalList();
   await persistTalks();
+  logUpdate("talk", `更新了「${entryName(talkModalEntryId)}」的聯絡近況：${content}`);
 });
 
 talkCloseBtn.addEventListener("click", closeTalkModal);
@@ -3013,8 +3147,8 @@ const TREND_METRICS = [
     key: "part",
     title: "參與度",
     labels: ["無", "低", "中", "高"],
-    note: "參與度＝這段期間辦過的活動裡，他出席了幾成。",
-    levelNotes: ["一場都沒到", "出席不到三成", "出席三到六成", "出席六成以上"],
+    note: "參與度＝他參加了幾場活動（換算成兩週的場次，週／月／年才比得起來）。",
+    levelNotes: ["一場都沒參加", "兩週約 1 場", "兩週約 2 場", "兩週 3 場以上"],
     compute: (entry, period) => participationIn(entry, period).level,
   },
 ];
@@ -3716,6 +3850,7 @@ entryForm.addEventListener("submit", async (e) => {
       await updateDoc(entryRef(id), data);
       const edited = allEntries.find((en) => en.id === id);
       if (edited?._scope !== "personal") await writeRosterIndex(id, data);
+      logUpdate("entry", `更新了「${data.name}」的名單資料`);
     } else {
       const personal = fieldScope.value === "personal";
       const ref = await addDoc(unitCol(personal ? PERSONAL_COLLECTION : ENTRIES_COLLECTION), {
@@ -3727,6 +3862,7 @@ entryForm.addEventListener("submit", async (e) => {
         createdBy: auth.currentUser?.email || null,
       });
       if (!personal) await writeRosterIndex(ref.id, data);
+      logUpdate("entry", `新增了名單「${data.name}」${personal ? "（個人名單）" : ""}`);
     }
     closeModal();
   } catch (err) {
@@ -4198,6 +4334,11 @@ async function setInviteStatus(entryId, status) {
   renderInviteList();
   await persistInvites();
   await logInviteTalk(entryId, status, inv.note);
+  const ev = allEvents.find((x) => x.id === editingEventId);
+  logUpdate(
+    "invite",
+    `更新了「${entryName(entryId)}」在「${ev?.name || "活動"}」的邀約狀況：${status}`
+  );
 }
 
 // ---------- 邀約備註（在看板下方編輯） ----------
@@ -4636,6 +4777,7 @@ addEventBtn.addEventListener("click", async () => {
       createdAt: serverTimestamp(),
       createdBy: auth.currentUser?.email || null,
     });
+    logUpdate("event", `新增了活動「${data.name}」（${data.date}${data.type ? `・${data.type}` : ""}）`);
     resetEventForm();
   } catch (err) {
     alert("新增活動失敗：" + err.message);
@@ -4652,6 +4794,7 @@ saveEventBtn.addEventListener("click", async () => {
       updatedAt: serverTimestamp(),
       updatedBy: auth.currentUser?.email || null,
     });
+    logUpdate("event", `更新了活動「${data.name}」的資料`);
     resetEventForm();
   } catch (err) {
     alert("儲存活動失敗：" + err.message);
@@ -4680,6 +4823,7 @@ deleteEventBtn.addEventListener("click", async () => {
       )
     );
     await deleteDoc(unitDoc(EVENTS_COLLECTION, eventId));
+    logUpdate("event", `刪除了活動「${newEventName.value.trim()}」`);
     resetEventForm();
   } catch (err) {
     alert("刪除活動失敗：" + err.message);

@@ -140,6 +140,15 @@ service cloud.firestore {
         }
       }
 
+      // 更新動態：誰更新了什麼的流水帳，只寫得進去、改不動也刪不掉。
+      // 寫的人一定是自己（by 欄位就是自己的 Email），免得有人偽造別人的紀錄。
+      match /updates/{updateId} {
+        allow read: if inUnit(unitId) && canDao();
+        allow create: if inUnit(unitId) && canDao()
+                      && request.resource.data.by == request.auth.token.email;
+        allow update, delete: if false;
+      }
+
       // ===== 班務系統 =====
       // 跟道務分開的兩個集合：班務名單（班員／護班人員，含上課紀錄）與課程。
       // 要有班務權限（classRank ≥ 1）才進得來；班務內部沒有再分階梯，
