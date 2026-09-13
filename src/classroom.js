@@ -758,6 +758,193 @@ async function updateCourse() {
   }
 }
 
+// ---------- 匯入班表 ----------
+// 班表長這樣：前幾列是班別、佛堂、講師等資料，中間一列是「日期／時間／題目／…」，
+// 後面每一列就是一堂課。只取日期與題目——題目就是課程名稱，其餘欄位不進系統。
+let importRows = [];
+
+// 「2026/09/12(六)」「2026-9-12」「9/12」都接受；沒有年份就用班表裡出現過的年份
+function parseCourseDate(raw, fallbackYear) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const m = text.match(/(\d{4})\s*[/\-年.]\s*(\d{1,2})\s*[/\-月.]\s*(\d{1,2})/);
+  if (m) {
+    return `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+  }
+  const short = text.match(/^(\d{1,2})\s*[/\-月.]\s*(\d{1,2})/);
+  if (short && fallbackYear) {
+    return `${fallbackYear}-${String(short[1]).padStart(2, "0")}-${String(short[2]).padStart(2, "0")}`;
+  }
+  return "";
+}
+
+// 找出標題列（同時有「日期」與「題目」的那一列），回傳兩欄的位置
+function findHeader(rows) {
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i] || [];
+    const dateCol = row.findIndex((c) => String(c).includes("日期"));
+    const nameCol = row.findIndex((c) => String(c).includes("題目") || String(c).includes("課程"));
+    if (dateCol >= 0 && nameCol >= 0) return { headerRow: i, dateCol, nameCol };
+  }
+  return null;
+}
+
+// 班表上寫的佛堂與班別。佛堂優先抓「上課佛堂」旁邊那一格（那是明寫的），
+// 找不到才退而求其次去標題裡撈——標題長得像「發一崇德2026年度崇慧佛院國語新民班」，
+// 所以只取「佛院／佛堂」前面剛好兩個字，不然會撈成「年度崇慧佛院」。
+function guessVenueAndGroup(rows) {
+  const head = rows.slice(0, 8);
+  let venue = "";
+  let group = "";
+
+  head.forEach((row) => {
+    (row || []).forEach((cell, i) => {
+      const text = String(cell || "");
+      if (!venue && text.includes("佛堂") && !text.includes("地址") && !text.includes("電話")) {
+        const next = String(row[i + 1] || "").trim();
+        if (next && /佛院|佛堂/.test(next)) venue = next;
+      }
+      if (!group) {
+        const hit = CLASS_GROUPS.find((g) => text.includes(g));
+        if (hit) group = hit;
+      }
+    });
+  });
+
+  if (!venue) {
+    for (const row of head) {
+      for (const cell of row || []) {
+        const m = String(cell || "").match(/([一-龥]{2})(?:佛院|佛堂)/);
+        if (m && !/[年度月日第]/.test(m[1])) {
+          venue = m[0];
+          break;
+        }
+      }
+      if (venue) break;
+    }
+  }
+
+  return { venue, group: group || CLASS_GROUPS[0] };
+}
+
+function parseCourseSheet(rows) {
+  const header = findHeader(rows);
+  if (!header) return null;
+  const { headerRow, dateCol, nameCol } = header;
+  // 先掃一遍找出班表用的年份，「9/12」這種沒年份的才有得補
+  const year = rows
+    .slice(headerRow + 1)
+    .map((r) => String((r || [])[dateCol] || "").match(/(\d{4})/))
+    .find(Boolean)?.[1];
+
+  const list = [];
+  for (const row of rows.slice(headerRow + 1)) {
+    const date = parseCourseDate((row || [])[dateCol], year);
+    const name = String((row || [])[nameCol] || "").trim();
+    if (!date || !name) continue; // 日期或題目缺一個就不是一堂課（空列、備註列）
+    list.push({ date, name });
+  }
+  return { ...guessVenueAndGroup(rows), list };
+}
+
+function renderImportPreview() {
+  const venue = $("course-import-venue").value.trim();
+  const group = $("course-import-group").value;
+  // 已經有同一佛堂、同一班、同一天、同名的課就不重複匯入
+  const dup = (row) =>
+    courses.some(
+      (c) =>
+        (c.venue || "").trim() === venue &&
+        c.classGroup === group &&
+        c.date === row.date &&
+        (c.name || "").trim() === row.name
+    );
+  const fresh = importRows.filter((r) => !dup(r));
+  $("course-import-summary").textContent = `（${importRows.length} 堂，其中 ${fresh.length} 堂是新的）`;
+  $("course-import-list").innerHTML = importRows.length
+    ? importRows
+        .map(
+          (r) => `
+        <div class="course-import-row ${dup(r) ? "is-dup" : ""}">
+          <span class="course-date">${esc(r.date)}</span>
+          <span class="course-name">${esc(r.name)}</span>
+          ${dup(r) ? `<span class="course-import-dup">已有</span>` : ""}
+        </div>`
+        )
+        .join("")
+    : `<p class="hint-text">這份班表裡沒有讀到任何課程。</p>`;
+  $("course-import-confirm").disabled = fresh.length === 0;
+  $("course-import-confirm").textContent = fresh.length
+    ? `確定匯入 ${fresh.length} 堂`
+    : "沒有新的課程可匯入";
+  return fresh;
+}
+
+function closeImport() {
+  importRows = [];
+  $("course-import").classList.add("hidden");
+  $("course-import-status").textContent = "";
+}
+
+async function handleImportFile(file) {
+  $("course-import-status").textContent = "讀取中...";
+  try {
+    const { readSheet } = await import("./xlsx.js");
+    const parsed = parseCourseSheet(await readSheet(file));
+    if (!parsed) {
+      alert("這份檔案裡找不到「日期」與「題目」那一列，請確認是班表格式。");
+      $("course-import-status").textContent = "";
+      return;
+    }
+    importRows = parsed.list;
+    $("course-import-venue").value = parsed.venue || $("course-venue").value.trim();
+    $("course-import-group").innerHTML = CLASS_GROUPS.map(
+      (g) => `<option value="${esc(g)}" ${g === parsed.group ? "selected" : ""}>${esc(g)}</option>`
+    ).join("");
+    $("course-import").classList.remove("hidden");
+    $("course-import-status").textContent = "";
+    renderImportPreview();
+  } catch (err) {
+    $("course-import-status").textContent = "";
+    alert("讀取失敗：" + err.message);
+  }
+}
+
+async function confirmImport() {
+  const venue = $("course-import-venue").value.trim();
+  if (!venue) {
+    $("course-import-venue").focus();
+    alert("請填佛堂。");
+    return;
+  }
+  const fresh = renderImportPreview();
+  if (fresh.length === 0) return;
+  const group = $("course-import-group").value;
+  const btn = $("course-import-confirm");
+  btn.disabled = true;
+  $("course-import-status").textContent = `匯入中（0/${fresh.length}）...`;
+  let done = 0;
+  try {
+    for (const row of fresh) {
+      await addDoc(col(COURSES), {
+        venue,
+        classGroup: group,
+        date: row.date,
+        name: row.name,
+        createdAt: serverTimestamp(),
+        createdBy: auth.currentUser?.email || null,
+      });
+      done += 1;
+      $("course-import-status").textContent = `匯入中（${done}/${fresh.length}）...`;
+    }
+    closeImport();
+    alert(`已匯入 ${done} 堂課。`);
+  } catch (err) {
+    btn.disabled = false;
+    $("course-import-status").textContent = `匯入了 ${done} 堂後失敗：${err.message}`;
+  }
+}
+
 // ---------- 上課紀錄 ----------
 function openLessonModal(entry) {
   lessonEntryId = entry.id;
@@ -1118,6 +1305,19 @@ export function initClassroom(context) {
   $("course-add-btn").addEventListener("click", addCourse);
   $("course-update-btn").addEventListener("click", updateCourse);
   $("course-cancel-btn").addEventListener("click", resetCourseForm);
+
+  // 匯入班表
+  $("course-import-input").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = ""; // 同一個檔案再選一次也要能觸發
+    if (file) await handleImportFile(file);
+  });
+  $("course-import-cancel").addEventListener("click", closeImport);
+  $("course-import-confirm").addEventListener("click", confirmImport);
+  // 改了佛堂或班別，「已有」的判斷要跟著重算
+  $("course-import-venue").addEventListener("input", renderImportPreview);
+  $("course-import-group").addEventListener("change", renderImportPreview);
+
   // 用過的佛堂點一下就填進去
   $("course-venue-recent").addEventListener("click", (e) => {
     const chip = e.target.closest("[data-venue]");

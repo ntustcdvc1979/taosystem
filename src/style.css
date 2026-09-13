@@ -2999,3 +2999,49 @@ body:has(.modal:not(.hidden)) .chat-panel {
   color: #3c4450;
   word-break: break-word;
 }
+
+/* 匯入班表 */
+.course-import-btn {
+  cursor: pointer;
+}
+
+.course-import {
+  margin: 0.6rem 0 0.8rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #dfe6f3;
+  border-radius: 10px;
+  background: #f7f9fd;
+}
+
+.course-import-list {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0.4rem 0;
+}
+
+.course-import-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.1rem;
+  border-bottom: 1px solid #eaeef5;
+  font-size: 0.85rem;
+}
+
+.course-import-row:last-child {
+  border-bottom: none;
+}
+
+/* 已經登錄過的那幾堂灰掉，一眼看出這次會匯入哪些 */
+.course-import-row.is-dup {
+  color: #a0a6ae;
+}
+
+.course-import-dup {
+  margin-left: auto;
+  padding: 0.02rem 0.4rem;
+  border-radius: 999px;
+  background: #eef0f3;
+  color: #8a919b;
+  font-size: 0.72rem;
+}

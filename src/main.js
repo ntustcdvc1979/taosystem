@@ -5008,6 +5008,56 @@ function renderChat() {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+// 在聊天室裡用講的記活動紀錄：「代號3 來 9/6 的廣結善緣，反應是很開心」
+// → 寫進那個人的活動紀錄。
+// **同一場、同一天已經有紀錄就不覆蓋**，把新的反應補在原本那句後面——
+// 紀錄是別人一句一句累積下來的，蓋掉就沒了。
+function appendActivityRecord(entry, { date, activity, reaction }) {
+  const activities = [...(entry.activities || [])];
+  const name = (activity || "").trim();
+  const note = (reaction || "").trim();
+  const i = activities.findIndex(
+    (a) => (a.activity || "").trim() === name && (a.date || "") === date
+  );
+  if (i < 0) {
+    activities.push({ activity: name, date, reaction: note });
+    return { activities, appended: false };
+  }
+  const old = (activities[i].reaction || "").trim();
+  if (!note || old.includes(note)) return null; // 沒有新東西可補
+  activities[i] = { ...activities[i], reaction: old ? `${old}\n${note}` : note };
+  return { activities, appended: true };
+}
+
+async function applyChatActivityUpdates(updates, reverse) {
+  const done = [];
+  for (const u of updates || []) {
+    const entry = allEntries[Number(u.personRef) - 1];
+    const ref = entry && entryRef(entry);
+    // 認不出是誰、或那一筆我改不動（身分階梯）就跳過，不要假裝寫進去了
+    if (!ref || !u.date || !u.activity) continue;
+    const activity = unmaskNames(u.activity, reverse);
+    const reaction = unmaskNames(u.reaction || "", reverse);
+    const result = appendActivityRecord(entry, { date: u.date, activity, reaction });
+    if (!result) continue;
+    try {
+      await updateDoc(ref, {
+        activities: result.activities,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || null,
+      });
+      done.push(`${entry.name} ${u.date} ${activity}${result.appended ? "（補述）" : ""}`);
+      logUpdate(
+        "activity",
+        `用 AI 聊天室${result.appended ? "補述" : "記"}了「${entry.name}」的活動紀錄：${u.date} ${activity}`
+      );
+    } catch (err) {
+      if (err.code !== "permission-denied") console.error("寫入活動紀錄失敗", err);
+    }
+  }
+  return done;
+}
+
 async function sendChatMessage() {
   const raw = chatInput.value.trim();
   if (!raw || chatBusy) return;
@@ -5033,8 +5083,17 @@ async function sendChatMessage() {
       role: m.role,
       content: maskNames(m.content, forward),
     }));
-    const reply = await chatWithAgent(apiKey, roster, apiHistory, maskedUpcomingEvents(forward));
-    chatHistory.push({ role: "assistant", content: unmaskNames(reply, reverse) });
+    const { reply, activityUpdates } = await chatWithAgent(
+      apiKey,
+      roster,
+      apiHistory,
+      maskedUpcomingEvents(forward),
+      ymd(new Date())
+    );
+    // 使用者用講的記活動紀錄：AI 整理出來之後由這裡實際寫進名單
+    const written = await applyChatActivityUpdates(activityUpdates, reverse);
+    const note = written.length ? `\n\n（已寫入：${written.join("；")}）` : "";
+    chatHistory.push({ role: "assistant", content: unmaskNames(reply, reverse) + note });
     await saveChatHistory();
   } catch (err) {
     chatHistory.pop(); // 失敗時移除剛送出的訊息，讓使用者修正後重送

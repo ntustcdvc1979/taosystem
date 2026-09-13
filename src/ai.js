@@ -139,13 +139,17 @@ ${formatPerson(person)}${guidance ? `\n\n我希望的策略方向：${guidance}`
 }
 
 /**
- * 全名單 AI Agent 聊天。回傳 assistant 的回覆文字（可能含代號，由呼叫端還原）。
+ * 全名單 AI Agent 聊天。
+ * 回傳 { reply, activityUpdates }：reply 是要顯示的回覆文字，
+ * activityUpdates 是使用者在訊息裡「口述的活動紀錄」，由呼叫端寫回名單。
+ * 兩者都可能含代號，由呼叫端還原。
  * @param {string} apiKey - 共用 Anthropic API Key
  * @param {object[]} roster - 已做代號替換的全部名單
  * @param {{role: string, content: string}[]} history - 聊天歷史（已做代號替換，含最新一則 user 訊息）
  * @param {object[]} events - 近期活動（name/date/type），可為空陣列
+ * @param {string} today - 今天的日期（YYYY-MM-DD），用來把「9/6」換算成完整日期
  */
-export async function chatWithAgent(apiKey, roster, history, events = []) {
+export async function chatWithAgent(apiKey, roster, history, events = [], today = "") {
   const client = makeClient(apiKey);
 
   const rosterText = roster
@@ -161,7 +165,20 @@ ${rosterText || "（目前名單是空的）"}
 近期活動（依日期排序）：
 ${formatEvents(events)}
 
-使用者是負責成全的同修，會向你詢問名單相關的建議（例如：誰適合邀約參加法會、某位對象下一步怎麼做、整體優先順序等）。請根據名單內容給出具體、可執行的建議；規劃時參照近期活動——依對象目前的狀況建議適合參加哪個活動、如何鋪陳邀約（廣結善緣＝接觸初期或反應冷淡者；獻供＝氣氛輕鬆，適合帶新朋友或維繫關係；求道＝時機成熟的未求道者；成全＝已求道者的研究班；法會＝已求道、關係穩定者；班程＝研究班的課，適合已求道、願意固定上課的人；幹訓＝較資深、有心承擔者；會議＝團隊內部開會，不是成全對象的活動）。活動清單附有邀約狀況（含備註）時可據以回答「誰還沒回覆、誰答應了、誰回覆不確定該怎麼跟進」，並避免重複推薦已婉拒的活動。回答保持精簡，不要長篇大論。記得一律用代號指稱名單上的人。`;
+使用者是負責成全的同修，會向你詢問名單相關的建議（例如：誰適合邀約參加法會、某位對象下一步怎麼做、整體優先順序等）。請根據名單內容給出具體、可執行的建議；規劃時參照近期活動——依對象目前的狀況建議適合參加哪個活動、如何鋪陳邀約（廣結善緣＝接觸初期或反應冷淡者；獻供＝氣氛輕鬆，適合帶新朋友或維繫關係；求道＝時機成熟的未求道者；成全＝已求道者的研究班；法會＝已求道、關係穩定者；班程＝研究班的課，適合已求道、願意固定上課的人；幹訓＝較資深、有心承擔者；會議＝團隊內部開會，不是成全對象的活動）。活動清單附有邀約狀況（含備註）時可據以回答「誰還沒回覆、誰答應了、誰回覆不確定該怎麼跟進」，並避免重複推薦已婉拒的活動。回答保持精簡，不要長篇大論。記得一律用代號指稱名單上的人。
+
+除了回答問題，你還要幫使用者**記活動紀錄**。今天是 ${today || "（未提供）"}。
+使用者常常直接口述：「代號3 來 9/6 的廣結善緣，他的反應是很開心，說下次還要來」。
+遇到這種**陳述已經發生的事**時，把它整理成 activityUpdates：
+- personRef：那個人在上面名單裡的「第 N 位」的 N（整數）。認不出是誰就不要放進來。
+- date：YYYY-MM-DD。使用者只說「9/6」時用今天的年份推算；若那樣會變成未來的日期，就用前一年。
+- activity：活動名稱。盡量對到上面近期活動清單裡的名稱，對不到就用使用者說的。
+- reaction：他的反應或當下的狀況，照使用者說的寫，不要自己加油添醋。
+規則：
+- 只有在使用者**明確在描述某人參加了某個活動**時才填；問問題、規劃、討論一律留空陣列。
+- 一句話提到好幾個人就拆成好幾筆。
+- 不要把「預定要去」「打算邀他」當成已經參加。
+- reply 裡要順帶告訴使用者你記了什麼（例如「已記到 代號3 的活動紀錄」），但不要重複整段內容。`;
 
   const response = await client.messages.create({
     model: MODEL,
@@ -169,13 +186,48 @@ ${formatEvents(events)}
     thinking: { type: "adaptive" },
     system,
     messages: history,
+    output_config: {
+      format: {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: {
+            reply: { type: "string", description: "要顯示給使用者看的回覆" },
+            activityUpdates: {
+              type: "array",
+              description: "使用者口述的活動紀錄；沒有就是空陣列",
+              items: {
+                type: "object",
+                properties: {
+                  personRef: { type: "integer", description: "名單上的第幾位" },
+                  date: { type: "string", description: "YYYY-MM-DD" },
+                  activity: { type: "string", description: "活動名稱" },
+                  reaction: { type: "string", description: "他的反應" },
+                },
+                required: ["personRef", "date", "activity", "reaction"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["reply", "activityUpdates"],
+          additionalProperties: false,
+        },
+      },
+    },
   });
 
   if (response.stop_reason === "refusal") {
     throw new Error("AI 拒絕了這個請求，請換個問法再試。");
   }
 
-  return response.content.find((b) => b.type === "text")?.text ?? "";
+  const text = response.content.find((b) => b.type === "text")?.text ?? "";
+  try {
+    const parsed = JSON.parse(text);
+    return { reply: parsed.reply || "", activityUpdates: parsed.activityUpdates || [] };
+  } catch {
+    // 萬一沒回成 JSON，至少把文字顯示出來，不要整個聊天壞掉
+    return { reply: text, activityUpdates: [] };
+  }
 }
 
 /**

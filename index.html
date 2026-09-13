@@ -279,8 +279,38 @@
               <button type="button" id="course-add-btn" class="btn-primary btn-small">新增課程</button>
               <button type="button" id="course-update-btn" class="btn-primary btn-small hidden">儲存變更</button>
               <button type="button" id="course-cancel-btn" class="btn-secondary btn-small hidden">取消編輯</button>
+              <label class="btn-secondary btn-small course-import-btn">
+                匯入課程
+                <input type="file" id="course-import-input" accept=".xlsx" hidden />
+              </label>
             </div>
+            <span class="hint-text">
+              「匯入課程」讀班表（.xlsx）裡的<strong>日期</strong>與<strong>題目</strong>，題目就是課程名稱；
+              佛堂與班別會從班表上讀出來，也可以自己改。已經登錄過的同一堂課會自動略過。
+            </span>
           </div>
+
+          <!-- 匯入預覽：確認佛堂／班別與要匯入哪幾堂 -->
+          <div id="course-import" class="course-import hidden">
+            <div class="invite-header">
+              <span class="field-label">匯入預覽 <span id="course-import-summary" class="invite-summary"></span></span>
+              <button type="button" id="course-import-cancel" class="btn-link-plain">取消</button>
+            </div>
+            <div class="course-form-grid">
+              <label>
+                <span class="course-field-label">佛堂 <span class="required">*</span></span>
+                <input type="text" id="course-import-venue" autocomplete="off" />
+              </label>
+              <label>
+                <span class="course-field-label">班別</span>
+                <select id="course-import-group"></select>
+              </label>
+            </div>
+            <div id="course-import-list" class="course-import-list"></div>
+            <p id="course-import-status" class="hint-text"></p>
+            <button type="button" id="course-import-confirm" class="btn-primary btn-small">確定匯入</button>
+          </div>
+
           <div id="course-list" class="course-list"></div>
         </div>
       </div>
