@@ -569,6 +569,21 @@ button {
   margin: 0;
 }
 
+/* 下拉選單預設會撐到最長那個選項的寬度——課名很長時就會超出視窗。
+   自己佔一整行並限制寬度，長選項由瀏覽器自己截斷。 */
+#lesson-course {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+}
+
+.lesson-form-row select {
+  max-width: 100%;
+  min-width: 0;
+}
+
 /* 佛規禮節／經典背誦：用過的項目與經典點一下就填 */
 .record-suggest {
   display: flex;
@@ -3080,4 +3095,29 @@ body:has(.modal:not(.hidden)) .chat-panel {
 /* 班務名單卡上的出席率：沿用道務那組指標的配色 */
 .attend-badge {
   font-size: 0.75rem;
+}
+
+/* 工具列上的顯示開關（策略／做法） */
+.field-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 0.2rem;
+  font-size: 0.85rem;
+  color: #5a6472;
+}
+
+.field-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.field-toggles input {
+  margin: 0;
+  width: auto;
+  cursor: pointer;
 }

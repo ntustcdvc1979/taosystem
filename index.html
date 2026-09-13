@@ -74,6 +74,11 @@
             <select id="view-rank" title="用哪個身分檢視名單"></select>
           </span>
           <button id="toggle-view-btn" class="btn-secondary">切換詳細模式</button>
+          <!-- 兩種模式共用：卡片上要不要顯示策略與做法 -->
+          <span class="field-toggles" title="卡片上要不要顯示這兩欄（兩種模式都適用）">
+            <label><input type="checkbox" id="toggle-strategy" checked />策略</label>
+            <label><input type="checkbox" id="toggle-method" checked />做法</label>
+          </span>
           <button id="ai-heat-btn" class="btn-secondary hidden">AI 評估熱度</button>
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
           <button id="updates-btn" class="btn-secondary">更新動態</button>

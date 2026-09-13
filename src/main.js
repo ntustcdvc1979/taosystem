@@ -145,6 +145,8 @@ const bindCurrent = document.getElementById("bind-current");
 const bindCurrentName = document.getElementById("bind-current-name");
 const bindUnbindBtn = document.getElementById("bind-unbind-btn");
 const toggleViewBtn = document.getElementById("toggle-view-btn");
+const toggleStrategy = document.getElementById("toggle-strategy");
+const toggleMethod = document.getElementById("toggle-method");
 const aiHeatBtn = document.getElementById("ai-heat-btn");
 aiHeatBtn.classList.remove("hidden"); // 預設就是熱度模式
 const tagFilterList = document.getElementById("tag-filter-list");
@@ -218,6 +220,49 @@ const RECORD_PREVIEW_COUNT = 2;
 
 // 名單檢視模式："heat"（成全熱度・參與度，預設）／"detail"（詳細卡片）
 let viewMode = "heat";
+
+// 卡片上要不要顯示「策略」與「做法」。兩種模式共用同一組開關，
+// 依帳號記在這台裝置上——有人只想看指標，有人要照著做法跑。
+const CARD_FIELDS_KEY = "taosystem_card_fields";
+let showStrategy = true;
+let showMethod = true;
+
+function cardFieldsKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `${CARD_FIELDS_KEY}:${uid}` : CARD_FIELDS_KEY;
+}
+
+function loadCardFields() {
+  showStrategy = true;
+  showMethod = true;
+  try {
+    const raw = localStorage.getItem(cardFieldsKey());
+    if (raw) {
+      const saved = JSON.parse(raw);
+      showStrategy = saved.strategy !== false;
+      showMethod = saved.method !== false;
+    }
+  } catch {
+    // 存壞了就用預設（兩個都顯示）
+  }
+  applyCardFieldToggles();
+}
+
+function saveCardFields() {
+  try {
+    localStorage.setItem(
+      cardFieldsKey(),
+      JSON.stringify({ strategy: showStrategy, method: showMethod })
+    );
+  } catch {
+    // 記不起來也不影響這次的顯示
+  }
+}
+
+function applyCardFieldToggles() {
+  toggleStrategy.checked = showStrategy;
+  toggleMethod.checked = showMethod;
+}
 
 // 目前在哪一頁："roster"（名單，預設）／"trend"（趨勢分析）
 let pageMode = "roster";
@@ -440,6 +485,7 @@ onAuthStateChanged(auth, async (user) => {
     appView.classList.remove("hidden");
     chatFab.classList.remove("hidden");
     loadTagFilter(); // 這個帳號上次點亮／點暗了哪些標籤
+    loadCardFields(); // 上次有沒有把策略／做法關掉
     showPage("roster");
     renderTagFilter();
     // 綁定「我是名單上的哪一位」不分系統：只有班務權限的人也要綁得起來，
@@ -2369,8 +2415,8 @@ function renderEntries() {
       ${contactLine(entry)}
       ${entry.recommendedActivity ? `<div class="card-recommend"><span class="field-label">推薦活動</span>${escapeHtml(entry.recommendedActivity)}</div>` : ""}
       ${field("背景", escapeHtml(getBackground(entry)))}
-      ${field("策略", escapeHtml(entry.strategy))}
-      ${field("做法", escapeHtml(entry.method))}
+      ${showStrategy ? field("策略", escapeHtml(entry.strategy)) : ""}
+      ${showMethod ? field("做法", escapeHtml(entry.method)) : ""}
       ${recordField("活動紀錄", entry.activities, activityItemHtml)}
       ${recordField("聯絡紀錄", entry.talks, talkItemHtml)}
       <div class="row-actions card-actions">
@@ -2561,9 +2607,14 @@ function renderHeatList(entries) {
         h.days === null ? "尚無紀錄" : h.days === 0 ? "今天" : `${h.days} 天前`;
       const partClass = p.level === null ? "part-na" : `part-${p.level}`;
       // 熱度的升降用圓圈旁的三角形表示；評語留在「熱度」視窗裡，
-      // 卡片這行改放做法——那才是每天要照著做的東西。
+      // 卡片這行放策略與做法（工具列可以各自關掉，只想看指標時就不會被文字塞滿）。
       const trend = heatTrend(entry, h);
-      const note = entry.method || "";
+      const note = [
+        showStrategy && entry.strategy ? `策略：${entry.strategy}` : "",
+        showMethod && entry.method ? `做法：${entry.method}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
       const staleClass = h.days !== null && h.days >= HEAT_DECAY_DAYS ? " is-stale" : "";
       return `
         <div class="heat-card" data-id="${entry.id}">
@@ -2844,6 +2895,18 @@ toggleViewBtn.addEventListener("click", () => {
   viewMode = viewMode === "detail" ? "heat" : "detail";
   toggleViewBtn.textContent = viewMode === "heat" ? "切換詳細模式" : "切換熱度模式";
   aiHeatBtn.classList.toggle("hidden", viewMode !== "heat");
+  renderEntries();
+});
+
+// 策略／做法的開關：兩種模式共用，改了就記起來
+toggleStrategy.addEventListener("change", () => {
+  showStrategy = toggleStrategy.checked;
+  saveCardFields();
+  renderEntries();
+});
+toggleMethod.addEventListener("change", () => {
+  showMethod = toggleMethod.checked;
+  saveCardFields();
   renderEntries();
 });
 

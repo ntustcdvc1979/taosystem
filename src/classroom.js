@@ -655,13 +655,23 @@ function renderCourseOptions() {
   const mine = entry ? coursesToLog(entry) : [];
   const keep = sel.value;
   const hasAny = entry ? coursesFor(entry).length > 0 : false;
+  // 選項只放「日期・課名」。課名本來就長（百孝經聖訓輯要(一)︰第1~4句之訓中訓），
+  // 再把佛堂、班別也串進去，下拉選單會被撐到超出視窗。
+  // 佛堂與班別只在真的分得出來時才補：他同時在好幾個班、或同一個班在兩個佛堂都有課。
+  const groups = new Set(mine.map((c) => c.classGroup));
+  const venues = new Set(mine.map((c) => (c.venue || "").trim()));
+  const prefix = (c) =>
+    [venues.size > 1 ? (c.venue || "").trim() : "", groups.size > 1 ? c.classGroup : ""]
+      .filter(Boolean)
+      .join("・");
+
   sel.innerHTML = mine.length
     ? `<option value="">請選擇課程</option>` +
       mine
-        .map(
-          (c) =>
-            `<option value="${esc(c.id)}">${esc(c.date || "未定日期")}・${esc(courseLabel(c))}</option>`
-        )
+        .map((c) => {
+          const head = [c.date || "未定日期", prefix(c)].filter(Boolean).join("・");
+          return `<option value="${esc(c.id)}">${esc(head)}・${esc(c.name || "")}</option>`;
+        })
         .join("")
     : `<option value="">${hasAny ? "（他那幾班的課都記過了）" : "（他的班別還沒有登錄課程）"}</option>`;
   if (keep && mine.some((c) => c.id === keep)) sel.value = keep;
