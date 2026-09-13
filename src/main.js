@@ -53,7 +53,10 @@ const LINKS_COLLECTION = "memberLinks"; // 帳號 ↔ 名單對應
 // 綁定用的姓名索引：只放姓名與系級，同單位都讀得到（身分階梯不擋這裡），
 // 這樣看不到高階名單的人也能找到自己那一筆來綁定。
 const ROSTER_INDEX_COLLECTION = "rosterIndex";
-const UPDATES_COLLECTION = "updates"; // 誰更新了什麼的流水帳
+// 誰更新了什麼的流水帳。兩個系統分開存，因為權限不同：
+// 道務那份還要依「對象的身分」分路徑，才擋得住身分階梯（見 firestore.rules）。
+const DAO_UPDATES_COLLECTION = "daoUpdates";
+const CLASS_UPDATES_COLLECTION = "classUpdates";
 
 let myUnitId = null;
 let myUnitName = "";
@@ -91,6 +94,8 @@ const updatesCloseBtn = document.getElementById("updates-close-btn");
 const updatesList = document.getElementById("updates-list");
 const updatesFilterWho = document.getElementById("updates-filter-who");
 const updatesFilterKind = document.getElementById("updates-filter-kind");
+const updatesTitle = document.getElementById("updates-title");
+const updatesHint = document.getElementById("updates-hint");
 const updatesCount = document.getElementById("updates-count");
 const unitNameLabel = document.getElementById("unit-name");
 const bindMeBtn = document.getElementById("bind-me-btn");
@@ -552,7 +557,7 @@ const classroomContext = {
     if (myRank >= 1) renderEntries();
   },
   // 班務的動作也記進同一份更新動態
-  logUpdate: (kind, text) => logUpdate(kind, text),
+  logUpdate: (kind, text) => logClassUpdate(kind, text),
 };
 initClassroom(classroomContext);
 
@@ -1040,31 +1045,63 @@ function subscribeMembers() {
 // ---------- 更新動態視窗 ----------
 // 只在視窗開著時訂閱，關掉就退訂——這份流水帳會一直長，不需要隨時掛著。
 const UPDATES_LIMIT = 200;
-let unsubscribeUpdates = null;
+const UPDATES_PER_RANK = 80; // 每一階最多讀這麼多，合起來再排序
 let unitUpdates = [];
+let updatesSystem = "dao"; // 這個視窗現在在看哪一個系統
 
-function openUpdatesModal() {
-  updatesModal.classList.remove("hidden");
-  updatesList.innerHTML = `<p class="hint-text">載入中...</p>`;
-  if (unsubscribeUpdates) unsubscribeUpdates();
-  unsubscribeUpdates = onSnapshot(
-    query(unitCol(UPDATES_COLLECTION), orderBy("at", "desc"), limit(UPDATES_LIMIT)),
-    (snapshot) => {
-      unitUpdates = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      renderUpdates();
-    },
-    (err) => {
-      updatesList.innerHTML = `<p class="hint-text">讀取失敗：${escapeHtml(err.message)}</p>`;
-    }
+// 道務：一階一階分開查（只查自己那階以下），因為規則是照路徑上的身分擋的。
+// 分開查還有一個好處：每一條都是單一集合 + orderBy，用得到自動索引，不必建複合索引。
+async function fetchDaoUpdates() {
+  const ranks = [];
+  for (let r = 0; r < myRank; r += 1) ranks.push(String(r));
+  if (ranks.length === 0) return [];
+  const snaps = await Promise.all(
+    ranks.map((r) =>
+      getDocs(
+        query(
+          collection(db, "units", myUnitId, DAO_UPDATES_COLLECTION, r, "items"),
+          orderBy("at", "desc"),
+          limit(UPDATES_PER_RANK)
+        )
+      )
+    )
   );
+  return snaps.flatMap((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+}
+
+async function fetchClassUpdates() {
+  const snap = await getDocs(
+    query(unitCol(CLASS_UPDATES_COLLECTION), orderBy("at", "desc"), limit(UPDATES_LIMIT))
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+async function openUpdatesModal(system) {
+  updatesSystem = system;
+  updatesModal.classList.remove("hidden");
+  updatesTitle.textContent = system === "class" ? "更新動態 - 班務系統" : "更新動態 - 道務系統";
+  updatesHint.textContent =
+    system === "class"
+      ? "班務系統的動態：誰改了名單、記了上課紀錄、登錄或匯入課程。有班務權限的人都看得到。"
+      : "道務系統的動態：只看得到「你看得到的那些人」的更新——身分階梯跟名單同一條線，同階與更高階的人不會出現，自己被更新的那幾筆也不會列出來。";
+  updatesFilterKind.innerHTML =
+    `<option value="">所有類型</option>` +
+    SYSTEM_KINDS[system].map((k) => `<option value="${k}">${UPDATE_KINDS[k]}</option>`).join("");
+  updatesList.innerHTML = `<p class="hint-text">載入中...</p>`;
+  try {
+    unitUpdates = system === "class" ? await fetchClassUpdates() : await fetchDaoUpdates();
+    // 幾條查詢合起來，照時間重新排一次
+    unitUpdates.sort((a, b) => (b.at?.toMillis?.() ?? 0) - (a.at?.toMillis?.() ?? 0));
+    unitUpdates = unitUpdates.slice(0, UPDATES_LIMIT);
+    renderUpdates();
+  } catch (err) {
+    updatesList.innerHTML = `<p class="hint-text">讀取失敗：${escapeHtml(err.message)}</p>`;
+  }
 }
 
 function closeUpdatesModal() {
   updatesModal.classList.add("hidden");
-  if (unsubscribeUpdates) {
-    unsubscribeUpdates();
-    unsubscribeUpdates = null;
-  }
+  unitUpdates = [];
 }
 
 // 「更新者」的選項照更新次數排，常在動的人排前面
@@ -1100,7 +1137,12 @@ function renderUpdates() {
   const who = updatesFilterWho.value;
   const kind = updatesFilterKind.value;
   const rows = unitUpdates.filter(
-    (u) => (!who || (u.byName || u.by) === who) && (!kind || u.kind === kind)
+    (u) =>
+      // 自己被更新的那幾筆不列出來。同階的人本來就被規則擋掉了，
+      // 這裡處理的是「自己那一筆比自己低階」的情況（例如講師綁在一般名單上）。
+      !(u.targetId && u.targetId === myEntryId) &&
+      (!who || (u.byName || u.by) === who) &&
+      (!kind || u.kind === kind)
   );
   updatesCount.textContent = unitUpdates.length
     ? `${rows.length} / ${unitUpdates.length} 筆`
@@ -1124,9 +1166,11 @@ function renderUpdates() {
       }</p>`;
 }
 
-updatesBtn.addEventListener("click", openUpdatesModal);
-// 班務系統的工具列也有一顆，開的是同一份（兩邊的動態都在裡面，可用類型過濾）
-document.getElementById("class-updates-btn").addEventListener("click", openUpdatesModal);
+// 兩個系統各看各的：從哪一邊的工具列打開，就看哪一邊的動態
+updatesBtn.addEventListener("click", () => openUpdatesModal("dao"));
+document
+  .getElementById("class-updates-btn")
+  .addEventListener("click", () => openUpdatesModal("class"));
 updatesCloseBtn.addEventListener("click", closeUpdatesModal);
 updatesModal.addEventListener("click", (e) => {
   if (e.target === updatesModal) closeUpdatesModal();
@@ -1903,7 +1947,11 @@ async function submitOneReport(entryId, btn) {
     reportStatus.textContent = allDone
       ? "全部回報完了，提醒會消失。"
       : `已回報 ${entryName(entryId)}。`;
-    logUpdate("report", `回報「${entryName(entryId)}」在「${ev.name}」${came ? "有參加" : "沒參加"}`);
+    logUpdate(
+      "report",
+      `回報「${entryName(entryId)}」在「${ev.name}」${came ? "有參加" : "沒參加"}`,
+      entry
+    );
     if (allDone) closeReportModal();
   } catch (err) {
     btn.disabled = false;
@@ -1990,10 +2038,48 @@ const UPDATE_KINDS = {
   course: "課程",
 };
 
-async function logUpdate(kind, text) {
+// 類型的下拉只列出這個系統有的那幾種
+const SYSTEM_KINDS = {
+  dao: ["entry", "talk", "activity", "heat", "invite", "report", "event"],
+  class: ["classEntry", "lesson", "record", "course"],
+};
+
+// 這一筆動態是關於誰：對象的身分決定誰看得到（跟名單同一條階梯）。
+// 不是針對某個人的（新增活動、匯入課程…）就當 0，那是大家都看得到的事。
+function targetRankOf(entry) {
+  return String(Math.min(4, Math.max(0, Number(entry?.roleRank) || 0)));
+}
+
+// 道務的動態：存在 daoUpdates/{對象身分}/items 底下。
+// 把身分放進路徑，查詢才能一階一階分開查、每一條都落在讀得到的範圍內
+// （Firestore 沒辦法過濾查詢結果，查到讀不到的文件整個查詢就會被拒絕）。
+async function logUpdate(kind, text, target = null) {
+  if (!myUnitId || !text) return;
+  const targetRank = targetRankOf(target);
+  try {
+    await addDoc(
+      collection(db, "units", myUnitId, DAO_UPDATES_COLLECTION, targetRank, "items"),
+      {
+        kind,
+        text,
+        targetRank, // 規則會檢查它跟路徑一致
+        targetId: target?.id || null, // 用來把「自己被更新」那幾筆藏起來
+        by: auth.currentUser?.email || null,
+        byName: myDisplayName(),
+        at: serverTimestamp(),
+      }
+    );
+  } catch (err) {
+    // 記不成流水帳不該讓原本的操作看起來像失敗了
+    if (err.code !== "permission-denied") console.error("寫入更新動態失敗", err);
+  }
+}
+
+// 班務的動態：班務沒有身分階梯，一個集合就好
+async function logClassUpdate(kind, text) {
   if (!myUnitId || !text) return;
   try {
-    await addDoc(unitCol(UPDATES_COLLECTION), {
+    await addDoc(unitCol(CLASS_UPDATES_COLLECTION), {
       kind,
       text,
       by: auth.currentUser?.email || null,
@@ -2001,7 +2087,6 @@ async function logUpdate(kind, text) {
       at: serverTimestamp(),
     });
   } catch (err) {
-    // 記不成流水帳不該讓原本的操作看起來像失敗了
     if (err.code !== "permission-denied") console.error("寫入更新動態失敗", err);
   }
 }
@@ -2445,7 +2530,11 @@ async function saveHeat(entryId, level, reason, source) {
     });
     // AI 批次評估會一次跑很多人，那個不必每一位都記一筆流水帳
     if (source !== "ai-batch") {
-      logUpdate("heat", `把「${entryName(entryId)}」的熱度設為「${HEAT_LABELS[level]}」`);
+      logUpdate(
+        "heat",
+        `把「${entryName(entryId)}」的熱度設為「${HEAT_LABELS[level]}」`,
+        allEntries.find((en) => en.id === entryId)
+      );
     }
   } catch (err) {
     alert("儲存熱度失敗：" + err.message);
@@ -3058,7 +3147,11 @@ addActivityBtn.addEventListener("click", async () => {
   newActReaction.value = "";
   renderActivityModalList();
   await persistActivities();
-  logUpdate("activity", `幫「${entryName(activityModalEntryId)}」記了一筆活動紀錄：${activity}`);
+  logUpdate(
+    "activity",
+    `幫「${entryName(activityModalEntryId)}」記了一筆活動紀錄：${activity}`,
+    allEntries.find((en) => en.id === activityModalEntryId)
+  );
 });
 
 activityCloseBtn.addEventListener("click", closeActivityModal);
@@ -3161,7 +3254,11 @@ addTalkBtn.addEventListener("click", async () => {
   await persistTalks();
   // 只寫「更新了誰的什麼」，不把紀錄本文放進動態——
   // 這份流水帳是全單位看得到的，內容留在那一筆紀錄裡就好
-  logUpdate("talk", `更新了「${entryName(talkModalEntryId)}」的聯絡近況`);
+  logUpdate(
+    "talk",
+    `更新了「${entryName(talkModalEntryId)}」的聯絡近況`,
+    allEntries.find((en) => en.id === talkModalEntryId)
+  );
 });
 
 talkCloseBtn.addEventListener("click", closeTalkModal);
@@ -3921,7 +4018,7 @@ entryForm.addEventListener("submit", async (e) => {
       await updateDoc(entryRef(id), data);
       const edited = allEntries.find((en) => en.id === id);
       if (edited?._scope !== "personal") await writeRosterIndex(id, data);
-      logUpdate("entry", `更新了「${data.name}」的名單資料`);
+      logUpdate("entry", `更新了「${data.name}」的名單資料`, { id, roleRank: data.roleRank });
     } else {
       const personal = fieldScope.value === "personal";
       const ref = await addDoc(unitCol(personal ? PERSONAL_COLLECTION : ENTRIES_COLLECTION), {
@@ -3933,7 +4030,10 @@ entryForm.addEventListener("submit", async (e) => {
         createdBy: auth.currentUser?.email || null,
       });
       if (!personal) await writeRosterIndex(ref.id, data);
-      logUpdate("entry", `新增了名單「${data.name}」${personal ? "（個人名單）" : ""}`);
+      logUpdate("entry", `新增了名單「${data.name}」${personal ? "（個人名單）" : ""}`, {
+        id: ref.id,
+        roleRank: data.roleRank,
+      });
     }
     closeModal();
   } catch (err) {
@@ -4408,7 +4508,8 @@ async function setInviteStatus(entryId, status) {
   const ev = allEvents.find((x) => x.id === editingEventId);
   logUpdate(
     "invite",
-    `更新了「${entryName(entryId)}」在「${ev?.name || "活動"}」的邀約狀況：${status}`
+    `更新了「${entryName(entryId)}」在「${ev?.name || "活動"}」的邀約狀況：${status}`,
+    allEntries.find((en) => en.id === entryId)
   );
 }
 
@@ -5120,7 +5221,8 @@ async function applyChatActivityUpdates(updates, reverse) {
       done.push(`${entry.name} ${u.date} ${activity}${result.appended ? "（補述）" : ""}`);
       logUpdate(
         "activity",
-        `用 AI 聊天室${result.appended ? "補述" : "記"}了「${entry.name}」的活動紀錄：${u.date} ${activity}`
+        `用 AI 聊天室${result.appended ? "補述" : "記"}了「${entry.name}」的活動紀錄：${u.date} ${activity}`,
+        entry
       );
     } catch (err) {
       if (err.code !== "permission-denied") console.error("寫入活動紀錄失敗", err);

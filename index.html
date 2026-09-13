@@ -615,27 +615,11 @@
       <div id="updates-modal" class="modal hidden">
         <div class="modal-content updates-modal-content">
           <button type="button" id="updates-close-btn" class="modal-close" aria-label="關閉">×</button>
-          <h2>更新動態</h2>
-          <p class="hint-text">
-            誰更新了誰的紀錄、誰改了活動的邀約狀況，都會記在這裡（最新的排最上面）。
-            這是流水帳：寫進去就不會被改掉或刪掉。
-          </p>
+          <h2 id="updates-title">更新動態</h2>
+          <p id="updates-hint" class="hint-text"></p>
           <div class="updates-toolbar">
             <select id="updates-filter-who" title="只看某個人做的更新"></select>
-            <select id="updates-filter-kind" title="只看某一類的更新">
-              <option value="">所有類型</option>
-              <option value="entry">名單</option>
-              <option value="talk">聯絡紀錄</option>
-              <option value="activity">活動紀錄</option>
-              <option value="heat">熱度</option>
-              <option value="invite">邀約狀況</option>
-              <option value="report">參與回報</option>
-              <option value="event">活動</option>
-              <option value="classEntry">班務名單</option>
-              <option value="lesson">上課紀錄</option>
-              <option value="record">佛規／背誦</option>
-              <option value="course">課程</option>
-            </select>
+            <select id="updates-filter-kind" title="只看某一類的更新"></select>
             <span id="updates-count" class="members-count"></span>
           </div>
           <div id="updates-list" class="updates-list"></div>
