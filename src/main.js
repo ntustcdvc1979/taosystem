@@ -4311,6 +4311,10 @@ function renderInviteList() {
 }
 
 // 自己做的搜尋清單（不用 <datalist>：中文 IME 輸入時它常常不篩選，等於不能搜尋）
+// 清單不要那麼容易跳出來：點進輸入框還不算，真的打了字才列。
+// 之前一聚焦就把整份名單攤開，等於每次要加人都先被一張清單擋住視線。
+const INVITE_SUGGEST_MIN = 1;
+
 function renderInviteSuggestions() {
   // 只有點進輸入框時才顯示，避免一開啟活動就掛著一張下拉清單；
   // 但清單已經開著就留著——手機上手指按下去輸入框會先失焦，
@@ -4322,25 +4326,31 @@ function renderInviteSuggestions() {
   }
 
   const q = newInvitePerson.value.trim().toLowerCase();
+  // 還沒打到字就什麼都不顯示（也不顯示「找不到」）
+  if (q.length < INVITE_SUGGEST_MIN) {
+    inviteSuggestions.innerHTML = "";
+    hideInviteSuggestions();
+    return;
+  }
+
   const invited = new Set(editingEventInvites.map((i) => i.entryId));
   const matches = invitableEntries()
     .filter((en) => !invited.has(en.id))
-    .filter((en) => {
-      if (!q) return true;
+    .filter((en) =>
       // 索引來的只有姓名與系級可以搜；看得到的名單連背景一起搜
-      return [en.name, en.department, en._fromIndex ? "" : getBackground(en)]
+      [en.name, en.department, en._fromIndex ? "" : getBackground(en)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
-        .includes(q);
-    })
+        .includes(q)
+    )
     .slice(0, 8);
 
   if (matches.length === 0) {
-    inviteSuggestions.innerHTML = q
-      ? `<div class="invite-suggestion-empty">找不到「${escapeHtml(newInvitePerson.value.trim())}」</div>`
-      : "";
-    inviteSuggestions.classList.toggle("hidden", !q);
+    inviteSuggestions.innerHTML = `<div class="invite-suggestion-empty">找不到「${escapeHtml(
+      newInvitePerson.value.trim()
+    )}」</div>`;
+    inviteSuggestions.classList.remove("hidden");
     return;
   }
 
@@ -4372,7 +4382,19 @@ async function addInviteByEntryId(entryId) {
   await logInviteTalk(entryId, status);
 }
 
-newInvitePerson.addEventListener("input", renderInviteSuggestions);
+// 打字時晚一點再算：中文選字每按一鍵都會發 input，清單會一直跳動。
+// 選字還沒送出（isComposing）就先不動，等落字或停手一下再列。
+let inviteSuggestTimer = null;
+function scheduleInviteSuggestions(delay = 180) {
+  clearTimeout(inviteSuggestTimer);
+  inviteSuggestTimer = setTimeout(renderInviteSuggestions, delay);
+}
+
+newInvitePerson.addEventListener("input", (e) => {
+  if (e.isComposing) return;
+  scheduleInviteSuggestions();
+});
+newInvitePerson.addEventListener("compositionend", () => scheduleInviteSuggestions(0));
 newInvitePerson.addEventListener("focus", renderInviteSuggestions);
 // 不在 blur 收清單（手機上會在點到之前就消失），改成碰到這一區以外才收
 document.addEventListener(
