@@ -1049,12 +1049,13 @@ const UPDATES_PER_RANK = 80; // 每一階最多讀這麼多，合起來再排序
 let unitUpdates = [];
 let updatesSystem = "dao"; // 這個視窗現在在看哪一個系統
 
-// 道務：一階一階分開查（只查自己那階以下），因為規則是照路徑上的身分擋的。
+// 道務：一階一階分開查（自己那階以及更低階——同階的彼此看得到），
+// 因為規則是照路徑上的身分擋的。
 // 分開查還有一個好處：每一條都是單一集合 + orderBy，用得到自動索引，不必建複合索引。
 async function fetchDaoUpdates() {
+  if (myRank < 1) return [];
   const ranks = [];
-  for (let r = 0; r < myRank; r += 1) ranks.push(String(r));
-  if (ranks.length === 0) return [];
+  for (let r = 0; r <= Math.min(4, myRank); r += 1) ranks.push(String(r));
   const snaps = await Promise.all(
     ranks.map((r) =>
       getDocs(
@@ -1083,7 +1084,7 @@ async function openUpdatesModal(system) {
   updatesHint.textContent =
     system === "class"
       ? "班務系統的動態：誰改了名單、記了上課紀錄、登錄或匯入課程。有班務權限的人都看得到。"
-      : "道務系統的動態：只看得到「你看得到的那些人」的更新——身分階梯跟名單同一條線，同階與更高階的人不會出現，自己被更新的那幾筆也不會列出來。";
+      : "道務系統的動態：同階與更低階的人的更新都看得到（更高階的不會出現），自己被更新的那幾筆則不會列出來。";
   updatesFilterKind.innerHTML =
     `<option value="">所有類型</option>` +
     SYSTEM_KINDS[system].map((k) => `<option value="${k}">${UPDATE_KINDS[k]}</option>`).join("");
@@ -1138,8 +1139,7 @@ function renderUpdates() {
   const kind = updatesFilterKind.value;
   const rows = unitUpdates.filter(
     (u) =>
-      // 自己被更新的那幾筆不列出來。同階的人本來就被規則擋掉了，
-      // 這裡處理的是「自己那一筆比自己低階」的情況（例如講師綁在一般名單上）。
+      // 自己被更新的那幾筆不列出來——同階的動態現在讀得到，自己也在那一階裡。
       !(u.targetId && u.targetId === myEntryId) &&
       (!who || (u.byName || u.by) === who) &&
       (!kind || u.kind === kind)

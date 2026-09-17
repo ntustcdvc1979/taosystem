@@ -144,20 +144,21 @@ service cloud.firestore {
       // 誰更新了什麼的流水帳：只寫得進去，改不動也刪不掉（by 一定是自己，免得偽造別人）。
       // 兩個系統分開存，因為權限不同：道務的動態要道務權限，班務的要班務權限。
       //
-      // 道務這邊還要擋身分階梯：看得到的動態要跟看得到的名單同一條線，
-      // 不然一個組員就能從動態裡知道「講師幫某位組員做了什麼」。
+      // 道務這邊還要擋身分階梯：不然一個組員就能從動態裡知道
+      // 「講師幫某位講師做了什麼」。不過**同階的彼此看得到**——
+      // 一起跑成全的同儕本來就該知道對方做了什麼，這裡比名單鬆一階。
       // Firestore 的規則沒辦法過濾查詢結果——查詢範圍一旦含有讀不到的文件，
       // 整個查詢就會被拒絕——所以**把對象的身分放進路徑**：
       //   daoUpdates/{targetRank}/items/{id}
-      // 查詢時一階一階分開查（自己那階以下），每一條查詢都完全落在讀得到的範圍內，
-      // 也不必另外建複合索引。
+      // 查詢時一階一階分開查（自己那階以及更低階），每一條查詢都完全落在
+      // 讀得到的範圍內，也不必另外建複合索引。
       match /daoUpdates/{targetRank}/items/{updateId} {
         allow read: if inUnit(unitId) && canDao() &&
                        ((targetRank == '0' && myRank() >= 1) ||
-                        (targetRank == '1' && myRank() >= 2) ||
-                        (targetRank == '2' && myRank() >= 3) ||
-                        (targetRank == '3' && myRank() >= 4) ||
-                        (targetRank == '4' && myRank() >= 5));
+                        (targetRank == '1' && myRank() >= 1) ||
+                        (targetRank == '2' && myRank() >= 2) ||
+                        (targetRank == '3' && myRank() >= 3) ||
+                        (targetRank == '4' && myRank() >= 4));
         // 寫進去的那一階要跟路徑一致，不然可以把高階的事情塞進低階路徑給所有人看。
         // targetRank 存成字串，才不必在規則裡做型別轉換。
         allow create: if inUnit(unitId) && canDao()
