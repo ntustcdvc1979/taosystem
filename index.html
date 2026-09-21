@@ -431,6 +431,11 @@
               系級
               <input type="text" id="field-department" placeholder="例：資工三" />
             </label>
+            <label>
+              聯絡方式
+              <textarea id="field-contact-method" rows="2" placeholder="怎麼找得到他，例：IG @abc_123、Line ID abc123、0912-345-678"></textarea>
+              <span class="hint-text">可以寫好幾種，一行一個。這欄不會送給 AI。</span>
+            </label>
             <!-- 這一格刻意不是 <label>：標籤欄裡每個圓角標籤都有一顆 × 按鈕，
                  而 <label> 會把點擊轉送給它裡面第一個表單元件——一旦有了標籤，
                  那個元件就是「×」，於是剛選好的標籤會馬上被自己刪掉。 -->

@@ -367,6 +367,8 @@ const scopeHint = document.getElementById("scope-hint");
 const fieldName = document.getElementById("field-name");
 const fieldGender = document.getElementById("field-gender");
 const fieldDepartment = document.getElementById("field-department");
+// 怎麼聯絡到本人（IG、Line、電話…），跟「聯絡人」是兩回事——那是誰負責關心他
+const fieldContactMethod = document.getElementById("field-contact-method");
 // 名單編輯的標籤欄：圓角標籤 + 打字搜尋既有標籤
 const fieldTags = createTagEditor(document.getElementById("field-tags"), {
   suggest: () => knownTags(),
@@ -2433,6 +2435,7 @@ function renderEntries() {
       const haystack = [
         entry.name,
         entry.department,
+        entry.contactMethod,
         getBackground(entry),
         entry.contact,
         (entry.contacts || []).join(" "),
@@ -2498,6 +2501,7 @@ function renderEntries() {
       </div>
       ${tagsHtml(entry.tags)}
       ${contactLine(entry)}
+      ${field("聯絡方式", escapeHtml(entry.contactMethod))}
       ${entry.recommendedActivity ? `<div class="card-recommend"><span class="field-label">推薦活動</span>${escapeHtml(entry.recommendedActivity)}</div>` : ""}
       ${field("背景", escapeHtml(getBackground(entry)))}
       ${showStrategy ? field("策略", escapeHtml(entry.strategy)) : ""}
@@ -3907,6 +3911,7 @@ function openModal(entry = null) {
     fieldName.value = entry.name || "";
     fieldGender.value = entry.gender || "";
     fieldDepartment.value = entry.department || "";
+    fieldContactMethod.value = entry.contactMethod || "";
     fieldTags.setTags(entry.tags || []);
     fieldBackground.value = getBackground(entry);
     fieldContact.readOnly = false;
@@ -3993,6 +3998,7 @@ entryForm.addEventListener("submit", async (e) => {
     name: fieldName.value.trim(),
     gender: fieldGender.value,
     department: fieldDepartment.value.trim(),
+    contactMethod: fieldContactMethod.value.trim(),
     tags: fieldTags.getTags(),
     background: fieldBackground.value.trim(),
     // 個人名單的聯絡人固定是自己
