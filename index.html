@@ -83,6 +83,9 @@
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
           <button id="updates-btn" class="btn-secondary">更新動態</button>
           <button id="trend-btn" class="btn-secondary">趨勢分析</button>
+          <!-- 批次匯入：按鈕帶出隱藏的檔案選擇，讀完先給預覽再寫入 -->
+          <button id="roster-import-btn" class="btn-secondary" title="從 Excel（.xlsx）批次匯入名單">匯入名單</button>
+          <input type="file" id="roster-import-input" accept=".xlsx" hidden />
           <button id="add-entry-btn" class="btn-primary">＋ 新增名單</button>
         </div>
 
@@ -385,6 +388,35 @@
           </div>
 
           <div id="record-list" class="lesson-list"></div>
+        </div>
+      </div>
+
+      <!-- 匯入名單：讀 .xlsx 的第一張工作表，確認預覽之後才真的寫進去 -->
+      <div id="roster-import-modal" class="modal hidden">
+        <div class="modal-content">
+          <button type="button" id="roster-import-x" class="modal-close" aria-label="關閉">×</button>
+          <h2>匯入名單 <span id="roster-import-summary" class="invite-summary"></span></h2>
+          <p class="hint-text">
+            表格第一列請放欄位名稱，至少要有<strong>姓名</strong>；其餘欄位
+            （性別、系級、聯絡方式、標籤、背景、主要聯絡人、其他聯絡人、成全狀況、策略、做法）
+            有就讀、沒有就留空。IG、Line、電話也可以各自一欄，會合併成聯絡方式。
+            標籤與其他聯絡人可用「、」或逗號分隔多個；成全狀況要跟系統的選項一樣，不一樣就留空。
+            姓名與系級都相同的人視為已在名單上，不會重複匯入。
+            匯入的每一筆身分都是<strong>非組員</strong>，要調整請匯入後個別編輯。
+          </p>
+          <label>
+            歸屬
+            <select id="roster-import-scope">
+              <option value="team">團隊名單（所有幹部都看得到）</option>
+              <option value="personal">個人名單（只有我看得到）</option>
+            </select>
+          </label>
+          <div id="roster-import-list" class="roster-import-list"></div>
+          <p id="roster-import-status" class="hint-text"></p>
+          <div class="modal-actions">
+            <button type="button" id="roster-import-cancel" class="btn-secondary">取消</button>
+            <button type="button" id="roster-import-confirm" class="btn-primary">確定匯入</button>
+          </div>
         </div>
       </div>
 

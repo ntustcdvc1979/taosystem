@@ -3121,3 +3121,51 @@ body:has(.modal:not(.hidden)) .chat-panel {
   width: auto;
   cursor: pointer;
 }
+
+/* 匯入名單的預覽列：跟匯入班表同一套外觀 */
+/* 筆數跟在標題後面，但不要跟著標題一樣大 */
+#roster-import-summary {
+  font-size: 0.9rem;
+}
+
+.roster-import-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0.4rem 0;
+}
+
+.roster-import-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.35rem 0.1rem;
+  border-bottom: 1px solid #eaeef5;
+  font-size: 0.85rem;
+}
+
+.roster-import-row:last-child {
+  border-bottom: none;
+}
+
+/* 已經在名單上的那幾筆灰掉，一眼看出這次會新增哪些 */
+.roster-import-row.is-dup {
+  color: #a0a6ae;
+}
+
+.roster-import-name {
+  font-weight: 600;
+}
+
+.roster-import-meta {
+  color: #777;
+}
+
+.roster-import-dup {
+  margin-left: auto;
+  padding: 0.02rem 0.4rem;
+  border-radius: 999px;
+  background: #eef0f3;
+  color: #8a919b;
+  font-size: 0.72rem;
+}

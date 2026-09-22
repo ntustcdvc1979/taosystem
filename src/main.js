@@ -4047,6 +4047,254 @@ entryForm.addEventListener("submit", async (e) => {
   }
 });
 
+// ---------- 匯入名單（.xlsx 批次） ----------
+// 跟班務的「匯入課程」同一套做法：讀第一張工作表，某一列當欄位名稱，
+// 先給預覽（哪幾筆是新的、哪幾筆已經在名單上）再寫入。
+const rosterImportBtn = document.getElementById("roster-import-btn");
+const rosterImportInput = document.getElementById("roster-import-input");
+const rosterImportModal = document.getElementById("roster-import-modal");
+const rosterImportSummary = document.getElementById("roster-import-summary");
+const rosterImportScope = document.getElementById("roster-import-scope");
+const rosterImportList = document.getElementById("roster-import-list");
+const rosterImportStatus = document.getElementById("roster-import-status");
+const rosterImportConfirm = document.getElementById("roster-import-confirm");
+
+// 欄位名稱用完全比對（正規化之後），不然「其他聯絡人」會先被「聯絡人」吃掉
+const IMPORT_COLUMNS = [
+  ["name", ["姓名", "名字", "名稱", "name"]],
+  ["gender", ["性別", "乾坤", "gender"]],
+  ["department", ["系級", "科系", "系所", "班級", "年級", "department"]],
+  ["contactMethod", ["聯絡方式", "連絡方式", "聯繫方式", "聯絡資訊", "連絡資訊"]],
+  ["tags", ["標籤", "tag", "tags"]],
+  ["background", ["背景", "背景資料", "簡介", "background"]],
+  ["contact", ["主要聯絡人", "聯絡人", "連絡人", "負責人", "成全者"]],
+  ["contacts", ["其他聯絡人", "其他連絡人", "協助聯絡人", "其他成全者"]],
+  ["status", ["成全狀況", "狀況", "進度", "status"]],
+  ["strategy", ["策略", "strategy"]],
+  ["method", ["做法", "作法", "method"]],
+];
+// IG／Line／電話各自一欄的表也讀得進來：每一欄併成聯絡方式裡的一行「IG：xxx」
+const CONTACT_COLUMNS = [
+  "ig",
+  "instagram",
+  "line",
+  "lineid",
+  "電話",
+  "手機",
+  "fb",
+  "facebook",
+  "臉書",
+  "微信",
+  "wechat",
+  "email",
+  "e-mail",
+  "信箱",
+];
+
+function normalizeHeader(text) {
+  return String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[()（）:：*]/g, "");
+}
+
+// 這一列是不是欄位名稱列：認得出「姓名」才算，順便把每一欄對到哪個欄位記下來
+function mapImportColumns(row) {
+  const fields = {};
+  const contactCols = [];
+  (row || []).forEach((cell, i) => {
+    const head = normalizeHeader(cell);
+    if (!head) return;
+    const hit = IMPORT_COLUMNS.find(([, aliases]) => aliases.includes(head));
+    if (hit && fields[hit[0]] == null) {
+      fields[hit[0]] = i;
+    } else if (CONTACT_COLUMNS.includes(head)) {
+      contactCols.push({ col: i, label: String(cell).trim() });
+    }
+  });
+  return fields.name == null ? null : { fields, contactCols };
+}
+
+// 表單上的選項就是唯一的一份清單，這裡直接讀它，免得兩邊各寫一份會走鐘
+function knownStatuses() {
+  return [...fieldStatus.options].map((o) => o.value).filter(Boolean);
+}
+
+function splitList(text) {
+  return String(text || "")
+    .split(/[、,，;；/／\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function parseRosterSheet(rows) {
+  let header = null;
+  let headerRow = -1;
+  for (let i = 0; i < Math.min(rows.length, 10); i += 1) {
+    const m = mapImportColumns(rows[i]);
+    if (m) {
+      header = m;
+      headerRow = i;
+      break;
+    }
+  }
+  if (!header) return null;
+
+  const { fields, contactCols } = header;
+  const cell = (row, key) => (fields[key] == null ? "" : String((row || [])[fields[key]] || "").trim());
+  const statuses = knownStatuses();
+
+  return rows.slice(headerRow + 1).flatMap((row) => {
+    const name = cell(row, "name");
+    if (!name) return []; // 沒名字就不是一筆名單（空列、備註列、合計列）
+    const gender = cell(row, "gender");
+    const status = cell(row, "status");
+    // 分散在好幾欄的聯絡方式併成一行一種，本來就有「聯絡方式」欄的話排在最前面
+    const contactLines = [
+      cell(row, "contactMethod"),
+      ...contactCols
+        .map(({ col, label }) => {
+          const value = String((row || [])[col] || "").trim();
+          return value ? `${label}：${value}` : "";
+        })
+        .filter(Boolean),
+    ].filter(Boolean);
+    return [
+      {
+        name,
+        // 有人習慣寫男／女，一律轉成乾／坤；認不得的就留空
+        gender: gender === "乾" || gender === "男" ? "乾" : gender === "坤" || gender === "女" ? "坤" : "",
+        department: cell(row, "department"),
+        contactMethod: contactLines.join("\n"),
+        tags: splitList(cell(row, "tags")),
+        background: cell(row, "background"),
+        contact: cell(row, "contact"),
+        contacts: splitList(cell(row, "contacts")),
+        // 成全狀況要對得上表單裡的選項，不然編輯視窗會顯示空白
+        status: statuses.includes(status) ? status : "",
+        strategy: cell(row, "strategy"),
+        method: cell(row, "method"),
+      },
+    ];
+  });
+}
+
+let importRows = [];
+
+// 同名同系級就當作已經在名單上；檔案裡自己重複的也只留第一筆
+function renderRosterImportPreview() {
+  const key = (r) => `${(r.name || "").trim()}|${(r.department || "").trim()}`;
+  const existing = new Set(allEntries.map(key));
+  const seen = new Set();
+  const marked = importRows.map((r) => {
+    const k = key(r);
+    const dup = existing.has(k) || seen.has(k);
+    seen.add(k);
+    return { row: r, dup };
+  });
+  const fresh = marked.filter((m) => !m.dup).map((m) => m.row);
+
+  rosterImportSummary.textContent = `（${importRows.length} 筆，其中 ${fresh.length} 筆是新的）`;
+  rosterImportList.innerHTML = marked.length
+    ? marked
+        .map(
+          ({ row, dup }) => `
+        <div class="roster-import-row ${dup ? "is-dup" : ""}">
+          <span class="roster-import-name">${escapeHtml(row.name)}</span>
+          ${[row.gender, row.department, row.status, row.contactMethod.split("\n")[0], row.contact ? `聯絡人：${row.contact}` : ""]
+            .filter(Boolean)
+            .map((t) => `<span class="roster-import-meta">${escapeHtml(t)}</span>`)
+            .join("")}
+          ${dup ? `<span class="roster-import-dup">已有</span>` : ""}
+        </div>`
+        )
+        .join("")
+    : `<p class="hint-text">這個檔案裡沒有讀到任何一筆名單。</p>`;
+  rosterImportConfirm.disabled = fresh.length === 0;
+  rosterImportConfirm.textContent = fresh.length ? `確定匯入 ${fresh.length} 筆` : "沒有新的名單可匯入";
+  return fresh;
+}
+
+function closeRosterImport() {
+  importRows = [];
+  rosterImportModal.classList.add("hidden");
+  rosterImportStatus.textContent = "";
+}
+
+async function handleRosterFile(file) {
+  try {
+    const { readSheet } = await import("./xlsx.js");
+    const parsed = parseRosterSheet(await readSheet(file));
+    if (!parsed) {
+      alert("這個檔案裡找不到「姓名」那一欄，請確認第一列是欄位名稱。");
+      return;
+    }
+    importRows = parsed;
+    rosterImportScope.value = "team";
+    rosterImportModal.classList.remove("hidden");
+    rosterImportStatus.textContent = "";
+    renderRosterImportPreview();
+  } catch (err) {
+    alert("讀取失敗：" + err.message);
+  }
+}
+
+async function confirmRosterImport() {
+  const fresh = renderRosterImportPreview();
+  if (fresh.length === 0) return;
+  const personal = rosterImportScope.value === "personal";
+  rosterImportConfirm.disabled = true;
+  rosterImportStatus.textContent = `匯入中（0/${fresh.length}）...`;
+  let done = 0;
+  try {
+    for (const row of fresh) {
+      const data = {
+        ...row,
+        // 個人名單的聯絡人固定是自己
+        contact: personal ? myDisplayName() : row.contact,
+        contacts: row.contacts.filter((c) => c !== (personal ? myDisplayName() : row.contact)),
+        // 匯入一律是非組員；要設身分請匯入後個別編輯（規則也只讓講師設身分）
+        roleRank: 0,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || null,
+      };
+      const ref = await addDoc(unitCol(personal ? PERSONAL_COLLECTION : ENTRIES_COLLECTION), {
+        ...data,
+        ...(personal ? { ownerUid: auth.currentUser?.uid || null } : {}),
+        activities: [],
+        talks: [],
+        createdAt: serverTimestamp(),
+        createdBy: auth.currentUser?.email || null,
+      });
+      if (!personal) await writeRosterIndex(ref.id, data);
+      done += 1;
+      rosterImportStatus.textContent = `匯入中（${done}/${fresh.length}）...`;
+    }
+    // 一次匯入很多筆，動態記一筆總數就好，不必每一位都記
+    logUpdate("entry", `匯入了 ${done} 筆名單${personal ? "（個人名單）" : ""}`);
+    closeRosterImport();
+    alert(`已匯入 ${done} 筆名單。`);
+  } catch (err) {
+    rosterImportConfirm.disabled = false;
+    rosterImportStatus.textContent = `匯入了 ${done} 筆之後失敗：${err.message}`;
+  }
+}
+
+rosterImportBtn.addEventListener("click", () => rosterImportInput.click());
+rosterImportInput.addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = ""; // 同一個檔案再選一次也要有反應
+  if (file) await handleRosterFile(file);
+});
+rosterImportScope.addEventListener("change", renderRosterImportPreview);
+rosterImportConfirm.addEventListener("click", confirmRosterImport);
+document.getElementById("roster-import-cancel").addEventListener("click", closeRosterImport);
+document.getElementById("roster-import-x").addEventListener("click", closeRosterImport);
+rosterImportModal.addEventListener("click", (e) => {
+  if (e.target === rosterImportModal) closeRosterImport();
+});
+
 entriesList.addEventListener("click", async (e) => {
   // 點長文字儲存格：展開/收合
   const clampEl = e.target.closest(".cell-clamp");
