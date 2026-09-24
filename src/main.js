@@ -1735,9 +1735,13 @@ reportNoticeList.addEventListener("click", (e) => {
 });
 
 let reportingEventId = null;
+// 按了「重新回報」、還沒重新送出的那幾位。記著才能在視窗被重畫時
+// （別人也在回報同一場）維持在可以填的樣子，不會跳回已回報的結果。
+let redoingIds = new Set();
 
 function openReportModal(eventId) {
   reportingEventId = eventId;
+  redoingIds = new Set();
   renderReportModal();
   reportModal.classList.remove("hidden");
 }
@@ -1766,12 +1770,18 @@ function renderReportModal() {
   // 自己不列出來——自己有沒有到不用自己回報
   const rows = reportTargets(ev)
     .filter((id) => id !== myEntryId)
-    .map((id) => ({
-      id,
-      name: entryName(id) || "（對象已刪除）",
-      done: (ev.reports || {})[id] || null,
-      permission: reportPermission(id),
-    }));
+    .map((id) => {
+      const reported = (ev.reports || {})[id] || null;
+      const redoing = redoingIds.has(id);
+      return {
+        id,
+        name: entryName(id) || "（對象已刪除）",
+        done: redoing ? null : reported,
+        // 正在重新回報：原本填過的內容當底稿，不用整段重打
+        draft: redoing && reported ? { came: reported.came, note: reported.note || "" } : null,
+        permission: reportPermission(id),
+      };
+    });
 
   const { total, done, left } = reportProgress(ev);
   reportProgressEl.textContent = total
@@ -1835,17 +1845,19 @@ function reportRowHtml(r) {
         </div>
       </div>`;
   }
+  // 重新回報時 draft 帶著上次填的內容；沒有 draft 就是全新的一列（預設有參加）
+  const absent = r.draft?.came === false;
   return `
     <div class="report-row" data-id="${escapeHtml(r.id)}">
       <div class="report-row-head">
         <span class="report-name">${name}</span>
         <select class="report-came">
-          <option value="yes" selected>有參加</option>
-          <option value="no">沒參加</option>
+          <option value="yes" ${absent ? "" : "selected"}>有參加</option>
+          <option value="no" ${absent ? "selected" : ""}>沒參加</option>
         </select>
         <button type="button" class="btn-primary btn-small" data-report-one="${escapeHtml(r.id)}">回報</button>
       </div>
-      <textarea class="report-note" rows="2"></textarea>
+      <textarea class="report-note" rows="2">${escapeHtml(r.draft?.note || "")}</textarea>
     </div>`;
 }
 
@@ -1878,6 +1890,63 @@ async function markEventReported(ev, attendedIds) {
   });
 }
 
+// 回報之後這個人的活動紀錄與聯絡紀錄該長什麼樣子。
+// 有參加寫進活動紀錄，沒參加寫進聯絡紀錄（寫成活動紀錄會讓參與度變高）。
+// prev 是上一次的回報內容（只有「重新回報」才有）：先把上次寫出去的那一筆撤掉，
+// 再照這次的填法寫回去，不然名單上留著的還是舊的說法，改了也沒用。
+// 只撤「還是我們當初寫的那個樣子」的那一筆——已經被別人或 AI 改過、補述過的就留著，
+// 不去動人家寫的東西。
+function recordsAfterReport({ entry, eventName, date, came, note, prev }) {
+  const prevNote = (prev?.note || "").trim();
+  const sameEvent = (a) => (a.activity || "").trim() === eventName.trim() && a.date === date;
+  const absentText = (n) => `未參加「${eventName}」：${n}`;
+  let activities = entry.activities || [];
+  let talks = entry.talks || [];
+  let changed = false;
+
+  if (prev) {
+    if (prev.came) {
+      const clean = activities.filter((a) => !(sameEvent(a) && (a.reaction || "").trim() === prevNote));
+      if (clean.length !== activities.length) {
+        activities = clean;
+        changed = true;
+      }
+    } else if (prevNote) {
+      const clean = talks.filter(
+        (t) => !(t.date === date && (t.content || "").trim() === absentText(prevNote))
+      );
+      if (clean.length !== talks.length) {
+        talks = clean;
+        changed = true;
+      }
+    }
+  }
+
+  if (came) {
+    // 同一場活動同一天已經有紀錄就不重複寫
+    const idx = activities.findIndex(sameEvent);
+    if (idx < 0) {
+      activities = [...activities, { activity: eventName, date, reaction: note }];
+      changed = true;
+    } else if (prev && note && (activities[idx].reaction || "").trim() !== note) {
+      // 走到這裡表示那一筆被動過（不然上面就撤掉了），所以補在後面而不是蓋掉
+      const current = (activities[idx].reaction || "").trim();
+      activities = activities.map((a, i) =>
+        i === idx ? { ...a, reaction: current ? `${current}\n${note}` : note } : a
+      );
+      changed = true;
+    }
+  } else if (note) {
+    const content = absentText(note);
+    if (!talks.some((t) => t.date === date && (t.content || "").trim() === content)) {
+      talks = [...talks, { date, content }];
+      changed = true;
+    }
+  }
+
+  return { activities, talks, changed };
+}
+
 // 一位一位回報：先把紀錄寫進他的名單，再把「這一位回報過了」記在活動上。
 // 全部回報完才把活動標成已回報，提醒才會消失。
 async function submitOneReport(entryId, btn) {
@@ -1888,6 +1957,9 @@ async function submitOneReport(entryId, btn) {
   const came = row.querySelector(".report-came").value === "yes";
   const note = row.querySelector(".report-note").value.trim();
   const date = eventEndDate(ev);
+  // 這次是「重新回報」的話，上一次寫出去的那一筆要跟著更正，
+  // 不然名單上留著的還是舊的說法（改了也沒用）。
+  const redo = redoingIds.has(entryId);
   const entry = allEntries.find((en) => en.id === entryId);
   const ref = entry && entryRef(entry);
   if (!ref) {
@@ -1898,30 +1970,23 @@ async function submitOneReport(entryId, btn) {
   btn.disabled = true;
   reportStatus.textContent = "處理中...";
   try {
-    if (came) {
-      const activities = entry.activities || [];
-      // 同一場活動同一天已經有紀錄就不重複寫
-      const already = activities.some(
-        (a) => (a.activity || "").trim() === ev.name.trim() && a.date === date
-      );
-      if (!already) {
-        await updateDoc(ref, {
-          activities: [...activities, { activity: ev.name, date, reaction: note }],
-          updatedAt: serverTimestamp(),
-          updatedBy: auth.currentUser?.email || null,
-        });
-      }
-    } else if (note) {
-      // 沒來的人不能寫成活動紀錄（那會讓參與度變高），改記在聯絡紀錄裡
-      const talks = entry.talks || [];
-      const content = `未參加「${ev.name}」：${note}`;
-      if (!talks.some((t) => t.date === date && (t.content || "").trim() === content)) {
-        await updateDoc(ref, {
-          talks: [...talks, { date, content }],
-          updatedAt: serverTimestamp(),
-          updatedBy: auth.currentUser?.email || null,
-        });
-      }
+    const { activities, talks, changed } = recordsAfterReport({
+      entry,
+      eventName: ev.name,
+      date,
+      came,
+      note,
+      // 重新回報時才有「上一次」；第一次回報就是單純新增
+      prev: redo ? (ev.reports || {})[entryId] || null : null,
+    });
+
+    if (changed) {
+      await updateDoc(ref, {
+        activities,
+        talks,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || null,
+      });
     }
 
     const reports = {
@@ -1946,6 +2011,7 @@ async function submitOneReport(entryId, btn) {
           }
         : {}),
     });
+    redoingIds.delete(entryId); // 送出去了，這一列可以回到已回報的樣子
     reportStatus.textContent = allDone
       ? "全部回報完了，提醒會消失。"
       : `已回報 ${entryName(entryId)}。`;
@@ -1964,16 +2030,21 @@ async function submitOneReport(entryId, btn) {
   }
 }
 
-// 回報錯了要能改：把那一列還原成可以填的樣子
+// 回報錯了要能改：把那一列還原成可以填的樣子，
+// 並且把上次回報的「有沒有參加」與那段文字帶回輸入框——多半只是要補一兩句，
+// 不是整段重寫。
 function redoReport(entryId) {
   const ev = allEvents.find((x) => x.id === reportingEventId);
   if (!ev) return;
   const row = reportList.querySelector(`.report-row[data-id="${CSS.escape(entryId)}"]`);
   if (!row) return;
+  const prev = (ev.reports || {})[entryId] || null;
+  redoingIds.add(entryId);
   row.outerHTML = reportRowHtml({
     id: entryId,
     name: entryName(entryId) || "（對象已刪除）",
     done: null,
+    draft: prev ? { came: prev.came, note: prev.note || "" } : null,
     permission: reportPermission(entryId),
   });
   applyReportRowState();
