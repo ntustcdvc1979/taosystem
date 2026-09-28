@@ -69,6 +69,12 @@
           </select>
           <!-- 聯絡人篩選：選項由名單上用過的聯絡人動態產生（含其他聯絡人） -->
           <select id="filter-contact" title="只看某位聯絡人負責的對象"></select>
+          <!-- 排序：兩種模式、篩選之後都適用；手機拖不動卡片時就靠這個 -->
+          <select id="sort-by" title="名單的排序方式">
+            <option value="manual">自訂順序（可拖曳）</option>
+            <option value="heat">熱度：熱→冷</option>
+            <option value="status">成全狀況：未求道→講師</option>
+          </select>
           <!-- 檢視身分：只看得到比它更低階的名單；只有成全組長以上才需要切換 -->
           <span id="view-rank-wrap" class="hidden">
             <select id="view-rank" title="用哪個身分檢視名單"></select>

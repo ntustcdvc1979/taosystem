@@ -1344,12 +1344,14 @@ button {
   font-size: 0.82rem;
 }
 
-/* 拖曳排序 */
-.person-card.draggable {
+/* 拖曳排序：兩種檢視模式的卡片都拖得動 */
+.person-card.draggable,
+.heat-card.draggable {
   cursor: grab;
 }
 
-.person-card.dragging {
+.person-card.dragging,
+.heat-card.dragging {
   opacity: 0.5;
   cursor: grabbing;
 }
@@ -3043,6 +3045,33 @@ body:has(.modal:not(.hidden)) .chat-panel {
   margin-top: 0.15rem;
   font-size: 0.88rem;
   color: #3c4450;
+  word-break: break-word;
+}
+
+/* 那個動作實際打了什麼字：預設收起來，點「詳細內容」才展開 */
+.update-detail {
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+}
+
+.update-detail > summary {
+  cursor: pointer;
+  color: #6b7280;
+  width: fit-content;
+}
+
+.update-detail > summary:hover {
+  color: #2f6fed;
+}
+
+.update-detail-body {
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.6rem;
+  border-left: 3px solid #dfe6f3;
+  border-radius: 0 6px 6px 0;
+  background: #f7f9fd;
+  color: #3c4450;
+  white-space: pre-wrap;
   word-break: break-word;
 }
 

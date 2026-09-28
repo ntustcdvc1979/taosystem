@@ -86,6 +86,7 @@ const searchInput = document.getElementById("search-input");
 const filterStatus = document.getElementById("filter-status");
 const filterScope = document.getElementById("filter-scope");
 const filterContact = document.getElementById("filter-contact");
+const sortSelect = document.getElementById("sort-by");
 
 // 更新動態
 const updatesBtn = document.getElementById("updates-btn");
@@ -267,6 +268,49 @@ function saveCardFields() {
 function applyCardFieldToggles() {
   toggleStrategy.checked = showStrategy;
   toggleMethod.checked = showMethod;
+}
+
+// 名單排序：自訂（拖曳出來的順序）／熱度／成全狀況。
+// 兩種檢視模式、篩選之後都適用——手機拖不動卡片，只能靠這個。
+// 跟策略／做法的開關一樣依帳號記在這台裝置上。
+const SORT_KEY = "taosystem_sort";
+let sortBy = "manual";
+
+function sortKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `${SORT_KEY}:${uid}` : SORT_KEY;
+}
+
+function loadSort() {
+  sortBy = "manual";
+  try {
+    const saved = localStorage.getItem(sortKey());
+    if (saved === "heat" || saved === "status") sortBy = saved;
+  } catch {
+    // 存壞了就用自訂順序
+  }
+  sortSelect.value = sortBy;
+}
+
+function saveSort() {
+  try {
+    localStorage.setItem(sortKey(), sortBy);
+  } catch {
+    // 記不起來也不影響這次的顯示
+  }
+}
+
+// 成全狀況照表單上的選項排（那份清單本身就是進程順序），沒填的排最後
+function statusIndex(entry) {
+  const i = knownStatuses().indexOf(entry.status || "");
+  return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+}
+
+// 排序是穩定的：同熱度／同狀況的人維持原本的自訂順序
+function sortEntries(list) {
+  if (sortBy === "heat") return [...list].sort((a, b) => heat(b).level - heat(a).level);
+  if (sortBy === "status") return [...list].sort((a, b) => statusIndex(a) - statusIndex(b));
+  return list;
 }
 
 // 目前在哪一頁："roster"（名單，預設）／"trend"（趨勢分析）
@@ -493,6 +537,7 @@ onAuthStateChanged(auth, async (user) => {
     chatFab.classList.remove("hidden");
     loadTagFilter(); // 這個帳號上次點亮／點暗了哪些標籤
     loadCardFields(); // 上次有沒有把策略／做法關掉
+    loadSort(); // 上次選的排序方式
     showPage("roster");
     renderTagFilter();
     // 綁定「我是名單上的哪一位」不分系統：只有班務權限的人也要綁得起來，
@@ -559,7 +604,7 @@ const classroomContext = {
     if (myRank >= 1) renderEntries();
   },
   // 班務的動作也記進同一份更新動態
-  logUpdate: (kind, text) => logClassUpdate(kind, text),
+  logUpdate: (kind, text, detail) => logClassUpdate(kind, text, detail),
 };
 initClassroom(classroomContext);
 
@@ -1085,8 +1130,8 @@ async function openUpdatesModal(system) {
   updatesTitle.textContent = system === "class" ? "更新動態 - 班務系統" : "更新動態 - 道務系統";
   updatesHint.textContent =
     system === "class"
-      ? "班務系統的動態：誰改了名單、記了上課紀錄、登錄或匯入課程。有班務權限的人都看得到。"
-      : "道務系統的動態：同階與更低階的人的更新都看得到（更高階的不會出現），自己被更新的那幾筆則不會列出來。";
+      ? "班務系統的動態：誰改了名單、記了上課紀錄、登錄或匯入課程。有班務權限的人都看得到；點「詳細內容」看當時填了什麼。"
+      : "道務系統的動態：同階與更低階的人的更新都看得到（更高階的不會出現），自己被更新的那幾筆則不會列出來。點「詳細內容」看當時打了什麼字。";
   updatesFilterKind.innerHTML =
     `<option value="">所有類型</option>` +
     SYSTEM_KINDS[system].map((k) => `<option value="${k}">${UPDATE_KINDS[k]}</option>`).join("");
@@ -1160,6 +1205,14 @@ function renderUpdates() {
             <span class="update-time">${escapeHtml(updateTimeText(u.at))}</span>
           </div>
           <div class="update-text">${escapeHtml(u.text || "")}</div>
+          ${
+            u.detail
+              ? `<details class="update-detail">
+                   <summary>詳細內容</summary>
+                   <div class="update-detail-body">${escapeHtml(u.detail)}</div>
+                 </details>`
+              : ""
+          }
         </div>`
         )
         .join("")
@@ -2018,7 +2071,8 @@ async function submitOneReport(entryId, btn) {
     logUpdate(
       "report",
       `回報「${entryName(entryId)}」在「${ev.name}」${came ? "有參加" : "沒參加"}`,
-      entry
+      entry,
+      note ? `${came ? "反應" : "沒來的原因"}：${note}` : ""
     );
     if (allDone) closeReportModal();
   } catch (err) {
@@ -2126,7 +2180,10 @@ function targetRankOf(entry) {
 // 道務的動態：存在 daoUpdates/{對象身分}/items 底下。
 // 把身分放進路徑，查詢才能一階一階分開查、每一條都落在讀得到的範圍內
 // （Firestore 沒辦法過濾查詢結果，查到讀不到的文件整個查詢就會被拒絕）。
-async function logUpdate(kind, text, target = null) {
+// detail 是那個動作實際打了什麼字（反應、理由、備註…），收在動態的「詳細」裡。
+// 放得進來是因為這份流水帳已經照身分階梯分路徑了：看得到這一條的人，
+// 本來就看得到這個對象。
+async function logUpdate(kind, text, target = null, detail = "") {
   if (!myUnitId || !text) return;
   const targetRank = targetRankOf(target);
   try {
@@ -2135,6 +2192,7 @@ async function logUpdate(kind, text, target = null) {
       {
         kind,
         text,
+        detail: detail || "",
         targetRank, // 規則會檢查它跟路徑一致
         targetId: target?.id || null, // 用來把「自己被更新」那幾筆藏起來
         by: auth.currentUser?.email || null,
@@ -2149,12 +2207,13 @@ async function logUpdate(kind, text, target = null) {
 }
 
 // 班務的動態：班務沒有身分階梯，一個集合就好
-async function logClassUpdate(kind, text) {
+async function logClassUpdate(kind, text, detail = "") {
   if (!myUnitId || !text) return;
   try {
     await addDoc(unitCol(CLASS_UPDATES_COLLECTION), {
       kind,
       text,
+      detail: detail || "",
       by: auth.currentUser?.email || null,
       byName: myDisplayName(),
       at: serverTimestamp(),
@@ -2489,8 +2548,9 @@ function renderEntries() {
   const searchTerm = searchInput.value.trim().toLowerCase();
   const statusVal = filterStatus.value;
   const contactVal = filterContact.value;
-  // 只有在沒有搜尋/篩選時才能拖曳排序（否則只看到部分卡片，排序會錯亂）
-  const canReorder = !searchTerm && !statusVal && !filterScope.value && !contactVal;
+  // 只有「自訂順序」拖得動——照熱度或狀況排的時候，拖出來的位置留不住。
+  // 篩選中也拖得動：被篩掉的人會留在原位（見 persistOrderFromDom）。
+  const canReorder = sortBy === "manual";
 
   const scopeVal = filterScope.value;
 
@@ -2520,16 +2580,19 @@ function renderEntries() {
     return true;
   });
 
+  // 排序在篩選之後、畫之前，兩種模式才會用到同一套
+  const sorted = sortEntries(filtered);
+
   entriesList.innerHTML = "";
   entriesList.classList.toggle("compact-mode", viewMode === "heat");
 
-  if (filtered.length === 0) {
+  if (sorted.length === 0) {
     entriesList.innerHTML = '<p class="empty-text">尚無資料</p>';
     return;
   }
 
   if (viewMode === "heat") {
-    renderHeatList(filtered);
+    renderHeatList(sorted, canReorder);
     return;
   }
 
@@ -2557,7 +2620,7 @@ function renderEntries() {
     return `<div class="card-field"><span class="field-label">${label}</span>${shown}${more}</div>`;
   };
 
-  filtered.forEach((entry) => {
+  sorted.forEach((entry) => {
     const card = document.createElement("div");
     card.className = "person-card" + (canReorder ? " draggable" : "");
     card.dataset.id = entry.id;
@@ -2608,7 +2671,8 @@ async function saveHeat(entryId, level, reason, source) {
       logUpdate(
         "heat",
         `把「${entryName(entryId)}」的熱度設為「${HEAT_LABELS[level]}」`,
-        allEntries.find((en) => en.id === entryId)
+        allEntries.find((en) => en.id === entryId),
+        reason ? `理由：${reason}` : ""
       );
     }
   } catch (err) {
@@ -2739,7 +2803,7 @@ heatAiOneBtn.addEventListener("click", async () => {
 });
 
 // ---------- 熱度模式：一人一張小卡，用顏色呈現熱度與參與度（手機也好按） ----------
-function renderHeatList(entries) {
+function renderHeatList(entries, canReorder = false) {
   const legend = `
     <div class="compact-legend">
       <span>成全熱度（談話離下一階段多近，每週沒聯絡降一級）：</span>
@@ -2781,7 +2845,7 @@ function renderHeatList(entries) {
         .join("\n");
       const staleClass = h.days !== null && h.days >= HEAT_DECAY_DAYS ? " is-stale" : "";
       return `
-        <div class="heat-card" data-id="${entry.id}">
+        <div class="heat-card${canReorder ? " draggable" : ""}" data-id="${entry.id}"${canReorder ? " draggable=\"true\"" : ""}>
           <div class="heat-card-main">
             <span class="metric heat-${h.level} heat-badge">${h.label}</span>
             ${
@@ -2842,18 +2906,20 @@ async function transferToTeam(entry) {
   }
 }
 
-// ---------- 拖曳排序（僅在未搜尋/未篩選時可用） ----------
+// ---------- 拖曳排序（只有「自訂順序」才拖得動） ----------
+// 兩種檢視模式的卡片都拖得動，所以選擇器兩種都認。
+const DRAG_CARDS = ".person-card, .heat-card";
 let dragId = null;
 
 entriesList.addEventListener("dragstart", (e) => {
-  const card = e.target.closest(".person-card");
+  const card = e.target.closest(DRAG_CARDS);
   if (!card || !card.draggable) return;
   dragId = card.dataset.id;
   card.classList.add("dragging");
 });
 
 entriesList.addEventListener("dragend", async (e) => {
-  const card = e.target.closest(".person-card");
+  const card = e.target.closest(DRAG_CARDS);
   card?.classList.remove("dragging");
   if (!dragId) return;
   dragId = null;
@@ -2862,9 +2928,12 @@ entriesList.addEventListener("dragend", async (e) => {
 
 entriesList.addEventListener("dragover", (e) => {
   if (!dragId) return;
-  const target = e.target.closest(".person-card");
-  const dragging = entriesList.querySelector(".person-card.dragging");
+  const target = e.target.closest(DRAG_CARDS);
+  const dragging = entriesList.querySelector(".dragging");
   if (!target || !dragging || target === dragging) return;
+  // 熱度模式的卡片包在 .heat-list 裡，詳細模式直接掛在 entriesList 底下，
+  // 所以插回去的位置要看拖曳中那張自己的父層
+  if (target.parentElement !== dragging.parentElement) return;
   e.preventDefault();
   const box = target.getBoundingClientRect();
   // 同一列用左右中線判斷、跨列用上下中線
@@ -2872,14 +2941,21 @@ entriesList.addEventListener("dragover", (e) => {
   const before = sameRow
     ? e.clientX < box.left + box.width / 2
     : e.clientY < box.top + box.height / 2;
-  entriesList.insertBefore(dragging, before ? target : target.nextSibling);
+  target.parentElement.insertBefore(dragging, before ? target : target.nextSibling);
 });
 
-// 依目前 DOM 卡片順序，把 order 寫回有變動的名單
+// 依目前 DOM 卡片順序，把 order 寫回有變動的名單。
+// 畫面上可能只是名單的一部分（搜尋、標籤、聯絡人…都會篩掉人），
+// 這時被篩掉的那些要留在原來的位置：照整份名單走一遍，
+// 遇到「畫面上有的」那幾格就依畫面順序填回去，其餘原封不動。
 async function persistOrderFromDom() {
-  const ids = [...entriesList.querySelectorAll(".person-card")].map((c) => c.dataset.id);
+  const domIds = [...entriesList.querySelectorAll(DRAG_CARDS)].map((c) => c.dataset.id);
+  const visible = new Set(domIds);
+  let next = 0;
+  const fullOrder = allEntries.map((en) => (visible.has(en.id) ? domIds[next++] : en.id));
+
   const updates = [];
-  ids.forEach((id, index) => {
+  fullOrder.forEach((id, index) => {
     const entry = allEntries.find((en) => en.id === id);
     if (entry && entry.order !== index) {
       updates.push(updateDoc(entryRef(id), { order: index }));
@@ -3074,6 +3150,12 @@ toggleMethod.addEventListener("change", () => {
   renderEntries();
 });
 
+sortSelect.addEventListener("change", () => {
+  sortBy = sortSelect.value;
+  saveSort();
+  renderEntries();
+});
+
 // ---------- 標籤篩選（名單與趨勢分析共用） ----------
 // 選起來的標籤才顯示：有選＝只留帶有其中任一標籤的人；一個都沒選＝全部顯示。
 function allTagNames() {
@@ -3211,11 +3293,8 @@ addActivityBtn.addEventListener("click", async () => {
     newActName.focus();
     return;
   }
-  activityModalActivities.push({
-    activity,
-    date: newActDate.value,
-    reaction: newActReaction.value.trim(),
-  });
+  const added = { activity, date: newActDate.value, reaction: newActReaction.value.trim() };
+  activityModalActivities.push(added);
   activityModalActivities = sortByDateDesc(activityModalActivities);
   newActName.value = "";
   newActDate.value = ymd(new Date());
@@ -3225,7 +3304,10 @@ addActivityBtn.addEventListener("click", async () => {
   logUpdate(
     "activity",
     `幫「${entryName(activityModalEntryId)}」記了一筆活動紀錄：${activity}`,
-    allEntries.find((en) => en.id === activityModalEntryId)
+    allEntries.find((en) => en.id === activityModalEntryId),
+    [`${added.date} ${added.activity}`, added.reaction ? `反應：${added.reaction}` : ""]
+      .filter(Boolean)
+      .join("\n")
   );
 });
 
@@ -3321,18 +3403,18 @@ addTalkBtn.addEventListener("click", async () => {
     newTalkContent.focus();
     return;
   }
-  talkModalTalks.push({ date: newTalkDate.value, content });
+  const date = newTalkDate.value;
+  talkModalTalks.push({ date, content });
   talkModalTalks = sortByDateDesc(talkModalTalks);
   newTalkDate.value = ymd(new Date());
   newTalkContent.value = "";
   renderTalkModalList();
   await persistTalks();
-  // 只寫「更新了誰的什麼」，不把紀錄本文放進動態——
-  // 這份流水帳是全單位看得到的，內容留在那一筆紀錄裡就好
   logUpdate(
     "talk",
     `更新了「${entryName(talkModalEntryId)}」的聯絡近況`,
-    allEntries.find((en) => en.id === talkModalEntryId)
+    allEntries.find((en) => en.id === talkModalEntryId),
+    `${date}\n${content}`
   );
 });
 
@@ -4856,7 +4938,8 @@ async function setInviteStatus(entryId, status) {
   logUpdate(
     "invite",
     `更新了「${entryName(entryId)}」在「${ev?.name || "活動"}」的邀約狀況：${status}`,
-    allEntries.find((en) => en.id === entryId)
+    allEntries.find((en) => en.id === entryId),
+    inv.note ? `備註：${inv.note}` : ""
   );
 }
 
@@ -5569,7 +5652,8 @@ async function applyChatActivityUpdates(updates, reverse) {
       logUpdate(
         "activity",
         `用 AI 聊天室${result.appended ? "補述" : "記"}了「${entry.name}」的活動紀錄：${u.date} ${activity}`,
-        entry
+        entry,
+        reaction ? `反應：${reaction}` : ""
       );
     } catch (err) {
       if (err.code !== "permission-denied") console.error("寫入活動紀錄失敗", err);

@@ -1166,7 +1166,15 @@ async function addLesson() {
     $("lesson-asked").checked = false;
     ctx.logUpdate?.(
       "lesson",
-      `記了「${entry.name}」的上課紀錄：${row.date} ${courseLabel(course)}・${row.attend}`
+      `記了「${entry.name}」的上課紀錄：${row.date} ${courseLabel(course)}・${row.attend}`,
+      // 詳細裡放實際填的那幾欄，動態上才看得出當天到底記了什麼
+      [
+        isHu ? `互動：${row.interaction || "（未填）"}` : `寫筆記：${row.tookNotes ? "有" : "沒有"}`,
+        isHu ? `職務：${row.duties || "（未填）"}` : `課堂提問：${row.asked ? "有" : "沒有"}`,
+        row.comment ? `評語：${row.comment}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
     );
     $("lesson-course").value = "";
     renderCourseOptions(); // 記過的課從清單拿掉
@@ -1292,7 +1300,10 @@ async function addRecord() {
     $("record-comment").value = "";
     ctx.logUpdate?.(
       "record",
-      `記了「${classEntries.find((e) => e.id === recordEntryId)?.name || ""}」的${RECORD_TYPES[recordType].title}：${row.date} ${main}`
+      `記了「${classEntries.find((e) => e.id === recordEntryId)?.name || ""}」的${RECORD_TYPES[recordType].title}：${row.date} ${main}`,
+      [isEtiquette && row.items ? `學習項目：${row.items}` : "", row.comment ? `評語：${row.comment}` : ""]
+        .filter(Boolean)
+        .join("\n")
     );
     renderRecordRows();
     renderRecordSuggest();
