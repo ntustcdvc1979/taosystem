@@ -3198,3 +3198,15 @@ body:has(.modal:not(.hidden)) .chat-panel {
   color: #8a919b;
   font-size: 0.72rem;
 }
+
+/* 更新動態讀不到／記不進去時的說明 */
+.updates-warn {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.7rem;
+  border-left: 3px solid #e0a12c;
+  border-radius: 0 6px 6px 0;
+  background: #fdf6e7;
+  color: #7a5a12;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}

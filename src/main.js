@@ -97,6 +97,7 @@ const updatesFilterWho = document.getElementById("updates-filter-who");
 const updatesFilterKind = document.getElementById("updates-filter-kind");
 const updatesTitle = document.getElementById("updates-title");
 const updatesHint = document.getElementById("updates-hint");
+const updatesWarn = document.getElementById("updates-warn");
 const updatesCount = document.getElementById("updates-count");
 const unitNameLabel = document.getElementById("unit-name");
 const bindMeBtn = document.getElementById("bind-me-btn");
@@ -1095,15 +1096,21 @@ const UPDATES_LIMIT = 200;
 const UPDATES_PER_RANK = 80; // 每一階最多讀這麼多，合起來再排序
 let unitUpdates = [];
 let updatesSystem = "dao"; // 這個視窗現在在看哪一個系統
+let updatesReadNote = ""; // 這次讀取有哪一階被擋下來
+let updatesWriteNote = ""; // 最近一次「動態記不進去」是什麼原因
 
 // 道務：一階一階分開查（自己那階以及更低階——同階的彼此看得到），
 // 因為規則是照路徑上的身分擋的。
 // 分開查還有一個好處：每一條都是單一集合 + orderBy，用得到自動索引，不必建複合索引。
 async function fetchDaoUpdates() {
+  updatesReadNote = "";
   if (myRank < 1) return [];
   const ranks = [];
   for (let r = 0; r <= Math.min(4, myRank); r += 1) ranks.push(String(r));
-  const snaps = await Promise.all(
+  // 用 allSettled：某一階讀不到（例如安全規則還是舊版、還沒放行同階）時，
+  // 只少那一階，其餘照常顯示——不該整份動態一起看不到，
+  // 而且要講出來是哪一階、為什麼，不然只會覺得「最近的更新都不見了」。
+  const results = await Promise.allSettled(
     ranks.map((r) =>
       getDocs(
         query(
@@ -1114,7 +1121,19 @@ async function fetchDaoUpdates() {
       )
     )
   );
-  return snaps.flatMap((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  const denied = ranks.filter((_, i) => results[i].status === "rejected");
+  if (denied.length) {
+    const reason = results.find((x) => x.status === "rejected")?.reason;
+    console.error("讀取更新動態失敗", reason);
+    updatesReadNote =
+      reason?.code === "permission-denied"
+        ? `${denied.map((r) => ROLE_LABELS[Number(r)] || r).join("、")}這幾階的動態讀不到（權限不足）。` +
+          "多半是安全規則還沒重新發布——請把 firestore.rules 貼到 Firebase Console 的「規則」再按發布。"
+        : `有 ${denied.length} 階的動態讀取失敗：${reason?.message || reason}`;
+  }
+  return results.flatMap((x) =>
+    x.status === "fulfilled" ? x.value.docs.map((d) => ({ id: d.id, ...d.data() })) : []
+  );
 }
 
 async function fetchClassUpdates() {
@@ -1143,8 +1162,22 @@ async function openUpdatesModal(system) {
     unitUpdates = unitUpdates.slice(0, UPDATES_LIMIT);
     renderUpdates();
   } catch (err) {
+    console.error("讀取更新動態失敗", err);
     updatesList.innerHTML = `<p class="hint-text">讀取失敗：${escapeHtml(err.message)}</p>`;
   }
+  renderUpdatesWarning();
+}
+
+// 讀不到或寫不進去都要講出來。這份流水帳出問題時最麻煩的就是「沒有畫面」——
+// 沒有人知道是沒有人做事，還是記不進去、讀不到。
+function renderUpdatesWarning() {
+  const parts = [updatesReadNote];
+  if (updatesWriteNote) {
+    parts.push(`最近有更新沒能記進這份動態：${updatesWriteNote}`);
+  }
+  const text = parts.filter(Boolean).join("\n");
+  updatesWarn.textContent = text;
+  updatesWarn.classList.toggle("hidden", !text);
 }
 
 function closeUpdatesModal() {
@@ -2201,9 +2234,19 @@ async function logUpdate(kind, text, target = null, detail = "") {
       }
     );
   } catch (err) {
-    // 記不成流水帳不該讓原本的操作看起來像失敗了
-    if (err.code !== "permission-denied") console.error("寫入更新動態失敗", err);
+    noteLogFailure(err);
   }
+}
+
+// 記不成流水帳不該讓原本的操作看起來像失敗了，但也不能完全不吭聲：
+// 之前連 permission-denied 都吞掉，結果規則一沒跟上，動態就無聲無息停止累積，
+// 畫面上看起來只是「最近都沒有人做事」。留著給動態視窗顯示。
+function noteLogFailure(err) {
+  console.error("寫入更新動態失敗", err);
+  updatesWriteNote =
+    err.code === "permission-denied"
+      ? "權限不足（安全規則可能還沒重新發布）"
+      : err.message || String(err);
 }
 
 // 班務的動態：班務沒有身分階梯，一個集合就好
@@ -2219,7 +2262,7 @@ async function logClassUpdate(kind, text, detail = "") {
       at: serverTimestamp(),
     });
   } catch (err) {
-    if (err.code !== "permission-denied") console.error("寫入更新動態失敗", err);
+    noteLogFailure(err);
   }
 }
 
