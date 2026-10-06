@@ -87,6 +87,7 @@ const filterStatus = document.getElementById("filter-status");
 const filterScope = document.getElementById("filter-scope");
 const filterContact = document.getElementById("filter-contact");
 const sortSelect = document.getElementById("sort-by");
+const rosterExportBtn = document.getElementById("roster-export-btn");
 
 // 更新動態
 const updatesBtn = document.getElementById("updates-btn");
@@ -2420,10 +2421,10 @@ function interaction(entry, asOf = null) {
   );
   const count = days.size;
   const text = `近兩週有 ${count} 天互動\n${INTERACTION_RULE}`;
-  if (count >= INTERACTION_HIGH_DAYS) return { level: 3, label: "高", text };
-  if (count >= INTERACTION_MID_DAYS) return { level: 2, label: "中", text };
-  if (count > 0) return { level: 1, label: "低", text };
-  return { level: 0, label: "無", text };
+  if (count >= INTERACTION_HIGH_DAYS) return { level: 3, label: "高", count, text };
+  if (count >= INTERACTION_MID_DAYS) return { level: 2, label: "中", count, text };
+  if (count > 0) return { level: 1, label: "低", count, text };
+  return { level: 0, label: "無", count, text };
 }
 
 // ---------- 成全熱度 ----------
@@ -2587,14 +2588,12 @@ function spiritIn(entry, period) {
 }
 
 // ---------- Render（卡片式名單） ----------
-function renderEntries() {
+// 畫面上實際看得到的那幾位，照目前的排序排好。
+// 匯出也用這一份，匯出的內容才跟眼前的名單完全一致。
+function visibleEntries() {
   const searchTerm = searchInput.value.trim().toLowerCase();
   const statusVal = filterStatus.value;
   const contactVal = filterContact.value;
-  // 只有「自訂順序」拖得動——照熱度或狀況排的時候，拖出來的位置留不住。
-  // 篩選中也拖得動：被篩掉的人會留在原位（見 persistOrderFromDom）。
-  const canReorder = sortBy === "manual";
-
   const scopeVal = filterScope.value;
 
   const filtered = allEntries.filter((entry) => {
@@ -2623,8 +2622,15 @@ function renderEntries() {
     return true;
   });
 
-  // 排序在篩選之後、畫之前，兩種模式才會用到同一套
-  const sorted = sortEntries(filtered);
+  // 排序在篩選之後，兩種模式（和匯出）才會用到同一套
+  return sortEntries(filtered);
+}
+
+function renderEntries() {
+  const sorted = visibleEntries();
+  // 只有「自訂順序」拖得動——照熱度或狀況排的時候，拖出來的位置留不住。
+  // 篩選中也拖得動：被篩掉的人會留在原位（見 persistOrderFromDom）。
+  const canReorder = sortBy === "manual";
 
   entriesList.innerHTML = "";
   entriesList.classList.toggle("compact-mode", viewMode === "heat");
@@ -4015,23 +4021,52 @@ function exportTrendCsv() {
     });
   });
 
-  const csv = [header, ...rows]
-    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-    .join("\r\n");
+  downloadCsv([header, ...rows], `${["名單趨勢", ...csvNameParts(), unitLabel, ymd(new Date())].join("_")}.csv`);
+}
 
-  const today = new Date().toISOString().slice(0, 10);
-  // 前面加 BOM，Excel 打開才不會變亂碼
+// 檔名裡標出這份是哪個單位、哪種歸屬、篩了哪些標籤，不然下載幾份就分不出來
+function csvNameParts() {
+  const scopePart =
+    filterScope.value === "personal" ? "個人名單" : filterScope.value === "team" ? "團隊名單" : "";
+  const tagPart = selectedTags.size > 0 ? [...selectedTags].join("+") : "";
+  return [myUnitName, scopePart, tagPart].filter(Boolean);
+}
+
+// 把二維陣列變成 CSV 下載下來。開頭加 BOM，Excel 打開才不會變亂碼。
+function downloadCsv(rows, filename) {
+  const csv = rows
+    .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\r\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  const tagPart = selectedTags.size > 0 ? `_${[...selectedTags].join("+")}` : "";
-  const scopePart =
-    filterScope.value === "personal" ? "_個人名單" : filterScope.value === "team" ? "_團隊名單" : "";
-  link.download = `名單趨勢_${myUnitName || "名單"}${scopePart}${tagPart}_${unitLabel}_${today}.csv`;
+  link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
 }
+
+// 匯出名單：只有姓名、系級、成全狀況、參與度、互動度五欄。
+// 這份是要拿出去看的，背景、策略、做法、聯絡方式那些留在系統裡就好。
+// 匯出的是**目前畫面上看得到的那幾位**（含搜尋、標籤、聯絡人等篩選），順序也照畫面上的排序。
+function exportRosterCsv() {
+  const entries = visibleEntries();
+  if (entries.length === 0) {
+    alert("目前沒有可以匯出的名單。");
+    return;
+  }
+  const header = ["姓名", "系級", "成全狀況", `參與度（近${PARTICIPATION_DAYS}天參加場次）`, "互動度"];
+  const rows = entries.map((en) => [
+    en.name || "",
+    en.department || "",
+    en.status || "",
+    participation(en).count, // 這一欄要的是次數本身，不是高／中／低
+    interaction(en).label,
+  ]);
+  downloadCsv([header, ...rows], `${["名單", ...csvNameParts(), ymd(new Date())].join("_")}.csv`);
+}
+
+rosterExportBtn.addEventListener("click", exportRosterCsv);
 
 // 趨勢分析夾在工具列與名單卡之間；名單卡一直都在，圖表只是把它篩成某一群
 function showPage(mode) {
