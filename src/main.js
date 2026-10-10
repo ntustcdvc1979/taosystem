@@ -2390,6 +2390,12 @@ function attendedNames(entry, within) {
   return names;
 }
 
+// 從頭到現在總共參加過幾場（不分期間）。參與度看的是「最近」熱不熱，
+// 這個看的是「累積」——有些人來得久但最近淡了，兩個數字擺在一起才看得出來。
+function totalAttended(entry) {
+  return attendedNames(entry, (dateStr) => !!dateStr).size;
+}
+
 function participation(entry, asOf = null) {
   const within = (dateStr) => {
     const d = daysSince(dateStr, asOf);
@@ -4055,12 +4061,20 @@ function exportRosterCsv() {
     alert("目前沒有可以匯出的名單。");
     return;
   }
-  const header = ["姓名", "系級", "成全狀況", `參與度（近${PARTICIPATION_DAYS}天參加場次）`, "互動度"];
+  const header = [
+    "姓名",
+    "系級",
+    "成全狀況",
+    `參與度（近${PARTICIPATION_DAYS}天參加場次）`,
+    "參與活動總次數",
+    "互動度",
+  ];
   const rows = entries.map((en) => [
     en.name || "",
     en.department || "",
     en.status || "",
     participation(en).count, // 這一欄要的是次數本身，不是高／中／低
+    totalAttended(en),
     interaction(en).label,
   ]);
   downloadCsv([header, ...rows], `${["名單", ...csvNameParts(), ymd(new Date())].join("_")}.csv`);

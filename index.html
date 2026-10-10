@@ -341,7 +341,7 @@
             找不到那一堂課的話，請先到「課程管理」把課登錄起來。最新的紀錄排在最上面。
           </p>
 
-          <div class="lesson-form">
+          <div class="lesson-form" id="lesson-form">
             <div class="lesson-form-row">
               <select id="lesson-course"></select>
               <span id="lesson-role-label" class="lesson-role-label"></span>
@@ -361,7 +361,20 @@
               <input type="text" id="lesson-duties" placeholder="學習項目，例：準備點心、課後整理" />
             </div>
             <textarea id="lesson-comment" rows="2" placeholder="其他備註（選填）"></textarea>
-            <button type="button" id="lesson-add-btn" class="btn-primary btn-small">新增紀錄</button>
+            <div class="lesson-form-actions">
+              <button type="button" id="lesson-add-btn" class="btn-primary btn-small">新增紀錄</button>
+              <button type="button" id="lesson-save-btn" class="btn-primary btn-small hidden">儲存變更</button>
+              <button type="button" id="lesson-cancel-btn" class="btn-secondary btn-small hidden">取消編輯</button>
+            </div>
+          </div>
+
+          <!-- 出席狀況的篩選：想一次看完請假或缺席的那幾堂 -->
+          <div class="lesson-filter-bar">
+            <label class="lesson-filter">
+              出席狀況
+              <select id="lesson-filter-attend"></select>
+            </label>
+            <span id="lesson-filter-count" class="hint-text"></span>
           </div>
 
           <div id="lesson-list" class="lesson-list"></div>
@@ -385,13 +398,17 @@
               <input type="text" id="record-scripture" class="record-field"
                 placeholder="哪一部經典，例：彌勒救苦真經" autocomplete="off" />
             </div>
+            <!-- 學習項目可以好幾個：一個圓角標籤一項，打字會搜尋用過的項目 -->
             <div id="record-items-row" class="lesson-form-row">
-              <input type="text" id="record-items"
-                placeholder="學習項目，例：上執禮、寫表文" autocomplete="off" />
+              <div id="record-items" class="record-items"></div>
             </div>
             <div id="record-suggest" class="record-suggest"></div>
             <textarea id="record-comment" rows="2" placeholder="其他備註（選填）"></textarea>
-            <button type="button" id="record-add-btn" class="btn-primary btn-small">新增紀錄</button>
+            <div class="lesson-form-actions">
+              <button type="button" id="record-add-btn" class="btn-primary btn-small">新增紀錄</button>
+              <button type="button" id="record-save-btn" class="btn-primary btn-small hidden">儲存變更</button>
+              <button type="button" id="record-cancel-btn" class="btn-secondary btn-small hidden">取消編輯</button>
+            </div>
           </div>
 
           <div id="record-list" class="lesson-list"></div>

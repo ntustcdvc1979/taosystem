@@ -19,7 +19,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "./firebase.js";
-import { bindPick } from "./tageditor.js";
+import { bindPick, createTagEditor } from "./tageditor.js";
 
 export const CLASS_GROUPS = ["新民", "至善", "行德", "崇德", "人才儲訓", "講培", "講師"];
 export const MEMBER_TYPES = ["班員", "護班人員"];
@@ -62,9 +62,31 @@ const RECORD_TYPES = {
 // 目前開著的紀錄視窗
 let lessonEntryId = null;
 let lessonRows = [];
+let editingLessonIndex = -1; // 正在改第幾筆上課紀錄（-1＝正在新增）
 let recordEntryId = null;
 let recordType = "etiquette";
 let recordRows = [];
+let editingRecordIndex = -1; // 正在改第幾筆佛規禮節／經典背誦（-1＝正在新增）
+let recordItems = null; // 學習項目的圓角標籤欄（可以好幾項）
+
+// 學習項目以前是一個字串（「上執禮、寫表文」），現在是陣列。
+// 舊資料還在，所以讀的時候一律正規化成陣列。
+function itemsOf(row) {
+  if (Array.isArray(row?.items)) return row.items.filter(Boolean);
+  return String(row?.items || "")
+    .split(/[、,，;；/／]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// 這個單位用過的所有學習項目，常用的排前面（標籤欄的搜尋來源）
+function usedRecordItems() {
+  const counts = new Map();
+  classEntries.forEach((en) =>
+    (en.etiquette || []).forEach((r) => itemsOf(r).forEach((v) => counts.set(v, (counts.get(v) || 0) + 1)))
+  );
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v);
+}
 let editingClassId = null;
 let editingCourseId = null;
 let linkedPick = { id: "", name: "" };
@@ -645,7 +667,10 @@ function isLessonLogged(lessons, course) {
 function coursesToLog(entry) {
   // 紀錄視窗開著的那一位用畫面上這份，剛存的那一筆才會馬上從清單消失
   const lessons = entry.id === lessonEntryId ? lessonRows : entry.lessons || [];
-  return coursesFor(entry).filter((c) => !isLessonLogged(lessons, c));
+  // 正在編輯的那一筆，它自己那堂課要留在清單裡，不然一進編輯就選不回原本那堂
+  const editingId =
+    entry.id === lessonEntryId ? lessonRows[editingLessonIndex]?.courseId || null : null;
+  return coursesFor(entry).filter((c) => c.id === editingId || !isLessonLogged(lessons, c));
 }
 
 function renderCourseOptions() {
@@ -1018,8 +1043,17 @@ function openLessonModal(entry) {
   lessonRows = [...(entry.lessons || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const roles = entryRoles(entry);
   $("lesson-modal-name").textContent = `${entry.name}（${roles.map(roleLabel).join("、")}）`;
+  $("lesson-filter-attend").value = "";
+  resetLessonForm();
+  renderLessonRows();
+  $("lesson-modal").classList.remove("hidden");
+}
+
+// 回到「新增一筆」的狀態：清空欄位、收起編輯用的按鈕
+function resetLessonForm() {
+  editingLessonIndex = -1;
   $("lesson-course").value = "";
-  renderCourseOptions(); // 只列他自己那幾班的課
+  renderCourseOptions(); // 只列他自己那幾班的課（編輯中的那一堂另外補進來）
   $("lesson-attend").value = ATTEND_OPTIONS[0];
   $("lesson-notes").checked = false;
   $("lesson-asked").checked = false;
@@ -1027,8 +1061,33 @@ function openLessonModal(entry) {
   $("lesson-duties").value = "";
   $("lesson-comment").value = "";
   applyLessonRole();
-  renderLessonRows();
-  $("lesson-modal").classList.remove("hidden");
+  applyLessonEditingState();
+}
+
+function applyLessonEditingState() {
+  const editing = editingLessonIndex >= 0 && editingLessonIndex < lessonRows.length;
+  $("lesson-add-btn").classList.toggle("hidden", editing);
+  $("lesson-save-btn").classList.toggle("hidden", !editing);
+  $("lesson-cancel-btn").classList.toggle("hidden", !editing);
+  $("lesson-form").classList.toggle("is-editing", editing);
+}
+
+// 點某一筆的「編輯」：把它填回上面的表單，存檔時改的是同一筆
+function editLesson(index) {
+  const row = lessonRows[index];
+  if (!row) return;
+  editingLessonIndex = index;
+  renderCourseOptions();
+  $("lesson-course").value = row.courseId || "";
+  $("lesson-attend").value = row.attend || ATTEND_OPTIONS[0];
+  $("lesson-notes").checked = !!row.tookNotes;
+  $("lesson-asked").checked = !!row.asked;
+  $("lesson-interaction").value = row.interaction || "";
+  $("lesson-duties").value = row.duties || "";
+  $("lesson-comment").value = row.comment || "";
+  applyLessonRole();
+  applyLessonEditingState();
+  $("lesson-course").scrollIntoView({ block: "nearest" });
 }
 
 // 挑了哪一堂課，就決定了日期、班別與身分——不用再各選一次
@@ -1064,44 +1123,74 @@ function applyLessonRole() {
   applyLessonFields(role?.type);
 }
 
+// 出席狀況的底色：一眼掃得出哪幾堂請假、哪幾堂缺席
+const ATTEND_CLASS = { 準時: "ontime", 遲到: "late", 請假: "leave", 缺席: "absent" };
+const attendClass = (attend) => ATTEND_CLASS[attend] || "none";
+
+// 篩選的選項順便標出各有幾堂
+function renderLessonFilterOptions() {
+  const sel = $("lesson-filter-attend");
+  const keep = sel.value;
+  const count = (v) => lessonRows.filter((l) => (l.attend || "") === v).length;
+  sel.innerHTML =
+    `<option value="">全部（${lessonRows.length}）</option>` +
+    ATTEND_OPTIONS.map((v) => `<option value="${esc(v)}">${esc(v)}（${count(v)}）</option>`).join("");
+  sel.value = keep;
+}
+
 function renderLessonRows() {
   const entry = classEntries.find((e) => e.id === lessonEntryId);
   const multi = entry ? entryRoles(entry).length > 1 : false;
-  $("lesson-list").innerHTML = lessonRows.length
-    ? lessonRows
-        .map((l, i) => {
-          const role = lessonRole(entry, l);
-          const isHu = role.type === "護班人員";
-          const chips = isHu
-            ? [
-                l.attend ? `<span class="lesson-chip">${esc(l.attend)}</span>` : "",
-                l.duties ? `<span class="lesson-chip">${esc(l.duties)}</span>` : "",
-              ]
-            : [
-                l.attend ? `<span class="lesson-chip">${esc(l.attend)}</span>` : "",
-                l.tookNotes ? `<span class="lesson-chip is-on">寫筆記</span>` : "",
-                l.asked ? `<span class="lesson-chip is-on">有提問</span>` : "",
-              ];
-          const detail = isHu ? l.interaction : "";
-          // 一張小卡兩行：第一行是時間地點，第二行才是課名。
-          // 課名常常很長（「百孝經聖訓輯要(一)︰第1~4句之訓中訓」），
-          // 全部擠成一行會把整欄撐開。
-          return `
-          <div class="lesson-row">
-            <div class="lesson-row-head">
-              <span class="lesson-date">${esc(l.date || "未填日期")}</span>
-              ${l.venue ? `<span class="lesson-venue">${esc(l.venue)}</span>` : ""}
-              ${multi ? `<span class="lesson-role">${esc(roleLabel(role))}</span>` : ""}
-              <button type="button" class="btn-danger btn-small lesson-del" data-lesson-del="${i}">刪除</button>
-            </div>
-            ${l.course ? `<div class="lesson-course">${esc(l.course)}</div>` : ""}
-            <div class="lesson-chips">${chips.join("")}</div>
-            ${detail ? `<div class="lesson-detail">互動：${esc(detail)}</div>` : ""}
-            ${l.comment ? `<div class="lesson-detail">${esc(l.comment)}</div>` : ""}
-          </div>`;
-        })
-        .join("")
-    : `<p class="hint-text">還沒有上課紀錄。</p>`;
+  renderLessonFilterOptions();
+  const want = $("lesson-filter-attend").value;
+  // 帶著原本的索引一起篩，編輯／刪除才不會改到別筆
+  const shown = lessonRows
+    .map((l, i) => ({ l, i }))
+    .filter(({ l }) => !want || (l.attend || "") === want);
+  $("lesson-filter-count").textContent = lessonRows.length
+    ? `顯示 ${shown.length} / ${lessonRows.length} 堂`
+    : "";
+
+  if (!shown.length) {
+    $("lesson-list").innerHTML = `<p class="hint-text">${
+      lessonRows.length ? "沒有符合這個出席狀況的紀錄。" : "還沒有上課紀錄。"
+    }</p>`;
+    return;
+  }
+
+  $("lesson-list").innerHTML = shown
+    .map(({ l, i }) => {
+      const role = lessonRole(entry, l);
+      const isHu = role.type === "護班人員";
+      const chips = isHu
+        ? [l.duties ? `<span class="lesson-chip">${esc(l.duties)}</span>` : ""]
+        : [
+            l.tookNotes ? `<span class="lesson-chip is-on">寫筆記</span>` : "",
+            l.asked ? `<span class="lesson-chip is-on">有提問</span>` : "",
+          ];
+      const detail = isHu ? l.interaction : "";
+      // 一張小卡兩行：第一行是出席狀況與時間地點，第二行才是課名。
+      // 課名常常很長（「百孝經聖訓輯要(一)︰第1~4句之訓中訓」），
+      // 全部擠成一行會把整欄撐開。
+      return `
+        <div class="lesson-row attend-${attendClass(l.attend)}${i === editingLessonIndex ? " is-editing" : ""}">
+          <div class="lesson-row-head">
+            <span class="attend-badge attend-${attendClass(l.attend)}">${esc(l.attend || "未填")}</span>
+            <span class="lesson-date">${esc(l.date || "未填日期")}</span>
+            ${l.venue ? `<span class="lesson-venue">${esc(l.venue)}</span>` : ""}
+            ${multi ? `<span class="lesson-role">${esc(roleLabel(role))}</span>` : ""}
+            <span class="lesson-row-actions">
+              <button type="button" class="btn-link-plain" data-lesson-edit="${i}">編輯</button>
+              <button type="button" class="btn-link-plain is-danger" data-lesson-del="${i}">刪除</button>
+            </span>
+          </div>
+          ${l.course ? `<div class="lesson-course">${esc(l.course)}</div>` : ""}
+          <div class="lesson-chips">${chips.join("")}</div>
+          ${detail ? `<div class="lesson-detail">互動：${esc(detail)}</div>` : ""}
+          ${l.comment ? `<div class="lesson-detail">${esc(l.comment)}</div>` : ""}
+        </div>`;
+    })
+    .join("");
 }
 
 function refreshLessonModal() {
@@ -1156,17 +1245,17 @@ async function addLesson() {
     row.tookNotes = $("lesson-notes").checked;
     row.asked = $("lesson-asked").checked;
   }
-  lessonRows = [row, ...lessonRows];
+  // 編輯中就改回原本那一筆，不然是新增一筆（排在最上面）
+  const editing = editingLessonIndex >= 0 && editingLessonIndex < lessonRows.length;
+  const before = lessonRows;
+  lessonRows = editing
+    ? lessonRows.map((old, i) => (i === editingLessonIndex ? row : old))
+    : [row, ...lessonRows];
   try {
     await saveLessons();
-    $("lesson-comment").value = "";
-    $("lesson-interaction").value = "";
-    $("lesson-duties").value = "";
-    $("lesson-notes").checked = false;
-    $("lesson-asked").checked = false;
     ctx.logUpdate?.(
       "lesson",
-      `記了「${entry.name}」的上課紀錄：${row.date} ${courseLabel(course)}・${row.attend}`,
+      `${editing ? "改了" : "記了"}「${entry.name}」的上課紀錄：${row.date} ${courseLabel(course)}・${row.attend}`,
       // 詳細裡放實際填的那幾欄，動態上才看得出當天到底記了什麼
       [
         isHu ? `互動：${row.interaction || "（未填）"}` : `寫筆記：${row.tookNotes ? "有" : "沒有"}`,
@@ -1176,11 +1265,10 @@ async function addLesson() {
         .filter(Boolean)
         .join("\n")
     );
-    $("lesson-course").value = "";
-    renderCourseOptions(); // 記過的課從清單拿掉
-    applyLessonRole();
+    resetLessonForm(); // 記過的課也在這裡從清單拿掉
     renderLessonRows();
   } catch (err) {
+    lessonRows = before;
     alert("儲存失敗：" + err.message);
   }
 }
@@ -1197,33 +1285,63 @@ function openRecordModal(entry, type) {
   $("record-modal-title").textContent = cfg.title;
   $("record-modal-name").textContent = entry.name;
   $("record-hint").textContent = cfg.hint;
-  $("record-date").value = today();
-  $("record-occasion").value = "";
-  $("record-scripture").value = "";
-  $("record-items").value = "";
-  $("record-comment").value = "";
   // 佛規禮節才有「學習項目」；經典背誦只要一部經典
   const isEtiquette = type === "etiquette";
   $("record-occasion").classList.toggle("hidden", !isEtiquette);
   $("record-items-row").classList.toggle("hidden", !isEtiquette);
   $("record-scripture").classList.toggle("hidden", isEtiquette);
-  renderRecordSuggest();
+  resetRecordForm();
   renderRecordRows();
   $("record-modal").classList.remove("hidden");
   $(cfg.main).focus();
 }
 
-// 這個單位用過的項目／經典，點一下就填，省得每次重打也不會寫成好幾種寫法
+function resetRecordForm() {
+  editingRecordIndex = -1;
+  $("record-date").value = today();
+  $("record-occasion").value = "";
+  $("record-scripture").value = "";
+  recordItems.clear();
+  $("record-comment").value = "";
+  applyRecordEditingState();
+  renderRecordSuggest();
+}
+
+function applyRecordEditingState() {
+  const editing = editingRecordIndex >= 0 && editingRecordIndex < recordRows.length;
+  $("record-add-btn").classList.toggle("hidden", editing);
+  $("record-save-btn").classList.toggle("hidden", !editing);
+  $("record-cancel-btn").classList.toggle("hidden", !editing);
+}
+
+// 點某一筆的「編輯」：填回表單，存檔時改的是同一筆
+function editRecord(index) {
+  const row = recordRows[index];
+  if (!row) return;
+  editingRecordIndex = index;
+  $("record-date").value = row.date || today();
+  $("record-occasion").value = row.occasion || "";
+  $("record-scripture").value = row.scripture || "";
+  recordItems.setTags(itemsOf(row));
+  $("record-comment").value = row.comment || "";
+  applyRecordEditingState();
+}
+
+// 這個單位用過的項目／經典，點一下就填，省得每次重打也不會寫成好幾種寫法。
+// 佛規禮節點一下是「再加一項」（學習項目可以好幾個），經典背誦是直接填。
 function renderRecordSuggest() {
   const cfg = RECORD_TYPES[recordType];
-  const used = [
-    ...new Set(
-      classEntries
-        .flatMap((en) => en[cfg.field] || [])
-        .map((r) => (r[cfg.suggestFrom] || "").trim())
-        .filter(Boolean)
-    ),
-  ].sort((a, b) => a.localeCompare(b, "zh-Hant"));
+  const used =
+    recordType === "etiquette"
+      ? usedRecordItems()
+      : [
+          ...new Set(
+            classEntries
+              .flatMap((en) => en[cfg.field] || [])
+              .map((r) => (r[cfg.suggestFrom] || "").trim())
+              .filter(Boolean)
+          ),
+        ].sort((a, b) => a.localeCompare(b, "zh-Hant"));
   $("record-suggest").innerHTML = used.length
     ? `${cfg.suggestLabel}：` +
       used
@@ -1232,26 +1350,32 @@ function renderRecordSuggest() {
     : "";
 }
 
-function recordText(row) {
-  return recordType === "etiquette"
-    ? [row.occasion, row.items].filter(Boolean).join("・")
-    : row.scripture || "";
-}
-
 function renderRecordRows() {
   $("record-list").innerHTML = recordRows.length
     ? recordRows
-        .map(
-          (r, i) => `
-        <div class="lesson-row">
+        .map((r, i) => {
+          const items = recordType === "etiquette" ? itemsOf(r) : [];
+          const title = recordType === "etiquette" ? r.occasion || "" : r.scripture || "";
+          return `
+        <div class="lesson-row${i === editingRecordIndex ? " is-editing" : ""}">
           <div class="lesson-row-head">
             <span class="lesson-date">${esc(r.date || "未填日期")}</span>
-            <span class="lesson-course">${esc(recordText(r))}</span>
-            <button type="button" class="btn-danger btn-small" data-record-del="${i}">刪除</button>
+            <span class="lesson-row-actions">
+              <button type="button" class="btn-link-plain" data-record-edit="${i}">編輯</button>
+              <button type="button" class="btn-link-plain is-danger" data-record-del="${i}">刪除</button>
+            </span>
           </div>
+          ${title ? `<div class="lesson-course">${esc(title)}</div>` : ""}
+          ${
+            items.length
+              ? `<div class="lesson-chips">${items
+                  .map((v) => `<span class="lesson-chip is-on">${esc(v)}</span>`)
+                  .join("")}</div>`
+              : ""
+          }
           ${r.comment ? `<div class="lesson-detail">${esc(r.comment)}</div>` : ""}
-        </div>`
-        )
+        </div>`;
+        })
         .join("")
     : `<p class="hint-text">還沒有紀錄。</p>`;
 }
@@ -1284,31 +1408,32 @@ async function addRecord() {
     $(RECORD_TYPES[recordType].main).focus();
     return;
   }
+  if (isEtiquette) recordItems.commitPending(); // 打了字沒按 Enter 的項目也算數
   const row = {
     date: $("record-date").value || today(),
     comment: $("record-comment").value.trim(),
-    ...(isEtiquette
-      ? { occasion: main, items: $("record-items").value.trim() }
-      : { scripture: main }),
+    ...(isEtiquette ? { occasion: main, items: recordItems.getTags() } : { scripture: main }),
   };
-  recordRows = [row, ...recordRows];
+  // 編輯中就改回原本那一筆，不然是新增一筆（排在最上面）
+  const editing = editingRecordIndex >= 0 && editingRecordIndex < recordRows.length;
+  const before = recordRows;
+  recordRows = editing
+    ? recordRows.map((old, i) => (i === editingRecordIndex ? row : old))
+    : [row, ...recordRows];
   try {
     await saveRecords();
-    $("record-occasion").value = "";
-    $("record-scripture").value = "";
-    $("record-items").value = "";
-    $("record-comment").value = "";
+    const items = isEtiquette ? row.items : [];
     ctx.logUpdate?.(
       "record",
-      `記了「${classEntries.find((e) => e.id === recordEntryId)?.name || ""}」的${RECORD_TYPES[recordType].title}：${row.date} ${main}`,
-      [isEtiquette && row.items ? `學習項目：${row.items}` : "", row.comment ? `評語：${row.comment}` : ""]
+      `${editing ? "改了" : "記了"}「${classEntries.find((e) => e.id === recordEntryId)?.name || ""}」的${RECORD_TYPES[recordType].title}：${row.date} ${main}`,
+      [items.length ? `學習項目：${items.join("、")}` : "", row.comment ? `評語：${row.comment}` : ""]
         .filter(Boolean)
         .join("\n")
     );
+    resetRecordForm();
     renderRecordRows();
-    renderRecordSuggest();
   } catch (err) {
-    recordRows = recordRows.slice(1);
+    recordRows = before;
     alert("儲存失敗：" + err.message);
   }
 }
@@ -1467,16 +1592,33 @@ export function initClassroom(context) {
   });
   $("lesson-course").addEventListener("change", applyLessonRole);
   $("lesson-add-btn").addEventListener("click", addLesson);
+  $("lesson-save-btn").addEventListener("click", addLesson); // 同一條路：編輯中就改那一筆
+  $("lesson-cancel-btn").addEventListener("click", () => {
+    resetLessonForm();
+    renderLessonRows();
+  });
+  $("lesson-filter-attend").addEventListener("change", renderLessonRows);
   $("lesson-list").addEventListener("click", async (e) => {
+    const edit = e.target.closest("[data-lesson-edit]");
+    if (edit) {
+      editLesson(Number(edit.dataset.lessonEdit));
+      renderLessonRows();
+      return;
+    }
     const btn = e.target.closest("[data-lesson-del]");
     if (!btn) return;
     const entry = classEntries.find((x) => x.id === lessonEntryId);
     if (!entry || !confirm("確定要刪除這筆上課紀錄嗎？")) return;
-    lessonRows.splice(Number(btn.dataset.lessonDel), 1);
+    const index = Number(btn.dataset.lessonDel);
+    const removed = lessonRows.splice(index, 1);
+    // 刪掉的如果正是編輯中那一筆，表單要跟著收回來
+    if (index === editingLessonIndex) resetLessonForm();
+    else if (index < editingLessonIndex) editingLessonIndex -= 1;
     try {
       await saveLessons();
       renderLessonRows();
     } catch (err) {
+      lessonRows.splice(index, 0, ...removed);
       alert("刪除失敗：" + err.message);
     }
   });
@@ -1489,25 +1631,48 @@ export function initClassroom(context) {
   $("record-modal").addEventListener("click", (e) => {
     if (e.target === $("record-modal")) $("record-close-x").click();
   });
+  // 學習項目：一項一個圓角標籤，打字會搜尋這個單位用過的項目
+  recordItems = createTagEditor($("record-items"), {
+    suggest: () => usedRecordItems(),
+    placeholder: "學習項目，例：上執禮",
+  });
   $("record-add-btn").addEventListener("click", addRecord);
-  // 用過的項目／經典點一下就填進主要欄位
+  $("record-save-btn").addEventListener("click", addRecord); // 同一條路：編輯中就改那一筆
+  $("record-cancel-btn").addEventListener("click", () => {
+    resetRecordForm();
+    renderRecordRows();
+  });
+  // 用過的項目／經典點一下就填：佛規禮節是「再加一項」，經典背誦是直接填
   $("record-suggest").addEventListener("click", (e) => {
     const chip = e.target.closest("[data-fill]");
     if (!chip) return;
-    const target = recordType === "etiquette" ? $("record-items") : $("record-scripture");
-    target.value = chip.dataset.fill;
-    target.focus();
+    if (recordType === "etiquette") {
+      recordItems.setTags([...recordItems.getTags(), chip.dataset.fill]);
+      recordItems.focus();
+      return;
+    }
+    $("record-scripture").value = chip.dataset.fill;
+    $("record-scripture").focus();
   });
   $("record-list").addEventListener("click", async (e) => {
+    const edit = e.target.closest("[data-record-edit]");
+    if (edit) {
+      editRecord(Number(edit.dataset.recordEdit));
+      renderRecordRows();
+      return;
+    }
     const btn = e.target.closest("[data-record-del]");
     if (!btn || !confirm(`確定要刪除這筆${RECORD_TYPES[recordType].title}紀錄嗎？`)) return;
-    const removed = recordRows.splice(Number(btn.dataset.recordDel), 1);
+    const index = Number(btn.dataset.recordDel);
+    const removed = recordRows.splice(index, 1);
+    if (index === editingRecordIndex) resetRecordForm();
+    else if (index < editingRecordIndex) editingRecordIndex -= 1;
     try {
       await saveRecords();
       renderRecordRows();
       renderRecordSuggest();
     } catch (err) {
-      recordRows.splice(Number(btn.dataset.recordDel), 0, ...removed);
+      recordRows.splice(index, 0, ...removed);
       alert("刪除失敗：" + err.message);
     }
   });

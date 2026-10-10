@@ -701,9 +701,116 @@ button {
   color: #1e8a4c;
 }
 
-/* 刪除鈕靠右（佛規禮節／經典背誦的小卡也共用這一組樣式） */
-.lesson-row-head .btn-small {
+/* 編輯／刪除靠右（佛規禮節／經典背誦的小卡也共用這一組樣式） */
+.lesson-row-actions {
   margin-left: auto;
+  display: inline-flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.lesson-row-actions .btn-link-plain.is-danger {
+  color: #c0392b;
+}
+
+/* 出席狀況用底色分開，一眼掃得出哪幾堂請假、缺席。
+   左邊那條色帶是主要訊號，底色只是淡淡一層，卡片內容才不會被壓掉。 */
+.lesson-row.attend-ontime {
+  border-left: 4px solid #1e8a4c;
+  background: #f4fbf6;
+}
+
+.lesson-row.attend-late {
+  border-left: 4px solid #d08700;
+  background: #fffaf0;
+}
+
+.lesson-row.attend-leave {
+  border-left: 4px solid #2f6fed;
+  background: #f5f8ff;
+}
+
+.lesson-row.attend-absent {
+  border-left: 4px solid #c0392b;
+  background: #fdf5f4;
+}
+
+.lesson-row.is-editing {
+  box-shadow: 0 0 0 2px #2f6fed33;
+}
+
+.attend-badge {
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #f1f3f5;
+  color: #666;
+}
+
+.attend-badge.attend-ontime {
+  background: #e3f5ea;
+  color: #1e8a4c;
+}
+
+.attend-badge.attend-late {
+  background: #fdf0d5;
+  color: #96620b;
+}
+
+.attend-badge.attend-leave {
+  background: #e8efff;
+  color: #2f5bbd;
+}
+
+.attend-badge.attend-absent {
+  background: #fbe6e3;
+  color: #b23a2c;
+}
+
+/* 出席狀況的篩選列 */
+.lesson-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.lesson-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.82rem;
+  color: #6b7480;
+}
+
+.lesson-filter select {
+  width: auto;
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.82rem;
+}
+
+.lesson-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* 編輯中的表單框起來，才知道上面那幾格現在是在改哪一筆 */
+.lesson-form.is-editing {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #c8d8ff;
+  border-radius: 8px;
+  background: #f7f9ff;
+}
+
+/* 學習項目的標籤欄要自己佔一整行 */
+.record-items {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 .lesson-detail {
