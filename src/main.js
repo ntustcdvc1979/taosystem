@@ -1754,6 +1754,84 @@ function eventEndDate(ev) {
   return ev.endDate || ev.date;
 }
 
+// 這場活動涵蓋的日期區間（單日活動的 start 與 end 一樣）
+function eventSpan(ev) {
+  const start = ev?.date || "";
+  return { start, end: eventEndDate(ev) || start };
+}
+
+// ===== 同名活動怎麼分辨 =====
+// 共修、獻供、讀書會這種每個月都辦，名稱一模一樣，光靠名稱會把每一場的
+// 回應、紀錄全部混在一起，所以一律再用日期分。
+
+function sameNameEvents(name) {
+  const key = (name || "").trim();
+  return key ? allEvents.filter((e) => (e.name || "").trim() === key) : [];
+}
+
+function dayDiff(a, b) {
+  const x = new Date(a + "T00:00:00");
+  const y = new Date(b + "T00:00:00");
+  if (Number.isNaN(x.getTime()) || Number.isNaN(y.getTime())) return null;
+  return Math.round((x - y) / 86400000);
+}
+
+// 這個日期離這場活動幾天（落在活動期間內就是 0）
+function daysFromEvent(dateStr, ev) {
+  const { start, end } = eventSpan(ev);
+  if (!dateStr || !start) return null;
+  if (dateStr >= start && dateStr <= end) return 0;
+  return dateStr < start ? dayDiff(start, dateStr) : dayDiff(dateStr, end);
+}
+
+// 同名的好幾場裡，這個日期算不算「這一場」的——離哪一場最近就算哪一場。
+// 平手時固定歸給其中一場（比 id），不然兩場都會列出同一筆。
+function nearestSameNameEvent(dateStr, ev) {
+  const peers = sameNameEvents(ev?.name);
+  if (peers.length <= 1) return true;
+  const mine = daysFromEvent(dateStr, ev);
+  if (mine === null) return false; // 沒有日期就分不出是哪一場，寧可不列
+  return !peers.some((other) => {
+    if (other.id === ev.id) return false;
+    const d = daysFromEvent(dateStr, other);
+    return d !== null && (d < mine || (d === mine && other.id < ev.id));
+  });
+}
+
+// 新寫的邀約聯絡紀錄會在活動名稱後面標上日期（已回覆可以「共修」（10/8）），
+// 同名的好幾場才分得開。
+function eventDateTag(ev) {
+  const parts = (ev?.date || "").split("-");
+  return parts.length === 3 ? `（${Number(parts[1])}/${Number(parts[2])}）` : "";
+}
+
+function isInviteTalk(content) {
+  return typeof content === "string" && INVITE_STATUSES.some((st) => content.startsWith(st));
+}
+
+// 這筆邀約紀錄跟這場活動的關係：
+//   "this"＝就是這一場（標的日期對得上，或同名本來就只有一場）
+//   "other"＝標的是同名的另一場
+//   "untagged"＝舊紀錄沒標日期，光看內容分不出是哪一場
+//   "no"＝根本沒講到這場活動
+function inviteTalkRelation(content, ev) {
+  if (!isInviteTalk(content)) return "no";
+  const marker = `「${(ev?.name || "未命名活動").trim()}」`;
+  const at = content.indexOf(marker);
+  if (at < 0) return "no";
+  const rest = content.slice(at + marker.length);
+  if (!rest.startsWith("（")) {
+    return sameNameEvents(ev?.name).length <= 1 ? "this" : "untagged";
+  }
+  const tag = eventDateTag(ev);
+  return tag && rest.startsWith(tag) ? "this" : "other";
+}
+
+// 去重用的嚴格判斷：只有確定是這一場才算
+function isInviteTalkOf(content, ev) {
+  return inviteTalkRelation(content, ev) === "this";
+}
+
 // 要回報的是「回覆可以參加」的那幾位——會不會來本來就只有他們需要確認。
 // 忠義字班講師以上（含點傳師）不用回報：活動紀錄是給成全對象用的，
 // 講師本來就是辦活動的人，把他們列進來只會讓提醒永遠關不掉。
@@ -2373,27 +2451,35 @@ function participationLevel(count, text) {
 }
 
 // 參加過哪幾場：自己的活動紀錄算一場，活動管理裡回覆「已回覆可以」也算一場。
-// 同一場活動兩邊都有時只算一次（用活動名稱辨識）。
-function attendedNames(entry, within) {
-  const names = new Set();
+// 同一場活動兩邊都有時只算一次——用「活動名稱＋日期」辨識，光用名稱的話
+// 每個月都辦的共修、獻供會被併成一場，次數就少算了。
+function attendedSessions(entry, within) {
+  const keys = new Set();
   (entry.activities || []).forEach((a) => {
-    const key = (a.activity || "").trim();
-    if (key && within(a.date)) names.add(key);
+    const name = (a.activity || "").trim();
+    if (name && a.date && within(a.date)) keys.add(`${a.date}｜${name}`);
   });
   allEvents.forEach((ev) => {
-    const key = (ev.name || "").trim();
-    if (!key || names.has(key) || !within(ev.date)) return;
-    if ((ev.invites || []).some((i) => i.entryId === entry.id && i.status === "已回覆可以")) {
-      names.add(key);
-    }
+    const name = (ev.name || "").trim();
+    if (!name || !within(ev.date)) return;
+    if (!(ev.invites || []).some((i) => i.entryId === entry.id && i.status === "已回覆可以")) return;
+    // 他自己的活動紀錄裡已經有這一場（活動期間內、同名的那一筆）就不重複算。
+    // 多日活動的紀錄多半記在最後一天，跟活動的起始日不一樣，所以比的是整段期間。
+    const { start, end } = eventSpan(ev);
+    const already = [...keys].some((k) => {
+      const at = k.indexOf("｜");
+      const date = k.slice(0, at);
+      return k.slice(at + 1) === name && date >= start && date <= end;
+    });
+    if (!already) keys.add(`${end}｜${name}`);
   });
-  return names;
+  return keys;
 }
 
 // 從頭到現在總共參加過幾場（不分期間）。參與度看的是「最近」熱不熱，
 // 這個看的是「累積」——有些人來得久但最近淡了，兩個數字擺在一起才看得出來。
 function totalAttended(entry) {
-  return attendedNames(entry, (dateStr) => !!dateStr).size;
+  return attendedSessions(entry, (dateStr) => !!dateStr).size;
 }
 
 function participation(entry, asOf = null) {
@@ -2401,7 +2487,7 @@ function participation(entry, asOf = null) {
     const d = daysSince(dateStr, asOf);
     return d !== null && d >= 0 && d < PARTICIPATION_DAYS;
   };
-  const count = attendedNames(entry, within).size;
+  const count = attendedSessions(entry, within).size;
   return participationLevel(count, `近兩週參加 ${count} 場\n${PARTICIPATION_RULE}`);
 }
 
@@ -2533,7 +2619,7 @@ function interactionIn(entry, period) {
 
 // 參與度：期間內參加了幾場（換算成兩週的場次再分級）
 function participationIn(entry, period) {
-  const count = attendedNames(entry, (dateStr) => inPeriod(dateStr, period)).size;
+  const count = attendedSessions(entry, (dateStr) => inPeriod(dateStr, period)).size;
   // 一格可能是一天、一週或一個月，場次直接比會失真——換算成「兩週幾場」再分級，
   // 週／月／年三種尺度才對得起來（跟卡片上看到的是同一把尺）。
   const rate = count * (PARTICIPATION_DAYS / periodDays(period));
@@ -4977,8 +5063,10 @@ inviteBoard.addEventListener("click", async (e) => {
 // 「預定邀約」只是自己先圈起來、還沒去問，所以不記。
 const INVITE_NO_TALK = "預定邀約";
 
+// 名稱後面帶上活動日期，這筆紀錄自己就說得清是哪一場——
+// 同名活動不只一場時（共修、獻供…），只寫名稱的話每一場都會認領它。
 function inviteTalkContent(ev, status, note) {
-  const base = `${status}「${ev.name || "未命名活動"}」`;
+  const base = `${status}「${ev.name || "未命名活動"}」${eventDateTag(ev)}`;
   return note ? `${base}：${note}` : base;
 }
 
@@ -4988,12 +5076,9 @@ function inviteTalkUpdate(entry, ev, status, note, date) {
   if (!entry || !ev || status === INVITE_NO_TALK) return null;
   const content = inviteTalkContent(ev, status, note);
   const talks = entry.talks || [];
-  // 同一天、同一場活動的邀約紀錄只留最新那一筆：狀態拉來拉去不該洗出一長串
-  const mine = (t) =>
-    t.date === date &&
-    typeof t.content === "string" &&
-    t.content.includes(`「${ev.name || "未命名活動"}」`) &&
-    INVITE_STATUSES.some((st) => t.content.startsWith(st));
+  // 同一天、同一場活動的邀約紀錄只留最新那一筆：狀態拉來拉去不該洗出一長串。
+  // 「同一場」要連日期一起看，不然同名的另一場也會被當成這一場而被洗掉。
+  const mine = (t) => t.date === date && isInviteTalkOf(t.content, ev);
   if (talks.some((t) => mine(t) && t.content === content)) return null; // 一模一樣就不用重寫
   return [...talks.filter((t) => !mine(t)), { date, content }];
 }
@@ -5116,32 +5201,41 @@ const responseSection = document.getElementById("response-section");
 const responseSummary = document.getElementById("response-summary");
 const responseTable = document.getElementById("response-table");
 
-// 這場活動在某個人的活動紀錄裡的那一筆（用活動名稱＋日期對）
+// 這場活動在某個人的活動紀錄裡的那一筆：名稱要對，日期也要落在活動期間內。
+// 光看名稱不行——共修、獻供這種每個月都辦，每一場的紀錄會全部混在一起。
 function activityRecordFor(entry, ev) {
   const name = (ev.name || "").trim();
   if (!entry || !name) return null;
+  const { start, end } = eventSpan(ev);
   return (
-    (entry.activities || []).find(
-      (a) =>
-        (a.activity || "").trim() === name &&
-        (!a.date || a.date === ev.date || a.date === eventEndDate(ev))
-    ) || null
+    (entry.activities || []).find((a) => {
+      if ((a.activity || "").trim() !== name) return false;
+      // 沒寫日期的舊紀錄分不出是哪一場，只有同名只有這一場時才敢算
+      if (!a.date) return sameNameEvents(name).length <= 1;
+      return !!start && a.date >= start && a.date <= end;
+    }) || null
   );
 }
 
 // 這場活動相關的聯絡紀錄：活動那幾天寫的，或內容裡點名這場活動的
-// （邀約狀況與缺席原因都是這樣自動寫進去的，內容會帶著「活動名稱」）
+// （邀約狀況與缺席原因都是這樣自動寫進去的，內容會帶著「活動名稱」）。
+// 同名活動有好幾場時，「點名這場活動」就不夠分辨了，還要看日期：
+// 邀約紀錄本身帶著活動日期，其餘的則算給日期上最近的那一場。
 function eventTalksFor(entry, ev) {
   const name = (ev.name || "").trim();
-  const start = ev.date || "";
-  const end = eventEndDate(ev) || start;
+  const { start, end } = eventSpan(ev);
   return (entry?.talks || [])
     .filter((t) => {
       const content = (t.content || "").trim();
       if (!content) return false;
-      const onDay = t.date && start && t.date >= start && t.date <= end;
-      const aboutIt = name && content.includes(`「${name}」`);
-      return onDay || aboutIt;
+      const onDay = !!(t.date && start && t.date >= start && t.date <= end);
+      if (!name) return onDay;
+      const relation = inviteTalkRelation(content, ev);
+      if (relation === "this") return true;
+      if (relation === "other") return false; // 標明是同名的另一場，不要跟著跑進來
+      // 舊的邀約紀錄沒標日期，跟其他紀錄一樣：當天寫的算，不然算給日期上最近的那一場
+      if (onDay) return true;
+      return content.includes(`「${name}」`) && nearestSameNameEvent(t.date, ev);
     })
     .map((t) => (t.content || "").trim());
 }
