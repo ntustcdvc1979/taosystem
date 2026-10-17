@@ -3342,3 +3342,63 @@ body:has(.modal:not(.hidden)) .chat-panel {
   font-size: 0.82rem;
   white-space: pre-wrap;
 }
+
+/* 小卡上的「接下來」：一場一個圓角標籤，不是一行一行的純文字 */
+.card-upcoming {
+  margin-top: 0.3rem;
+}
+
+.upcoming-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.upcoming-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.12rem 0.5rem 0.12rem 0.3rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+/* 回覆可以＝確定要去；待回覆＝還要再追，顏色上分開 */
+.upcoming-chip.is-yes {
+  background: #e9f6ee;
+  color: #1e7a46;
+}
+
+.upcoming-chip.is-pending {
+  background: #fdf3e0;
+  color: #8a6212;
+}
+
+.upcoming-date {
+  flex-shrink: 0;
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: #ffffffcc;
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+
+.upcoming-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap; /* 活動名很長時截斷，不要把整張卡撐開 */
+}
+
+.upcoming-flag {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  opacity: 0.75;
+}
+
+.upcoming-more {
+  align-self: center;
+  color: #8a919b;
+  font-size: 0.73rem;
+}

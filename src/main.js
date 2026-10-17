@@ -155,6 +155,7 @@ const bindUnbindBtn = document.getElementById("bind-unbind-btn");
 const toggleViewBtn = document.getElementById("toggle-view-btn");
 const toggleStrategy = document.getElementById("toggle-strategy");
 const toggleActions = document.getElementById("toggle-actions");
+const toggleUpcoming = document.getElementById("toggle-upcoming");
 const toggleMethod = document.getElementById("toggle-method");
 const aiHeatBtn = document.getElementById("ai-heat-btn");
 aiHeatBtn.classList.remove("hidden"); // 預設就是熱度模式
@@ -230,12 +231,13 @@ const RECORD_PREVIEW_COUNT = 2;
 // 名單檢視模式："heat"（成全熱度・參與度，預設）／"detail"（詳細卡片）
 let viewMode = "heat";
 
-// 卡片上要不要顯示「策略」「做法」與下面那排操作按鈕。兩種模式共用同一組開關，
+// 卡片上要不要顯示「策略」「做法」「近期活動」與下面那排操作按鈕。兩種模式共用同一組開關，
 // 依帳號記在這台裝置上——有人只想看指標，有人要照著做法跑。
 const CARD_FIELDS_KEY = "taosystem_card_fields";
 let showStrategy = true;
 let showMethod = true;
 let showActions = true;
+let showUpcoming = true;
 
 function cardFieldsKey() {
   const uid = auth.currentUser?.uid;
@@ -246,6 +248,7 @@ function loadCardFields() {
   showStrategy = true;
   showMethod = true;
   showActions = true;
+  showUpcoming = true;
   try {
     const raw = localStorage.getItem(cardFieldsKey());
     if (raw) {
@@ -253,6 +256,7 @@ function loadCardFields() {
       showStrategy = saved.strategy !== false;
       showMethod = saved.method !== false;
       showActions = saved.actions !== false;
+      showUpcoming = saved.upcoming !== false;
     }
   } catch {
     // 存壞了就用預設（全部顯示）
@@ -264,7 +268,12 @@ function saveCardFields() {
   try {
     localStorage.setItem(
       cardFieldsKey(),
-      JSON.stringify({ strategy: showStrategy, method: showMethod, actions: showActions })
+      JSON.stringify({
+        strategy: showStrategy,
+        method: showMethod,
+        actions: showActions,
+        upcoming: showUpcoming,
+      })
     );
   } catch {
     // 記不起來也不影響這次的顯示
@@ -275,6 +284,7 @@ function applyCardFieldToggles() {
   toggleStrategy.checked = showStrategy;
   toggleMethod.checked = showMethod;
   toggleActions.checked = showActions;
+  toggleUpcoming.checked = showUpcoming;
 }
 
 // 名單排序：自訂（拖曳出來的順序）／熱度／成全狀況。
@@ -2684,6 +2694,63 @@ function spiritIn(entry, period) {
   );
 }
 
+// ---------- 小卡上的「接下來」 ----------
+// 他接下來要去的活動：還沒結束、而且他回覆可以的。
+// 待回覆與回覆不確定的也列出來但另外標記——那幾場正是還要再追的；
+// 「預定邀約」還沒問過人、回覆不行的就不列。
+const UPCOMING_LIMIT = 4;
+const UPCOMING_STATUSES = ["已回覆可以", "已邀約待回覆", "回覆不確定"];
+
+function upcomingEventsFor(entry) {
+  const todayStr = ymd(new Date());
+  return allEvents
+    .map((ev) => {
+      if ((eventEndDate(ev) || ev.date || "") < todayStr) return null;
+      const status = (ev.invites || []).find((i) => i.entryId === entry.id)?.status || "";
+      return UPCOMING_STATUSES.includes(status) ? { ev, status } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.ev.date || "").localeCompare(b.ev.date || ""));
+}
+
+// 活動日期寫成「今天／明天／10/18（六）」——看小卡的人要的是「還有幾天」
+function upcomingDateText(dateStr) {
+  const days = daysSince(dateStr);
+  if (days === 0) return "今天";
+  if (days === -1) return "明天";
+  const d = new Date(dateStr + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return dateStr || "未定";
+  return `${d.getMonth() + 1}/${d.getDate()}（${WEEKDAYS[d.getDay()]}）`;
+}
+
+// 一場一個圓角標籤（日期＋活動名），不是一行一行的純文字
+function upcomingHtml(entry) {
+  if (!showUpcoming) return "";
+  const list = upcomingEventsFor(entry);
+  if (!list.length) return "";
+  const shown = list.slice(0, UPCOMING_LIMIT);
+  const rest = list.length - shown.length;
+  const chips = shown
+    .map(({ ev, status }) => {
+      const yes = status === "已回覆可以";
+      const tip = `${ev.date || ""}${ev.type ? `・${ev.type}` : ""}・${status}`;
+      return `
+        <span class="upcoming-chip ${yes ? "is-yes" : "is-pending"}" title="${escapeHtml(tip)}">
+          <span class="upcoming-date">${escapeHtml(upcomingDateText(ev.date))}</span>
+          <span class="upcoming-name">${escapeHtml(ev.name || "未命名活動")}</span>
+          ${yes ? "" : `<span class="upcoming-flag">待回覆</span>`}
+        </span>`;
+    })
+    .join("");
+  return `
+    <div class="card-upcoming">
+      <span class="field-label">接下來</span>
+      <div class="upcoming-chips">${chips}${
+        rest > 0 ? `<span class="upcoming-more">還有 ${rest} 場</span>` : ""
+      }</div>
+    </div>`;
+}
+
 // ---------- Render（卡片式名單） ----------
 // 畫面上實際看得到的那幾位，照目前的排序排好。
 // 匯出也用這一份，匯出的內容才跟眼前的名單完全一致。
@@ -2783,6 +2850,7 @@ function renderEntries() {
       </div>
       ${tagsHtml(entry.tags)}
       ${contactLine(entry)}
+      ${upcomingHtml(entry)}
       ${field("聯絡方式", escapeHtml(entry.contactMethod))}
       ${entry.recommendedActivity ? `<div class="card-recommend"><span class="field-label">推薦活動</span>${escapeHtml(entry.recommendedActivity)}</div>` : ""}
       ${field("背景", escapeHtml(getBackground(entry)))}
@@ -3025,6 +3093,7 @@ function renderHeatList(entries, canReorder = false) {
               </div>
             </div>
           </div>
+          ${upcomingHtml(entry)}
           ${note ? `<div class="heat-card-note">${note}</div>` : ""}
           <div class="heat-card-actions">
             <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
@@ -3305,6 +3374,11 @@ toggleMethod.addEventListener("change", () => {
 });
 toggleActions.addEventListener("change", () => {
   showActions = toggleActions.checked;
+  saveCardFields();
+  renderEntries();
+});
+toggleUpcoming.addEventListener("change", () => {
+  showUpcoming = toggleUpcoming.checked;
   saveCardFields();
   renderEntries();
 });
