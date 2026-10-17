@@ -1104,6 +1104,31 @@ button {
   padding: 0.35rem 0.5rem;
 }
 
+/* 策略與做法各自一行，標題在前面，內容自己的換行也留著 */
+.heat-note-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.heat-note-line + .heat-note-line {
+  margin-top: 0.2rem;
+}
+
+.heat-note-label {
+  margin-right: 0.3rem;
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: #e9ecf1;
+  color: #6b7480;
+  font-size: 0.7rem;
+}
+
+/* 收起小卡下面那排操作按鈕（工具列上的「按鈕」開關） */
+.hide-card-actions .card-actions,
+.hide-card-actions .heat-card-actions {
+  display: none;
+}
+
 .heat-card-actions {
   display: flex;
   flex-wrap: wrap;

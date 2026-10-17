@@ -154,6 +154,7 @@ const bindCurrentName = document.getElementById("bind-current-name");
 const bindUnbindBtn = document.getElementById("bind-unbind-btn");
 const toggleViewBtn = document.getElementById("toggle-view-btn");
 const toggleStrategy = document.getElementById("toggle-strategy");
+const toggleActions = document.getElementById("toggle-actions");
 const toggleMethod = document.getElementById("toggle-method");
 const aiHeatBtn = document.getElementById("ai-heat-btn");
 aiHeatBtn.classList.remove("hidden"); // 預設就是熱度模式
@@ -229,11 +230,12 @@ const RECORD_PREVIEW_COUNT = 2;
 // 名單檢視模式："heat"（成全熱度・參與度，預設）／"detail"（詳細卡片）
 let viewMode = "heat";
 
-// 卡片上要不要顯示「策略」與「做法」。兩種模式共用同一組開關，
+// 卡片上要不要顯示「策略」「做法」與下面那排操作按鈕。兩種模式共用同一組開關，
 // 依帳號記在這台裝置上——有人只想看指標，有人要照著做法跑。
 const CARD_FIELDS_KEY = "taosystem_card_fields";
 let showStrategy = true;
 let showMethod = true;
+let showActions = true;
 
 function cardFieldsKey() {
   const uid = auth.currentUser?.uid;
@@ -243,15 +245,17 @@ function cardFieldsKey() {
 function loadCardFields() {
   showStrategy = true;
   showMethod = true;
+  showActions = true;
   try {
     const raw = localStorage.getItem(cardFieldsKey());
     if (raw) {
       const saved = JSON.parse(raw);
       showStrategy = saved.strategy !== false;
       showMethod = saved.method !== false;
+      showActions = saved.actions !== false;
     }
   } catch {
-    // 存壞了就用預設（兩個都顯示）
+    // 存壞了就用預設（全部顯示）
   }
   applyCardFieldToggles();
 }
@@ -260,7 +264,7 @@ function saveCardFields() {
   try {
     localStorage.setItem(
       cardFieldsKey(),
-      JSON.stringify({ strategy: showStrategy, method: showMethod })
+      JSON.stringify({ strategy: showStrategy, method: showMethod, actions: showActions })
     );
   } catch {
     // 記不起來也不影響這次的顯示
@@ -270,6 +274,7 @@ function saveCardFields() {
 function applyCardFieldToggles() {
   toggleStrategy.checked = showStrategy;
   toggleMethod.checked = showMethod;
+  toggleActions.checked = showActions;
 }
 
 // 名單排序：自訂（拖曳出來的順序）／熱度／成全狀況。
@@ -2726,6 +2731,8 @@ function renderEntries() {
 
   entriesList.innerHTML = "";
   entriesList.classList.toggle("compact-mode", viewMode === "heat");
+  // 按鈕照樣畫出來，只是整排收起來——換個開關就回來，不必重畫
+  entriesList.classList.toggle("hide-card-actions", !showActions);
 
   if (sorted.length === 0) {
     entriesList.innerHTML = '<p class="empty-text">尚無資料</p>';
@@ -2978,12 +2985,18 @@ function renderHeatList(entries, canReorder = false) {
       // 熱度的升降用圓圈旁的三角形表示；評語留在「熱度」視窗裡，
       // 卡片這行放策略與做法（工具列可以各自關掉，只想看指標時就不會被文字塞滿）。
       const trend = heatTrend(entry, h);
+      // 策略與做法各自一行（本來是用換行字元串起來，一碰到 CSS 不是 pre-wrap
+      // 就被接成同一行，兩段話黏在一起看不出哪裡是哪裡）
       const note = [
-        showStrategy && entry.strategy ? `策略：${entry.strategy}` : "",
-        showMethod && entry.method ? `做法：${entry.method}` : "",
+        showStrategy && entry.strategy ? ["策略", entry.strategy] : null,
+        showMethod && entry.method ? ["做法", entry.method] : null,
       ]
         .filter(Boolean)
-        .join("\n");
+        .map(
+          ([label, text]) =>
+            `<div class="heat-note-line"><span class="heat-note-label">${label}</span>${escapeHtml(text)}</div>`
+        )
+        .join("");
       const staleClass = h.days !== null && h.days >= HEAT_DECAY_DAYS ? " is-stale" : "";
       return `
         <div class="heat-card${canReorder ? " draggable" : ""}" data-id="${entry.id}"${canReorder ? " draggable=\"true\"" : ""}>
@@ -3012,7 +3025,7 @@ function renderHeatList(entries, canReorder = false) {
               </div>
             </div>
           </div>
-          ${note ? `<div class="heat-card-note">${escapeHtml(note)}</div>` : ""}
+          ${note ? `<div class="heat-card-note">${note}</div>` : ""}
           <div class="heat-card-actions">
             <button data-action="activities" data-id="${entry.id}" class="btn-secondary">活動紀錄</button>
             <button data-action="talks" data-id="${entry.id}" class="btn-secondary">聯絡紀錄</button>
@@ -3287,6 +3300,11 @@ toggleStrategy.addEventListener("change", () => {
 });
 toggleMethod.addEventListener("change", () => {
   showMethod = toggleMethod.checked;
+  saveCardFields();
+  renderEntries();
+});
+toggleActions.addEventListener("change", () => {
+  showActions = toggleActions.checked;
   saveCardFields();
   renderEntries();
 });
