@@ -2353,8 +2353,10 @@ button {
 }
 
 /* 活動管理對話框（月曆） */
+/* 活動管理：邀約看板有五欄，窄的話每欄只剩一百多像素，名字全被截掉。
+   放寬到接近整個視窗（兩側各留一點邊），五欄才各有二百像素上下。 */
 .events-modal-content {
-  max-width: 780px;
+  max-width: min(1180px, 96vw);
 }
 
 .cal-header {
@@ -2557,19 +2559,19 @@ button {
 
 .invite-chip-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.25rem;
 }
 
-/* 名字過長時截斷，不要把框撐開或折成多行 */
+/* 名字長就折行，不要截斷——「Pham Nhut Hao - Harvey」被截成「P⋯」等於看不出是誰。
+   折行只會讓卡片長高，不會把欄位撐寬（這才是原本要避免的事）。 */
 .invite-chip-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   min-width: 0;
   cursor: pointer;
   border-bottom: 1px dashed #d5d8dd;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .invite-chip-name:hover {
@@ -3404,8 +3406,13 @@ body:has(.modal:not(.hidden)) .chat-panel {
 }
 
 /* 還不在名單上的人（來賓）：邀約看板上標一下，回報時可以轉成正式名單 */
+/* 「未入名單」自己一行，不要跟名字搶同一行的寬度 */
+.invite-chip-flags {
+  margin-top: 0.15rem;
+}
+
 .invite-guest {
-  flex-shrink: 0;
+  display: inline-block;
   padding: 0.02rem 0.35rem;
   border-radius: 999px;
   background: #fdf3e0;

@@ -5060,10 +5060,14 @@ function renderInviteList() {
         return `
           <div class="invite-chip" draggable="true" data-entry-id="${inv.entryId}">
             <div class="invite-chip-top">
-              <span class="invite-chip-name ${name ? "" : "invite-missing"}" title="點一下編輯備註">${escapeHtml(name || "（對象已刪除）")}</span>
-              ${guest ? `<span class="invite-guest" title="還不在名單上，可以在「活動回報」裡轉成正式名單">未入名單</span>` : ""}
+              <span class="invite-chip-name ${name ? "" : "invite-missing"}" title="${escapeHtml(name || "")}（點一下編輯備註）">${escapeHtml(name || "（對象已刪除）")}</span>
               <button type="button" class="invite-remove" title="移除">×</button>
             </div>
+            ${
+              guest
+                ? `<div class="invite-chip-flags"><span class="invite-guest" title="還不在名單上，可以在「活動回報」裡轉成正式名單">未入名單</span></div>`
+                : ""
+            }
             ${note ? `<div class="invite-chip-note" title="${escapeHtml(note)}">${escapeHtml(note)}</div>` : ""}
           </div>`;
       })
