@@ -3402,3 +3402,24 @@ body:has(.modal:not(.hidden)) .chat-panel {
   color: #8a919b;
   font-size: 0.73rem;
 }
+
+/* 還不在名單上的人（來賓）：邀約看板上標一下，回報時可以轉成正式名單 */
+.invite-guest {
+  flex-shrink: 0;
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: #fdf3e0;
+  color: #8a6212;
+  font-size: 0.68rem;
+}
+
+.report-row.is-guest {
+  border-left: 3px solid #e0a12c;
+  background: #fffaf0;
+}
+
+.report-guest-hint {
+  margin-top: 0.2rem;
+  color: #8a6212;
+  font-size: 0.78rem;
+}

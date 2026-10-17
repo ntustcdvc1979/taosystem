@@ -1937,6 +1937,8 @@ function entryRank(entryId) {
 // 我回報得動這一位嗎？寫得進去的條件跟安全規則同一條線：他的身分要比我低。
 // 同階（或更高）的人只能由學長姐回報；被檢視身分擋住的人要先切回自己的身分。
 function reportPermission(entryId) {
+  // 還不在名單上的人：沒有名單可以寫紀錄，要先轉成正式名單
+  if (isGuestId(entryId)) return "guest";
   if (entryRank(entryId) >= myRank) return "senior";
   if (!allEntries.some((en) => en.id === entryId)) return "hidden";
   return "ok";
@@ -2011,6 +2013,18 @@ function reportRowHtml(r) {
         </div>
         ${r.done.note ? `<div class="report-done-note">${escapeHtml(r.done.note)}</div>` : ""}
         <div class="report-done-by">已回報${who}</div>
+      </div>`;
+  }
+  // 還不在名單上的人：先把他建成名單，才有地方寫活動紀錄
+  if (r.permission === "guest") {
+    return `
+      <div class="report-row is-locked is-guest" data-id="${escapeHtml(r.id)}">
+        <div class="report-row-head">
+          <span class="report-name">${name}</span>
+          <span class="report-locked">還不在名單上</span>
+          <button type="button" class="btn-primary btn-small" data-report-convert="${escapeHtml(r.id)}">加入名單</button>
+        </div>
+        <div class="report-guest-hint">建好之後這場活動的邀約就會指到他，再回來回報。</div>
       </div>`;
   }
   // 同階以上的人我改不動，請學長姐來
@@ -2231,7 +2245,54 @@ function redoReport(entryId) {
   applyReportRowState();
 }
 
+// 把「還不在名單上」的那一位轉成正式名單：開新增名單的視窗、帶入名字，
+// 存檔之後（entryForm 的 submit）再把這場活動的邀約指到新建的那一筆。
+let convertingGuest = null; // { eventId, guestId, name }
+
+function startGuestConversion(guestId) {
+  const ev = allEvents.find((x) => x.id === reportingEventId);
+  if (!ev) return;
+  convertingGuest = { eventId: ev.id, guestId, name: entryName(guestId) };
+  closeReportModal();
+  openModal();
+  fieldName.value = convertingGuest.name;
+  modalTitle.textContent = "加入名單";
+  scopeHint.textContent = `建好之後，「${ev.name}」的邀約就會指到這一筆。`;
+  fieldDepartment.focus();
+}
+
+// 新名單建好了：把活動裡那個假 id 換成真的 entryId，來賓標記跟著消失
+async function finishGuestConversion(newEntryId) {
+  const job = convertingGuest;
+  convertingGuest = null;
+  if (!job) return;
+  const ev = allEvents.find((x) => x.id === job.eventId);
+  if (!ev) return;
+  const invites = (ev.invites || []).map((i) =>
+    i.entryId === job.guestId ? { ...i, entryId: newEntryId, guestName: null } : i
+  );
+  try {
+    await updateDoc(unitDoc(EVENTS_COLLECTION, job.eventId), {
+      invites,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+    if (editingEventId === job.eventId) {
+      editingEventInvites = invites;
+      renderInviteList();
+    }
+    alert(`「${job.name}」已加入名單，這場活動的邀約也指到他了。`);
+  } catch (err) {
+    alert("名單建好了，但活動邀約沒更新成功：" + err.message);
+  }
+}
+
 reportList.addEventListener("click", (e) => {
+  const convert = e.target.closest("[data-report-convert]");
+  if (convert) {
+    startGuestConversion(convert.dataset.reportConvert);
+    return;
+  }
   const one = e.target.closest("[data-report-one]");
   if (one) {
     submitOneReport(one.dataset.reportOne, one);
@@ -4388,6 +4449,8 @@ fieldScope.addEventListener("change", applyScopeToContactField);
 
 function closeModal() {
   entryModal.classList.add("hidden");
+  // 中途關掉就當這次轉換沒發生，免得下一次新增名單被誤綁到那場活動
+  convertingGuest = null;
 }
 
 addEntryBtn.addEventListener("click", () => openModal());
@@ -4463,6 +4526,8 @@ entryForm.addEventListener("submit", async (e) => {
         id: ref.id,
         roleRank: data.roleRank,
       });
+      // 這一筆是從活動裡的「還不在名單上」轉過來的，活動那邊要改指到它
+      if (convertingGuest) await finishGuestConversion(ref.id);
     }
     closeModal();
   } catch (err) {
@@ -4931,10 +4996,38 @@ function resetEventForm() {
 
 // ---------- 活動邀約名單 ----------
 // 邀約只需要名字，所以身分階梯擋不到的人也照樣顯示得出來（名字取自姓名索引）
+// ===== 還不在名單上的人（來賓） =====
+// 邀約時打了一個名單上沒有的名字，可以先用這個名字加進活動，
+// 之後在「活動回報」那裡再把他轉成正式名單（entryId 跟著換成真正那一筆）。
+// 做法是給他一個 guest: 開頭的假 id，這樣邀約看板、備註、回報那些
+// 本來就用 entryId 當鑰匙的地方全部照舊運作。
+const GUEST_PREFIX = "guest:";
+
+function isGuestId(entryId) {
+  return typeof entryId === "string" && entryId.startsWith(GUEST_PREFIX);
+}
+
+function newGuestId() {
+  return `${GUEST_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// 來賓的名字跟著邀約那一筆走，所以要從活動裡找
+function guestName(entryId) {
+  if (!isGuestId(entryId)) return "";
+  const fromOpen = editingEventInvites.find((i) => i.entryId === entryId)?.guestName;
+  if (fromOpen) return fromOpen;
+  for (const ev of allEvents) {
+    const hit = (ev.invites || []).find((i) => i.entryId === entryId);
+    if (hit?.guestName) return hit.guestName;
+  }
+  return "";
+}
+
 function entryName(entryId) {
   return (
     allEntries.find((en) => en.id === entryId)?.name ||
     rosterNames.find((r) => r.id === entryId)?.name ||
+    guestName(entryId) ||
     ""
   );
 }
@@ -4963,10 +5056,12 @@ function renderInviteList() {
       .map((inv) => {
         const name = entryName(inv.entryId);
         const note = (inv.note || "").trim();
+        const guest = isGuestId(inv.entryId);
         return `
           <div class="invite-chip" draggable="true" data-entry-id="${inv.entryId}">
             <div class="invite-chip-top">
               <span class="invite-chip-name ${name ? "" : "invite-missing"}" title="點一下編輯備註">${escapeHtml(name || "（對象已刪除）")}</span>
+              ${guest ? `<span class="invite-guest" title="還不在名單上，可以在「活動回報」裡轉成正式名單">未入名單</span>` : ""}
               <button type="button" class="invite-remove" title="移除">×</button>
             </div>
             ${note ? `<div class="invite-chip-note" title="${escapeHtml(note)}">${escapeHtml(note)}</div>` : ""}
@@ -5059,6 +5154,17 @@ async function addInviteByEntryId(entryId) {
   await logInviteTalk(entryId, status);
 }
 
+// 還不在名單上的人：名字跟著邀約那一筆存，不寫進任何名單集合
+async function addGuestInvite(name) {
+  const status = newInviteStatus.value;
+  editingEventInvites.push({ entryId: newGuestId(), guestName: name, status });
+  newInvitePerson.value = "";
+  inviteAiStatus.textContent = `已把「${name}」加進這場活動（還不在名單上）。`;
+  renderInviteList();
+  hideInviteSuggestions();
+  await persistInvites();
+}
+
 // 打字時晚一點再算：中文選字每按一鍵都會發 input，清單會一直跳動。
 // 選字還沒送出（isComposing）就先不動，等落字或停手一下再列。
 let inviteSuggestTimer = null;
@@ -5115,12 +5221,27 @@ addInviteBtn.addEventListener("click", async () => {
   if (!match) {
     if (allEntries.some((en) => (en.name || "").trim() === typed)) {
       inviteAiStatus.textContent = `「${typed}」已經在邀約名單裡了。`;
-    } else if (partial.length > 1) {
-      inviteAiStatus.textContent = `符合「${typed}」的有多位，請從清單中點選。`;
-    } else {
-      inviteAiStatus.textContent = `名單上找不到「${typed}」，請確認姓名或先新增這位對象。`;
+      newInvitePerson.focus();
+      return;
     }
-    newInvitePerson.focus();
+    if (partial.length > 1) {
+      inviteAiStatus.textContent = `符合「${typed}」的有多位，請從清單中點選。`;
+      newInvitePerson.focus();
+      return;
+    }
+    // 名單上沒有這個人：講清楚，讓他自己決定要不要先把名字掛上去。
+    // 活動現場常常臨時多一位，當下沒空建名單，但那個人該出現在邀約裡。
+    if (
+      !confirm(
+        `「${typed}」還不在名單上。\n\n` +
+          "要先用這個名字加進這場活動嗎？\n" +
+          "之後在「活動回報」裡可以把他轉成正式名單（補系級、成全狀況那些）。"
+      )
+    ) {
+      newInvitePerson.focus();
+      return;
+    }
+    await addGuestInvite(typed);
     return;
   }
   await addInviteByEntryId(match.id);

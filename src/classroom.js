@@ -118,6 +118,7 @@ function today() {
 export function startClassroom(context) {
   ctx = context;
   stopClassroom();
+  loadClassActions(); // 這個帳號上次有沒有把小卡上的按鈕收起來
 
   unsubEntries = onSnapshot(
     col(ENTRIES),
@@ -293,9 +294,40 @@ function roleBadges(entry, highlightGroup) {
     .join("");
 }
 
+// 小卡下面那排按鈕（上課紀錄、佛規禮節…）要不要顯示。
+// 那排是卡片上最佔高度的東西，只是要掃過名單時收起來一頁看得到更多人。
+// 跟道務那邊一樣，依帳號記在這台裝置上。
+const CLASS_ACTIONS_KEY = "taosystem_class_actions";
+let showClassActions = true;
+
+function classActionsKey() {
+  const uid = auth.currentUser?.uid;
+  return uid ? `${CLASS_ACTIONS_KEY}:${uid}` : CLASS_ACTIONS_KEY;
+}
+
+function loadClassActions() {
+  try {
+    showClassActions = localStorage.getItem(classActionsKey()) !== "0";
+  } catch {
+    showClassActions = true; // 存壞了就照預設顯示
+  }
+  const box = $("class-toggle-actions");
+  if (box) box.checked = showClassActions;
+}
+
+function saveClassActions() {
+  try {
+    localStorage.setItem(classActionsKey(), showClassActions ? "1" : "0");
+  } catch {
+    // 記不起來也不影響這次的顯示
+  }
+}
+
 function renderClassList() {
   const list = $("class-list");
   if (!list) return;
+  // 按鈕照樣畫，整排用 CSS 收起來——換個開關就回來，不必重畫
+  list.classList.toggle("hide-card-actions", !showClassActions);
   const entries = visibleClassEntries();
   const group = $("class-filter-group").value;
   const count = $("class-count");
@@ -1443,6 +1475,11 @@ export function initClassroom(context) {
   ctx = context;
 
   $("class-search").addEventListener("input", renderClassList);
+  $("class-toggle-actions").addEventListener("change", (e) => {
+    showClassActions = e.target.checked;
+    saveClassActions();
+    renderClassList();
+  });
   $("class-filter-group").addEventListener("change", renderClassList);
   $("class-filter-type").addEventListener("change", renderClassList);
 
