@@ -186,6 +186,25 @@ function firstGroupOrder(entry) {
   );
 }
 
+// 預設照班別、同班再照姓名
+function byGroupName(a, b) {
+  return firstGroupOrder(a) - firstGroupOrder(b) || (a.name || "").localeCompare(b.name || "");
+}
+
+// 自訂順序：拖曳過的（有 order）照 order，沒拖過的排在後面、維持預設順序
+function byManualOrder(a, b) {
+  const ao = a.order;
+  const bo = b.order;
+  if (ao != null && bo != null) return ao - bo;
+  if (ao != null) return -1;
+  if (bo != null) return 1;
+  return byGroupName(a, b);
+}
+
+function classSorter() {
+  return classSort === "manual" ? byManualOrder : byGroupName;
+}
+
 function visibleClassEntries() {
   const q = $("class-search").value.trim().toLowerCase();
   const group = $("class-filter-group").value;
@@ -203,9 +222,7 @@ function visibleClassEntries() {
         .toLowerCase()
         .includes(q);
     })
-    .sort(
-      (a, b) => firstGroupOrder(a) - firstGroupOrder(b) || (a.name || "").localeCompare(b.name || "")
-    );
+    .sort(classSorter());
 }
 
 // 每一筆上課紀錄記在哪一班、以什麼身分（舊紀錄沒有就用名單上的第一個角色頂著）
@@ -298,26 +315,34 @@ function roleBadges(entry, highlightGroup) {
 // 那排是卡片上最佔高度的東西，只是要掃過名單時收起來一頁看得到更多人。
 // 跟道務那邊一樣，依帳號記在這台裝置上。
 const CLASS_ACTIONS_KEY = "taosystem_class_actions";
+const CLASS_SORT_KEY = "taosystem_class_sort";
 let showClassActions = true;
+// 名單排序："group"＝班別・姓名（預設）／"manual"＝自己拖出來的順序
+let classSort = "group";
 
-function classActionsKey() {
+function prefKey(base) {
   const uid = auth.currentUser?.uid;
-  return uid ? `${CLASS_ACTIONS_KEY}:${uid}` : CLASS_ACTIONS_KEY;
+  return uid ? `${base}:${uid}` : base;
 }
 
 function loadClassActions() {
   try {
-    showClassActions = localStorage.getItem(classActionsKey()) !== "0";
+    showClassActions = localStorage.getItem(prefKey(CLASS_ACTIONS_KEY)) !== "0";
+    classSort = localStorage.getItem(prefKey(CLASS_SORT_KEY)) === "manual" ? "manual" : "group";
   } catch {
-    showClassActions = true; // 存壞了就照預設顯示
+    showClassActions = true; // 存壞了就照預設
+    classSort = "group";
   }
   const box = $("class-toggle-actions");
   if (box) box.checked = showClassActions;
+  const sel = $("class-sort");
+  if (sel) sel.value = classSort;
 }
 
 function saveClassActions() {
   try {
-    localStorage.setItem(classActionsKey(), showClassActions ? "1" : "0");
+    localStorage.setItem(prefKey(CLASS_ACTIONS_KEY), showClassActions ? "1" : "0");
+    localStorage.setItem(prefKey(CLASS_SORT_KEY), classSort);
   } catch {
     // 記不起來也不影響這次的顯示
   }
@@ -340,11 +365,13 @@ function renderClassList() {
     list.innerHTML = `<p class="empty-text">${classEntries.length === 0 ? "尚無班務名單" : "沒有符合條件的人"}</p>`;
     return;
   }
+  // 只有「自訂順序」拖得動——照班別排的時候，拖出來的位置留不住
+  const canReorder = classSort === "manual";
   list.innerHTML = entries
     .map((en) => {
       const lessons = (en.lessons || []).length;
       return `
-      <div class="person-card class-card" data-id="${en.id}">
+      <div class="person-card class-card${canReorder ? " draggable" : ""}" data-id="${en.id}"${canReorder ? ' draggable="true"' : ""}>
         <div class="class-card-head">
           <span class="class-name">${esc(en.name)}</span>
           ${roleBadges(en, group)}
@@ -368,6 +395,69 @@ function renderClassList() {
       </div>`;
     })
     .join("");
+}
+
+// ---------- 拖曳排序（只有「自訂順序」才拖得動） ----------
+// 跟道務名單同一套：畫面上可能只有一部分人（搜尋、班別、身分都會篩掉人），
+// 被篩掉的那些要留在原位，所以照完整名單走一遍，
+// 只把可見卡片佔住的那幾格依畫面順序重填。
+let classDragId = null;
+
+function initClassDrag() {
+  const list = $("class-list");
+  if (!list) return;
+
+  list.addEventListener("dragstart", (e) => {
+    const card = e.target.closest(".class-card");
+    if (!card || !card.draggable) return;
+    classDragId = card.dataset.id;
+    card.classList.add("dragging");
+  });
+
+  list.addEventListener("dragend", async (e) => {
+    e.target.closest(".class-card")?.classList.remove("dragging");
+    if (!classDragId) return;
+    classDragId = null;
+    await persistClassOrderFromDom();
+  });
+
+  list.addEventListener("dragover", (e) => {
+    if (!classDragId) return;
+    const target = e.target.closest(".class-card");
+    const dragging = list.querySelector(".class-card.dragging");
+    if (!target || !dragging || target === dragging) return;
+    e.preventDefault();
+    const box = target.getBoundingClientRect();
+    // 同一列用左右中線判斷、跨列用上下中線
+    const sameRow = e.clientY >= box.top && e.clientY <= box.bottom;
+    const before = sameRow
+      ? e.clientX < box.left + box.width / 2
+      : e.clientY < box.top + box.height / 2;
+    list.insertBefore(dragging, before ? target : target.nextSibling);
+  });
+}
+
+async function persistClassOrderFromDom() {
+  const domIds = [...$("class-list").querySelectorAll(".class-card")].map((c) => c.dataset.id);
+  const visible = new Set(domIds);
+  let next = 0;
+  const fullOrder = [...classEntries]
+    .sort(classSorter())
+    .map((en) => (visible.has(en.id) ? domIds[next++] : en.id));
+
+  // 連組路徑一起包進 try：寫不出去時要講出來，不要變成沒人接的 rejection
+  try {
+    const updates = [];
+    fullOrder.forEach((id, index) => {
+      const entry = classEntries.find((en) => en.id === id);
+      if (entry && entry.order !== index) {
+        updates.push(updateDoc(ref(ENTRIES, id), { order: index }));
+      }
+    });
+    await Promise.all(updates);
+  } catch (err) {
+    alert("排序儲存失敗：" + err.message);
+  }
 }
 
 // ---------- 新增／編輯名單 ----------
@@ -1480,6 +1570,12 @@ export function initClassroom(context) {
     saveClassActions();
     renderClassList();
   });
+  $("class-sort").addEventListener("change", (e) => {
+    classSort = e.target.value === "manual" ? "manual" : "group";
+    saveClassActions();
+    renderClassList();
+  });
+  initClassDrag();
   $("class-filter-group").addEventListener("change", renderClassList);
   $("class-filter-type").addEventListener("change", renderClassList);
 
