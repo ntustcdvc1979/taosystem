@@ -496,6 +496,7 @@ const newInvitePerson = document.getElementById("new-invite-person");
 const newInviteStatus = document.getElementById("new-invite-status");
 const addInviteBtn = document.getElementById("add-invite-btn");
 const aiInviteBtn = document.getElementById("ai-invite-btn");
+const copyInviteBtn = document.getElementById("copy-invite-btn");
 const inviteAiStatus = document.getElementById("invite-ai-status");
 const inviteNoteEditor = document.getElementById("invite-note-editor");
 const inviteNoteName = document.getElementById("invite-note-name");
@@ -5157,6 +5158,62 @@ async function addInviteByEntryId(entryId) {
   // 加進來時就已經是「已邀約待回覆」之類的話，那也是一次聯絡
   await logInviteTalk(entryId, status);
 }
+
+// 把邀約名單整理成一段文字，貼到群組裡報告用。
+// 一個狀態一行，備註放在名字後面的括號裡：
+//   已回覆可以：王小明(第二天可以)、林小美、張大同
+function inviteListText() {
+  return INVITE_STATUSES.map((status) => {
+    const members = editingEventInvites.filter((i) => i.status === status);
+    if (!members.length) return "";
+    const names = members
+      .map((inv) => {
+        const name = entryName(inv.entryId) || "（對象已刪除）";
+        const note = (inv.note || "").trim();
+        return note ? `${name}(${note})` : name;
+      })
+      .join("、");
+    return `${status}：${names}`;
+  })
+    .filter(Boolean)
+    .join("\n");
+}
+
+// navigator.clipboard 在不安全的來源（http）或舊瀏覽器上沒有，
+// 那時用一個暫時的 textarea 加 execCommand 兜底。
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const box = document.createElement("textarea");
+      box.value = text;
+      box.setAttribute("readonly", "");
+      box.style.position = "fixed";
+      box.style.opacity = "0";
+      document.body.appendChild(box);
+      box.select();
+      const ok = document.execCommand("copy");
+      box.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+copyInviteBtn.addEventListener("click", async () => {
+  const text = inviteListText();
+  if (!text) {
+    inviteAiStatus.textContent = "這場活動還沒有邀約名單。";
+    return;
+  }
+  const ok = await copyText(text);
+  inviteAiStatus.textContent = ok
+    ? `已複製邀約名單（${editingEventInvites.length} 人）。`
+    : "複製失敗，請手動選取。";
+});
 
 // 還不在名單上的人：名字跟著邀約那一筆存，不寫進任何名單集合
 async function addGuestInvite(name) {
