@@ -140,6 +140,12 @@ service cloud.firestore {
         }
       }
 
+      // 成全策略卡：卡片上寫策略，再把名單上的人放進來。
+      // 跟活動一樣，有道務權限的人共同維護（卡片裡存的是 entryId，不是名字）。
+      match /strategies/{strategyId} {
+        allow read, write: if inUnit(unitId) && canDao();
+      }
+
       // ===== 更新動態 =====
       // 誰更新了什麼的流水帳：只寫得進去，改不動也刪不掉（by 一定是自己，免得偽造別人）。
       // 兩個系統分開存，因為權限不同：道務的動態要道務權限，班務的要班務權限。

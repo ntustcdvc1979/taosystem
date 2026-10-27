@@ -106,6 +106,9 @@ const bindMeBtn = document.getElementById("bind-me-btn");
 // 趨勢分析
 const trendBtn = document.getElementById("trend-btn");
 const trendView = document.getElementById("trend-view");
+const tagBar = document.getElementById("tag-bar");
+const strategyBtn = document.getElementById("strategy-btn");
+const strategyView = document.getElementById("strategy-view");
 const trendFilterBar = document.getElementById("trend-filter-bar");
 const trendFilterLabel = document.getElementById("trend-filter-label");
 const trendFilterClear = document.getElementById("trend-filter-clear");
@@ -1583,6 +1586,7 @@ function mergeEntries() {
   refreshOpenTalkModal();
   refreshBindPrompt();
   renderTagFilter(); // 新標籤要出現在篩選清單，按鈕上的隱藏數也要跟著更新
+  renderStrategyPage(); // 成全策略頁開著的話，左邊那欄跟著換
   if (heatModalEntryId) renderHeatModal();
   // 換檢視身分（或任何名單異動）之後，趨勢圖要跟著換成新的那批人
   if (pageMode === "trend") {
@@ -1661,6 +1665,7 @@ function subscribeEvents() {
       // 別人也在回報同一場：開著的回報視窗跟著更新
       if (reportingEventId) renderReportModal();
       renderEntries(); // 參與度會用到活動資料
+      renderStrategyPage(); // 上面那排「接下來的活動」
     },
     (err) => {
       if (err.code !== "permission-denied") console.error(err);
@@ -4326,18 +4331,30 @@ rosterExportBtn.addEventListener("click", exportRosterCsv);
 function showPage(mode) {
   pageMode = mode;
   const trend = mode === "trend";
+  const strategy = mode === "strategy";
   trendView.classList.toggle("hidden", !trend);
   trendBtn.textContent = trend ? "收起趨勢分析" : "趨勢分析";
   trendBtn.classList.toggle("is-on", trend);
+  // 成全策略自己就有名單（左邊那欄），所以名單卡與標籤篩選先收起來
+  strategyView.classList.toggle("hidden", !strategy);
+  strategyBtn.textContent = strategy ? "收起成全策略" : "成全策略";
+  strategyBtn.classList.toggle("is-on", strategy);
+  entriesList.classList.toggle("hidden", strategy);
+  tagBar.classList.toggle("hidden", strategy);
   if (trend) {
     renderTrendCharts();
   } else {
     trendPersonPanel.classList.add("hidden");
     clearTrendFilter();
   }
+  if (strategy) watchStrategies();
+  else unwatchStrategies();
 }
 
 trendBtn.addEventListener("click", () => showPage(pageMode === "trend" ? "roster" : "trend"));
+strategyBtn.addEventListener("click", () =>
+  showPage(pageMode === "strategy" ? "roster" : "strategy")
+);
 trendUnit.addEventListener("change", () => {
   clearTrendFilter();
   renderTrendCharts();
@@ -5587,6 +5604,319 @@ function renderResponseTable() {
       </tbody>
     </table>`;
 }
+
+// ---------- 成全策略 ----------
+// 一張卡片寫一個策略，把名單上的人放進來，代表成全他要用這個策略。
+// 卡片存在 units/{unitId}/strategies，有道務權限的人共同維護（跟活動一樣）。
+// 只有頁面開著時才訂閱——平常不需要掛著。
+const STRATEGY_COLLECTION = "strategies";
+const strategyEventsRow = document.getElementById("strategy-events-row");
+const strategyPeopleList = document.getElementById("strategy-people-list");
+const strategyPeopleCount = document.getElementById("strategy-people-count");
+const strategyCardsEl = document.getElementById("strategy-cards");
+const strategySearch = document.getElementById("strategy-search");
+const strategyWarn = document.getElementById("strategy-warn");
+const strategyAddBtn = document.getElementById("strategy-add-btn");
+
+let strategies = [];
+let unsubStrategies = null;
+let pickedEntryId = null; // 手機上點選的那一位（拖不動時用點的）
+
+function watchStrategies() {
+  if (unsubStrategies || !myUnitId) return;
+  strategyWarn.classList.add("hidden");
+  unsubStrategies = onSnapshot(
+    query(unitCol(STRATEGY_COLLECTION), orderBy("order")),
+    (snap) => {
+      strategies = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      renderStrategyPage();
+    },
+    (err) => {
+      console.error("讀取成全策略失敗", err);
+      strategyWarn.textContent =
+        err.code === "permission-denied"
+          ? "讀不到成全策略（權限不足）。這是新加的集合，請把 firestore.rules 貼到 Firebase Console 的「規則」再按發布。"
+          : `讀取失敗：${err.message}`;
+      strategyWarn.classList.remove("hidden");
+    }
+  );
+}
+
+function unwatchStrategies() {
+  if (unsubStrategies) unsubStrategies();
+  unsubStrategies = null;
+  strategies = [];
+  pickedEntryId = null;
+}
+
+// 左邊那欄：看得到的人（含搜尋），每個人標出已經在幾張策略卡裡
+function strategyPeople() {
+  const q = strategySearch.value.trim().toLowerCase();
+  return allEntries.filter((en) => {
+    if (!q) return true;
+    return [en.name, en.department, (en.tags || []).join(" ")]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+}
+
+function strategiesOf(entryId) {
+  return strategies.filter((s) => (s.entryIds || []).includes(entryId));
+}
+
+function renderStrategyEvents() {
+  const todayStr = ymd(new Date());
+  const list = allEvents
+    .filter((ev) => (eventEndDate(ev) || ev.date || "") >= todayStr)
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  strategyEventsRow.innerHTML = list.length
+    ? list
+        .map((ev) => {
+          const yes = (ev.invites || []).filter((i) => i.status === "已回覆可以").length;
+          return `
+          <div class="strategy-event" data-event-id="${escapeHtml(ev.id)}" title="點一下開啟這場活動">
+            <span class="strategy-event-date">${escapeHtml(upcomingDateText(ev.date))}</span>
+            <span class="strategy-event-name">${escapeHtml(ev.name || "未命名活動")}</span>
+            <span class="strategy-event-meta">${escapeHtml(ev.type || "")}${
+              yes ? `・${yes} 人可以` : ""
+            }</span>
+          </div>`;
+        })
+        .join("")
+    : `<p class="hint-text">接下來沒有已登錄的活動。</p>`;
+}
+
+function renderStrategyPeople() {
+  const people = strategyPeople();
+  strategyPeopleCount.textContent = allEntries.length
+    ? `（${people.length} / ${allEntries.length}）`
+    : "";
+  strategyPeopleList.innerHTML = people.length
+    ? people
+        .map((en) => {
+          const inCards = strategiesOf(en.id);
+          const h = heat(en);
+          return `
+          <div class="strategy-person${pickedEntryId === en.id ? " is-picked" : ""}"
+               draggable="true" data-entry-id="${escapeHtml(en.id)}" title="拖到右邊的策略卡，或點一下再按卡片上的「放進來」">
+            <span class="metric heat-${h.level} strategy-person-heat">${escapeHtml(h.label)}</span>
+            <span class="strategy-person-name">${escapeHtml(en.name || "")}</span>
+            ${en.department ? `<span class="strategy-person-meta">${escapeHtml(en.department)}</span>` : ""}
+            ${inCards.length ? `<span class="strategy-person-tag">${inCards.length} 張卡</span>` : ""}
+          </div>`;
+        })
+        .join("")
+    : `<p class="hint-text">沒有符合的人。</p>`;
+}
+
+function renderStrategyCards() {
+  strategyCardsEl.innerHTML = strategies.length
+    ? strategies
+        .map((s) => {
+          const ids = s.entryIds || [];
+          const chips = ids
+            .map(
+              (id) => `
+              <span class="strategy-chip" draggable="true" data-entry-id="${escapeHtml(id)}" data-from="${escapeHtml(s.id)}">
+                ${escapeHtml(entryName(id) || "（對象已刪除）")}
+                <button type="button" class="strategy-chip-remove" data-remove="${escapeHtml(id)}" data-card="${escapeHtml(s.id)}" title="移出這張卡">×</button>
+              </span>`
+            )
+            .join("");
+          return `
+          <div class="strategy-card" data-card-id="${escapeHtml(s.id)}">
+            <div class="strategy-card-head">
+              <input type="text" class="strategy-title" data-card="${escapeHtml(s.id)}"
+                     value="${escapeHtml(s.title || "")}" placeholder="這個策略叫什麼" />
+              <button type="button" class="btn-link-plain is-danger" data-delete-card="${escapeHtml(s.id)}">刪除</button>
+            </div>
+            <textarea class="strategy-note" rows="2" data-card="${escapeHtml(s.id)}"
+                      placeholder="怎麼做（選填）">${escapeHtml(s.note || "")}</textarea>
+            <div class="strategy-card-people">${
+              chips || `<span class="hint-text">把左邊的人拖進來</span>`
+            }</div>
+            <div class="strategy-card-foot">
+              <span class="strategy-card-count">${ids.length} 人</span>
+              ${
+                pickedEntryId
+                  ? `<button type="button" class="btn-secondary btn-small" data-drop-picked="${escapeHtml(s.id)}">放進來：${escapeHtml(entryName(pickedEntryId) || "")}</button>`
+                  : ""
+              }
+            </div>
+          </div>`;
+        })
+        .join("")
+    : `<p class="hint-text">還沒有策略卡，按右上角的「＋ 新增策略卡」開一張。</p>`;
+}
+
+function renderStrategyPage() {
+  if (pageMode !== "strategy") return;
+  renderStrategyEvents();
+  renderStrategyPeople();
+  renderStrategyCards();
+}
+
+async function addStrategyCard() {
+  try {
+    await addDoc(unitCol(STRATEGY_COLLECTION), {
+      title: "",
+      note: "",
+      entryIds: [],
+      order: strategies.length,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.email || null,
+    });
+  } catch (err) {
+    alert("新增策略卡失敗：" + err.message);
+  }
+}
+
+async function saveStrategy(cardId, patch) {
+  try {
+    await updateDoc(unitDoc(STRATEGY_COLLECTION, cardId), {
+      ...patch,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || null,
+    });
+  } catch (err) {
+    alert("儲存策略卡失敗：" + err.message);
+  }
+}
+
+// 放進某張卡：同一個人可以在好幾張卡裡（一個人本來就可能有好幾套做法），
+// 但同一張卡不重複。從別張卡拖過來就是搬家。
+async function dropIntoCard(cardId, entryId, fromCardId = null) {
+  const card = strategies.find((s) => s.id === cardId);
+  if (!card || !entryId) return;
+  if (fromCardId && fromCardId !== cardId) {
+    const from = strategies.find((s) => s.id === fromCardId);
+    if (from) {
+      await saveStrategy(fromCardId, {
+        entryIds: (from.entryIds || []).filter((id) => id !== entryId),
+      });
+    }
+  }
+  if ((card.entryIds || []).includes(entryId)) return;
+  await saveStrategy(cardId, { entryIds: [...(card.entryIds || []), entryId] });
+  logUpdate(
+    "entry",
+    `把「${entryName(entryId)}」放進成全策略「${card.title || "未命名策略"}」`,
+    allEntries.find((en) => en.id === entryId)
+  );
+}
+
+strategyAddBtn.addEventListener("click", addStrategyCard);
+strategySearch.addEventListener("input", renderStrategyPeople);
+
+// 點一下選人（手機上拖不動時用這條路），再點卡片上的「放進來」
+strategyPeopleList.addEventListener("click", (e) => {
+  const person = e.target.closest(".strategy-person");
+  if (!person) return;
+  pickedEntryId = pickedEntryId === person.dataset.entryId ? null : person.dataset.entryId;
+  renderStrategyPeople();
+  renderStrategyCards();
+});
+
+strategyCardsEl.addEventListener("click", async (e) => {
+  const del = e.target.closest("[data-delete-card]");
+  if (del) {
+    const card = strategies.find((s) => s.id === del.dataset.deleteCard);
+    if (!confirm(`確定要刪除策略卡「${card?.title || "未命名策略"}」嗎？`)) return;
+    try {
+      await deleteDoc(unitDoc(STRATEGY_COLLECTION, del.dataset.deleteCard));
+    } catch (err) {
+      alert("刪除失敗：" + err.message);
+    }
+    return;
+  }
+  const remove = e.target.closest("[data-remove]");
+  if (remove) {
+    const card = strategies.find((s) => s.id === remove.dataset.card);
+    if (!card) return;
+    await saveStrategy(card.id, {
+      entryIds: (card.entryIds || []).filter((id) => id !== remove.dataset.remove),
+    });
+    return;
+  }
+  const drop = e.target.closest("[data-drop-picked]");
+  if (drop && pickedEntryId) {
+    const entryId = pickedEntryId;
+    pickedEntryId = null;
+    await dropIntoCard(drop.dataset.dropPicked, entryId);
+    renderStrategyPeople();
+    renderStrategyCards();
+  }
+});
+
+// 標題與做法：改完離開欄位就存
+strategyCardsEl.addEventListener("change", (e) => {
+  const title = e.target.closest(".strategy-title");
+  if (title) {
+    saveStrategy(title.dataset.card, { title: title.value.trim() });
+    return;
+  }
+  const note = e.target.closest(".strategy-note");
+  if (note) saveStrategy(note.dataset.card, { note: note.value.trim() });
+});
+
+// 點上面的活動小卡：直接開那場活動的邀約看板（跟活動提醒的「安排邀約」同一條路）
+strategyEventsRow.addEventListener("click", (e) => {
+  const card = e.target.closest("[data-event-id]");
+  if (!card) return;
+  const ev = allEvents.find((x) => x.id === card.dataset.eventId);
+  if (!ev) return;
+  resetEventForm();
+  calCursor = firstOfMonth(new Date(ev.date + "T00:00:00"));
+  renderCalendar();
+  eventsModal.classList.remove("hidden");
+  startEditEvent(ev);
+});
+
+// ---------- 成全策略：拖曳 ----------
+let strategyDrag = null; // { entryId, from }
+
+function startStrategyDrag(e) {
+  const chip = e.target.closest(".strategy-person, .strategy-chip");
+  if (!chip) return;
+  strategyDrag = { entryId: chip.dataset.entryId, from: chip.dataset.from || null };
+  chip.classList.add("dragging");
+  e.dataTransfer?.setData("text/plain", chip.dataset.entryId);
+}
+
+function endStrategyDrag(e) {
+  e.target.closest(".strategy-person, .strategy-chip")?.classList.remove("dragging");
+  strategyDrag = null;
+  strategyCardsEl
+    .querySelectorAll(".strategy-card")
+    .forEach((c) => c.classList.remove("drop-target"));
+}
+
+strategyPeopleList.addEventListener("dragstart", startStrategyDrag);
+strategyPeopleList.addEventListener("dragend", endStrategyDrag);
+strategyCardsEl.addEventListener("dragstart", startStrategyDrag);
+strategyCardsEl.addEventListener("dragend", endStrategyDrag);
+
+strategyCardsEl.addEventListener("dragover", (e) => {
+  if (!strategyDrag) return;
+  const card = e.target.closest(".strategy-card");
+  if (!card) return;
+  e.preventDefault();
+  strategyCardsEl
+    .querySelectorAll(".strategy-card")
+    .forEach((c) => c.classList.toggle("drop-target", c === card));
+});
+
+strategyCardsEl.addEventListener("drop", async (e) => {
+  const card = e.target.closest(".strategy-card");
+  if (!card || !strategyDrag) return;
+  e.preventDefault();
+  const { entryId, from } = strategyDrag;
+  strategyDrag = null;
+  card.classList.remove("drop-target");
+  await dropIntoCard(card.dataset.cardId, entryId, from);
+});
 
 // ---------- 活動照片 ----------
 // 存在 units/{unitId}/events/{eventId}/photos/{photoId}，一張一份文件。

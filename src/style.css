@@ -3430,3 +3430,280 @@ body:has(.modal:not(.hidden)) .chat-panel {
   color: #8a6212;
   font-size: 0.78rem;
 }
+
+/* ===== 成全策略 ===== */
+.strategy-view {
+  padding: 0 1.5rem 1rem;
+}
+
+.strategy-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.strategy-head h2 {
+  margin: 0.4rem 0;
+}
+
+/* 接下來的活動：一場一張小卡，橫著排、放不下就左右滑 */
+.strategy-events {
+  margin: 0.6rem 0 0.9rem;
+}
+
+.strategy-events-row {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.3rem 0.1rem 0.5rem;
+  scroll-snap-type: x proximity;
+}
+
+.strategy-event {
+  flex: 0 0 auto;
+  min-width: 150px;
+  max-width: 230px;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #dfe6f3;
+  border-radius: 10px;
+  background: #f7f9fd;
+  cursor: pointer;
+  scroll-snap-align: start;
+}
+
+.strategy-event:hover {
+  border-color: #93b4f5;
+  background: #eef4ff;
+}
+
+.strategy-event-date {
+  display: inline-block;
+  padding: 0.02rem 0.4rem;
+  border-radius: 999px;
+  background: #fff;
+  color: #3a5fa8;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.strategy-event-name {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.strategy-event-meta {
+  display: block;
+  color: #8a919b;
+  font-size: 0.74rem;
+}
+
+/* 左邊名單、右邊策略卡 */
+.strategy-body {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.strategy-people {
+  position: sticky;
+  top: 0.5rem;
+  border: 1px solid #e6e9ec;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.6rem;
+}
+
+.strategy-people-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+}
+
+.strategy-people-head input {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+
+.strategy-people-list {
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+.strategy-person {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid #eceff3;
+  border-radius: 8px;
+  margin-bottom: 0.3rem;
+  background: #fff;
+  cursor: grab;
+  font-size: 0.85rem;
+}
+
+.strategy-person:hover {
+  border-color: #c8d8ff;
+}
+
+/* 點選起來的那一位：卡片上會出現「放進來」 */
+.strategy-person.is-picked {
+  border-color: #2f6fed;
+  background: #eef4ff;
+}
+
+.strategy-person.dragging {
+  opacity: 0.5;
+}
+
+.strategy-person-heat {
+  flex-shrink: 0;
+}
+
+.strategy-person-name {
+  font-weight: 600;
+}
+
+.strategy-person-meta {
+  color: #8a919b;
+  font-size: 0.76rem;
+}
+
+.strategy-person-tag {
+  margin-left: auto;
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: #eef2fb;
+  color: #3a5fa8;
+  font-size: 0.68rem;
+}
+
+/* 策略卡 */
+.strategy-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.strategy-card {
+  border: 1px solid #e6e9ec;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.7rem;
+}
+
+.strategy-card.drop-target {
+  border-color: #2f6fed;
+  background: #f5f8ff;
+}
+
+.strategy-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.strategy-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0.3rem 0.4rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: #f7f8fa;
+}
+
+.strategy-title:focus {
+  border-color: #93b4f5;
+  background: #fff;
+}
+
+.strategy-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+}
+
+.strategy-card-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-height: 42px;
+  margin-top: 0.5rem;
+  padding: 0.35rem;
+  border: 1px dashed #dfe3e8;
+  border-radius: 8px;
+}
+
+.strategy-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.3rem 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: #eef2fb;
+  color: #2c4a86;
+  font-size: 0.8rem;
+  cursor: grab;
+}
+
+.strategy-chip.dragging {
+  opacity: 0.5;
+}
+
+.strategy-chip-remove {
+  border: none;
+  background: none;
+  color: #8aa0c8;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+  cursor: pointer;
+}
+
+.strategy-chip-remove:hover {
+  color: #c0392b;
+}
+
+.strategy-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.45rem;
+}
+
+.strategy-card-count {
+  color: #8a919b;
+  font-size: 0.76rem;
+}
+
+.strategy-card-foot .btn-small {
+  margin-left: auto;
+}
+
+/* 窄螢幕：名單改成上面一條，不再占掉半個畫面 */
+@media (max-width: 760px) {
+  .strategy-view {
+    padding: 0 1rem 1rem;
+  }
+
+  .strategy-body {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-people {
+    position: static;
+  }
+
+  .strategy-people-list {
+    max-height: 32vh;
+  }
+}

@@ -91,6 +91,7 @@
           <button id="events-manage-btn" class="btn-secondary">活動管理</button>
           <button id="updates-btn" class="btn-secondary">更新動態</button>
           <button id="trend-btn" class="btn-secondary">趨勢分析</button>
+          <button id="strategy-btn" class="btn-secondary">成全策略</button>
           <!-- 批次匯入：按鈕帶出隱藏的檔案選擇，讀完先給預覽再寫入 -->
           <button id="roster-import-btn" class="btn-secondary" title="從 Excel（.xlsx）批次匯入名單">匯入名單</button>
           <input type="file" id="roster-import-input" accept=".xlsx" hidden />
@@ -99,7 +100,7 @@
         </div>
 
         <!-- 標籤篩選：點亮的標籤才會顯示，名單與趨勢分析共用同一組設定 -->
-        <div class="tag-bar">
+        <div class="tag-bar" id="tag-bar">
           <span class="tag-bar-label" title="選了標籤就只顯示帶有其中任一標籤的人；都沒選就全部顯示">標籤篩選</span>
           <div id="tag-filter-list" class="tag-toggle-list"></div>
           <button type="button" id="tag-filter-all" class="btn-link-plain hidden">清除選取</button>
@@ -169,6 +170,35 @@
             <button type="button" id="notice-dismiss" class="btn-link-plain">今天不再顯示</button>
           </div>
           <div id="notice-list"></div>
+        </div>
+
+        <!-- 成全策略：上面是接下來的活動，左邊名單、右邊策略卡，把人拖進卡片 -->
+        <div id="strategy-view" class="strategy-view hidden">
+          <div class="strategy-head">
+            <h2>成全策略</h2>
+            <button type="button" id="strategy-add-btn" class="btn-primary btn-small">＋ 新增策略卡</button>
+          </div>
+          <p class="hint-text">
+            把左邊的人拖到右邊的策略卡上，代表成全他要用這個策略。
+            手機拖不動的話，先點一下左邊的名字，再按卡片上的「放進來」。
+          </p>
+          <p id="strategy-warn" class="updates-warn hidden"></p>
+
+          <div class="strategy-events">
+            <span class="field-label">接下來的活動</span>
+            <div id="strategy-events-row" class="strategy-events-row"></div>
+          </div>
+
+          <div class="strategy-body">
+            <aside class="strategy-people">
+              <div class="strategy-people-head">
+                <span class="field-label">名單 <span id="strategy-people-count" class="invite-summary"></span></span>
+                <input type="text" id="strategy-search" placeholder="搜尋姓名／系級" autocomplete="off" />
+              </div>
+              <div id="strategy-people-list" class="strategy-people-list"></div>
+            </aside>
+            <div id="strategy-cards" class="strategy-cards"></div>
+          </div>
         </div>
 
         <div id="entries-list" class="cards-wrap">
