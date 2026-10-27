@@ -3410,6 +3410,7 @@ searchInput.addEventListener("input", renderEntries);
 // 成全狀況、團隊／個人名單的篩選，趨勢圖也要跟著換一批人
 function onRosterFilterChange() {
   renderEntries();
+  renderStrategyPeople(); // 成全策略那頁的名單也吃同一組篩選
   if (pageMode === "trend") {
     clearTrendFilter();
     renderTrendCharts();
@@ -5649,10 +5650,18 @@ function unwatchStrategies() {
   pickedEntryId = null;
 }
 
-// 左邊那欄：看得到的人（含搜尋），每個人標出已經在幾張策略卡裡
+// 左邊那欄：看得到的人，每個人標出已經在幾張策略卡裡。
+// 工具列上的成全狀況、歸屬、聯絡人三個篩選一樣算數——那排就在這一頁上方，
+// 選了「只顯示已求道」卻沒反應才奇怪；這一頁自己的搜尋框再往下篩一次。
 function strategyPeople() {
   const q = strategySearch.value.trim().toLowerCase();
+  const statusVal = filterStatus.value;
+  const scopeVal = filterScope.value;
+  const contactVal = filterContact.value;
   return allEntries.filter((en) => {
+    if (statusVal && en.status !== statusVal) return false;
+    if (scopeVal && (en._scope || "team") !== scopeVal) return false;
+    if (contactVal && !contactsOf(en).includes(contactVal)) return false;
     if (!q) return true;
     return [en.name, en.department, (en.tags || []).join(" ")]
       .filter(Boolean)
@@ -5689,6 +5698,7 @@ function renderStrategyEvents() {
 }
 
 function renderStrategyPeople() {
+  if (pageMode !== "strategy") return;
   const people = strategyPeople();
   strategyPeopleCount.textContent = allEntries.length
     ? `（${people.length} / ${allEntries.length}）`
@@ -5711,11 +5721,19 @@ function renderStrategyPeople() {
     : `<p class="hint-text">沒有符合的人。</p>`;
 }
 
+// 每張卡一個顏色：由 id 推出來，所以換位置、重新整理都還是同一色
+function strategyColor(id) {
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  return MEMBER_COLORS[h % MEMBER_COLORS.length];
+}
+
 function renderStrategyCards() {
   strategyCardsEl.innerHTML = strategies.length
     ? strategies
         .map((s) => {
           const ids = s.entryIds || [];
+          const color = strategyColor(s.id);
           const chips = ids
             .map(
               (id) => `
@@ -5726,29 +5744,28 @@ function renderStrategyCards() {
             )
             .join("");
           return `
-          <div class="strategy-card" data-card-id="${escapeHtml(s.id)}">
+          <div class="strategy-card" data-card-id="${escapeHtml(s.id)}" draggable="true" style="--card-color:${color}">
             <div class="strategy-card-head">
-              <input type="text" class="strategy-title" data-card="${escapeHtml(s.id)}"
+              <span class="strategy-grip" title="拖這裡可以換位置">⠿</span>
+              <input type="text" class="strategy-title" data-card="${escapeHtml(s.id)}" draggable="false"
                      value="${escapeHtml(s.title || "")}" placeholder="這個策略叫什麼" />
-              <button type="button" class="btn-link-plain is-danger" data-delete-card="${escapeHtml(s.id)}">刪除</button>
+              <span class="strategy-card-count">${ids.length}</span>
+              <button type="button" class="strategy-card-del" data-delete-card="${escapeHtml(s.id)}" title="刪除這張卡">×</button>
             </div>
-            <textarea class="strategy-note" rows="2" data-card="${escapeHtml(s.id)}"
+            <textarea class="strategy-note" rows="2" data-card="${escapeHtml(s.id)}" draggable="false"
                       placeholder="怎麼做（選填）">${escapeHtml(s.note || "")}</textarea>
             <div class="strategy-card-people">${
-              chips || `<span class="hint-text">把左邊的人拖進來</span>`
+              chips || `<span class="strategy-card-empty">把左邊的人拖進來</span>`
             }</div>
-            <div class="strategy-card-foot">
-              <span class="strategy-card-count">${ids.length} 人</span>
-              ${
-                pickedEntryId
-                  ? `<button type="button" class="btn-secondary btn-small" data-drop-picked="${escapeHtml(s.id)}">放進來：${escapeHtml(entryName(pickedEntryId) || "")}</button>`
-                  : ""
-              }
-            </div>
+            ${
+              pickedEntryId
+                ? `<div class="strategy-card-foot"><button type="button" class="btn-secondary btn-small" data-drop-picked="${escapeHtml(s.id)}">放進來：${escapeHtml(entryName(pickedEntryId) || "")}</button></div>`
+                : ""
+            }
           </div>`;
         })
         .join("")
-    : `<p class="hint-text">還沒有策略卡，按右上角的「＋ 新增策略卡」開一張。</p>`;
+    : `<p class="hint-text">還沒有策略卡，按上面的「＋ 新增策略卡」開一張。</p>`;
 }
 
 function renderStrategyPage() {
@@ -5875,7 +5892,47 @@ strategyEventsRow.addEventListener("click", (e) => {
 });
 
 // ---------- 成全策略：拖曳 ----------
-let strategyDrag = null; // { entryId, from }
+let strategyDrag = null; // 正在拖的人 { entryId, from }
+let cardDragId = null; // 正在搬位置的策略卡
+let gripPressed = false; // 這次按下去的位置是不是卡片左上角那個把手
+
+// 卡片整張 draggable，但只有從把手按下去才算搬卡片——
+// 不然在卡片上隨便一拖就會變成搬卡片，裡面的名字反而拖不動。
+strategyCardsEl.addEventListener("pointerdown", (e) => {
+  gripPressed = !!(e.target instanceof Element && e.target.closest(".strategy-grip"));
+});
+
+function startCardDrag(e) {
+  const card = e.target.closest(".strategy-card");
+  if (!card || card !== e.target) return false; // 事件來自卡片裡面的東西，不是卡片本身
+  if (!gripPressed) {
+    e.preventDefault(); // 沒抓把手就不給拖
+    return false;
+  }
+  cardDragId = card.dataset.cardId;
+  card.classList.add("dragging");
+  e.dataTransfer?.setData("text/plain", cardDragId);
+  return true;
+}
+
+// 照目前畫面上的順序把 order 寫回去
+async function persistStrategyOrder() {
+  const ids = [...strategyCardsEl.querySelectorAll(".strategy-card")].map((c) => c.dataset.cardId);
+  try {
+    await Promise.all(
+      ids
+        .map((id, index) => {
+          const card = strategies.find((s) => s.id === id);
+          return card && card.order !== index
+            ? updateDoc(unitDoc(STRATEGY_COLLECTION, id), { order: index })
+            : null;
+        })
+        .filter(Boolean)
+    );
+  } catch (err) {
+    alert("策略卡順序儲存失敗：" + err.message);
+  }
+}
 
 function startStrategyDrag(e) {
   const chip = e.target.closest(".strategy-person, .strategy-chip");
@@ -5895,13 +5952,38 @@ function endStrategyDrag(e) {
 
 strategyPeopleList.addEventListener("dragstart", startStrategyDrag);
 strategyPeopleList.addEventListener("dragend", endStrategyDrag);
-strategyCardsEl.addEventListener("dragstart", startStrategyDrag);
-strategyCardsEl.addEventListener("dragend", endStrategyDrag);
+strategyCardsEl.addEventListener("dragstart", (e) => {
+  if (startCardDrag(e)) return;
+  startStrategyDrag(e);
+});
+strategyCardsEl.addEventListener("dragend", async (e) => {
+  if (cardDragId) {
+    e.target.closest(".strategy-card")?.classList.remove("dragging");
+    cardDragId = null;
+    gripPressed = false;
+    await persistStrategyOrder();
+    return;
+  }
+  endStrategyDrag(e);
+});
 
 strategyCardsEl.addEventListener("dragover", (e) => {
-  if (!strategyDrag) return;
   const card = e.target.closest(".strategy-card");
   if (!card) return;
+  // 搬卡片：照滑鼠位置把它插到別張前面或後面
+  if (cardDragId) {
+    const dragging = strategyCardsEl.querySelector(".strategy-card.dragging");
+    if (!dragging || dragging === card) return;
+    e.preventDefault();
+    const box = card.getBoundingClientRect();
+    const sameRow = e.clientY >= box.top && e.clientY <= box.bottom;
+    const before = sameRow
+      ? e.clientX < box.left + box.width / 2
+      : e.clientY < box.top + box.height / 2;
+    strategyCardsEl.insertBefore(dragging, before ? card : card.nextSibling);
+    return;
+  }
+  if (!strategyDrag) return;
   e.preventDefault();
   strategyCardsEl
     .querySelectorAll(".strategy-card")
