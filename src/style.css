@@ -3625,8 +3625,14 @@ body:has(.modal:not(.hidden)) .chat-panel {
 
 .strategy-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.3rem;
+}
+
+.strategy-card-head .strategy-grip,
+.strategy-card-head .strategy-card-count,
+.strategy-card-head .strategy-card-del {
+  margin-top: 0.35rem;
 }
 
 /* 左上角的把手：只有從這裡按下去才會搬整張卡 */
@@ -3650,9 +3656,14 @@ body:has(.modal:not(.hidden)) .chat-panel {
   margin: 0;
   padding: 0.3rem 0.4rem;
   font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.4;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
+  resize: none;
+  overflow: hidden;
+  font-family: inherit;
 }
 
 .strategy-title:hover {
@@ -3695,13 +3706,18 @@ body:has(.modal:not(.hidden)) .chat-panel {
 }
 
 .strategy-note {
+  display: block;
+  width: 100%;
   margin: 0.35rem 0 0;
   padding: 0.35rem 0.45rem;
   font-size: 0.85rem;
+  line-height: 1.5;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  resize: vertical;
+  resize: none;
+  overflow: hidden;
+  font-family: inherit;
 }
 
 .strategy-note:hover {
@@ -3715,11 +3731,11 @@ body:has(.modal:not(.hidden)) .chat-panel {
 
 .strategy-card-people {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
+  flex-direction: column;
+  gap: 0.25rem;
   min-height: 46px;
   margin-top: 0.45rem;
-  padding: 0.4rem;
+  padding: 0.35rem;
   border: 1px dashed #dfe3e8;
   border-radius: 8px;
   background: #fcfdff;
@@ -3733,6 +3749,54 @@ body:has(.modal:not(.hidden)) .chat-panel {
 .strategy-card-empty {
   color: #b9bfc8;
   font-size: 0.78rem;
+}
+
+/* 一行一個人：名字、誰負責成全他、移出 */
+.strategy-member {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.2rem 0.18rem 0.5rem;
+  border-radius: 8px;
+  background: #eef2fb;
+  background: color-mix(in srgb, var(--card-color, #2f6fed) 9%, #fff);
+  cursor: grab;
+}
+
+.strategy-member.dragging {
+  opacity: 0.5;
+}
+
+.strategy-member-name {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #2c4a86;
+  color: color-mix(in srgb, var(--card-color, #2c4a86) 75%, #000);
+}
+
+/* 誰負責：看起來像一段文字，點下去才是下拉 */
+.strategy-owner {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0.1rem 0.2rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #5c6672;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.strategy-owner:hover,
+.strategy-owner:focus {
+  border-color: #c8d8ff;
+  background: #fff;
+}
+
+.strategy-owner.is-empty {
+  color: #a7aeb8;
 }
 
 .strategy-chip {

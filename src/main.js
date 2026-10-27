@@ -5728,34 +5728,65 @@ function strategyColor(id) {
   return MEMBER_COLORS[h % MEMBER_COLORS.length];
 }
 
+// 這張卡上誰負責成全他：沒特別指定就跟著名單上的主要聯絡人走
+// （名單那邊換人，卡片上跟著換；指定過的才固定下來）
+function mainContactOf(entryId) {
+  return (allEntries.find((en) => en.id === entryId)?.contact || "").trim();
+}
+
+function ownerOf(card, entryId) {
+  const set = card.owners || {};
+  return Object.prototype.hasOwnProperty.call(set, entryId)
+    ? set[entryId] || ""
+    : mainContactOf(entryId);
+}
+
+function ownerOptions(card, entryId) {
+  const fallback = mainContactOf(entryId);
+  const current = card.owners?.[entryId];
+  const names = [...new Set([...usedContacts().map((c) => c.name), current].filter(Boolean))];
+  return [
+    `<option value="">${escapeHtml(fallback ? `主要聯絡人：${fallback}` : "（未指定）")}</option>`,
+    ...names.map(
+      (n) =>
+        `<option value="${escapeHtml(n)}" ${current === n ? "selected" : ""}>${escapeHtml(n)}</option>`
+    ),
+  ].join("");
+}
+
 function renderStrategyCards() {
   strategyCardsEl.innerHTML = strategies.length
     ? strategies
         .map((s) => {
           const ids = s.entryIds || [];
           const color = strategyColor(s.id);
-          const chips = ids
-            .map(
-              (id) => `
-              <span class="strategy-chip" draggable="true" data-entry-id="${escapeHtml(id)}" data-from="${escapeHtml(s.id)}">
-                ${escapeHtml(entryName(id) || "（對象已刪除）")}
+          const members = ids
+            .map((id) => {
+              const owner = ownerOf(s, id);
+              return `
+              <div class="strategy-member" draggable="true" data-entry-id="${escapeHtml(id)}" data-from="${escapeHtml(s.id)}">
+                <span class="strategy-member-name">${escapeHtml(entryName(id) || "（對象已刪除）")}</span>
+                <select class="strategy-owner${owner ? "" : " is-empty"}" data-card="${escapeHtml(s.id)}" data-entry="${escapeHtml(id)}"
+                        title="誰負責成全他（預設帶入名單上的主要聯絡人）">
+                  ${ownerOptions(s, id)}
+                </select>
                 <button type="button" class="strategy-chip-remove" data-remove="${escapeHtml(id)}" data-card="${escapeHtml(s.id)}" title="移出這張卡">×</button>
-              </span>`
-            )
+              </div>`;
+            })
             .join("");
           return `
           <div class="strategy-card" data-card-id="${escapeHtml(s.id)}" draggable="true" style="--card-color:${color}">
             <div class="strategy-card-head">
               <span class="strategy-grip" title="拖這裡可以換位置">⠿</span>
-              <input type="text" class="strategy-title" data-card="${escapeHtml(s.id)}" draggable="false"
-                     value="${escapeHtml(s.title || "")}" placeholder="這個策略叫什麼" />
+              <textarea class="strategy-title" rows="1" data-card="${escapeHtml(s.id)}" draggable="false"
+                        placeholder="這個策略叫什麼">${escapeHtml(s.title || "")}</textarea>
               <span class="strategy-card-count">${ids.length}</span>
               <button type="button" class="strategy-card-del" data-delete-card="${escapeHtml(s.id)}" title="刪除這張卡">×</button>
             </div>
-            <textarea class="strategy-note" rows="2" data-card="${escapeHtml(s.id)}" draggable="false"
+            <textarea class="strategy-note" rows="1" data-card="${escapeHtml(s.id)}" draggable="false"
                       placeholder="怎麼做（選填）">${escapeHtml(s.note || "")}</textarea>
             <div class="strategy-card-people">${
-              chips || `<span class="strategy-card-empty">把左邊的人拖進來</span>`
+              members || `<span class="strategy-card-empty">把左邊的人拖進來</span>`
             }</div>
             ${
               pickedEntryId
@@ -5766,6 +5797,16 @@ function renderStrategyCards() {
         })
         .join("")
     : `<p class="hint-text">還沒有策略卡，按上面的「＋ 新增策略卡」開一張。</p>`;
+  // 文字框長到剛好放得下內容：標題與做法都不該把字切掉
+  strategyCardsEl.querySelectorAll(".strategy-title, .strategy-note").forEach(autoGrow);
+}
+
+// textarea 跟著內容長高（先歸零再量，縮短時才收得回來）。
+// 全站是 border-box，height 設的是連框線在內的高度，
+// 所以要把上下框線補回去，不然每次都差一點、字就被切掉。
+function autoGrow(el) {
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 }
 
 function renderStrategyPage() {
@@ -5875,7 +5916,34 @@ strategyCardsEl.addEventListener("change", (e) => {
     return;
   }
   const note = e.target.closest(".strategy-note");
-  if (note) saveStrategy(note.dataset.card, { note: note.value.trim() });
+  if (note) {
+    saveStrategy(note.dataset.card, { note: note.value.trim() });
+    return;
+  }
+  // 誰負責成全他：空字串＝沿用名單上的主要聯絡人（不另外記）
+  const owner = e.target.closest(".strategy-owner");
+  if (owner) {
+    const card = strategies.find((s) => s.id === owner.dataset.card);
+    if (!card) return;
+    const owners = { ...(card.owners || {}) };
+    if (owner.value) owners[owner.dataset.entry] = owner.value;
+    else delete owners[owner.dataset.entry];
+    saveStrategy(card.id, { owners });
+  }
+});
+
+// 打字時就跟著長高，不要等重畫
+strategyCardsEl.addEventListener("input", (e) => {
+  const box = e.target.closest(".strategy-title, .strategy-note");
+  if (box) autoGrow(box);
+});
+
+// 標題按 Enter 就當作填完，不要換行
+strategyCardsEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing && e.target.closest(".strategy-title")) {
+    e.preventDefault();
+    e.target.blur();
+  }
 });
 
 // 點上面的活動小卡：直接開那場活動的邀約看板（跟活動提醒的「安排邀約」同一條路）
@@ -5935,7 +6003,7 @@ async function persistStrategyOrder() {
 }
 
 function startStrategyDrag(e) {
-  const chip = e.target.closest(".strategy-person, .strategy-chip");
+  const chip = e.target.closest(".strategy-person, .strategy-member");
   if (!chip) return;
   strategyDrag = { entryId: chip.dataset.entryId, from: chip.dataset.from || null };
   chip.classList.add("dragging");
@@ -5943,7 +6011,7 @@ function startStrategyDrag(e) {
 }
 
 function endStrategyDrag(e) {
-  e.target.closest(".strategy-person, .strategy-chip")?.classList.remove("dragging");
+  e.target.closest(".strategy-person, .strategy-member")?.classList.remove("dragging");
   strategyDrag = null;
   strategyCardsEl
     .querySelectorAll(".strategy-card")
