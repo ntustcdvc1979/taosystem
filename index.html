@@ -92,6 +92,7 @@
           <button id="updates-btn" class="btn-secondary">更新動態</button>
           <button id="trend-btn" class="btn-secondary">趨勢分析</button>
           <button id="strategy-btn" class="btn-secondary">成全策略</button>
+          <button id="dao-note-btn" class="btn-secondary" title="單位共用的一塊備忘，想到什麼先寫在這裡">成全備註</button>
           <!-- 批次匯入：按鈕帶出隱藏的檔案選擇，讀完先給預覽再寫入 -->
           <button id="roster-import-btn" class="btn-secondary" title="從 Excel（.xlsx）批次匯入名單">匯入名單</button>
           <input type="file" id="roster-import-input" accept=".xlsx" hidden />
@@ -708,6 +709,24 @@
           <p id="report-status" class="hint-text"></p>
           <div class="modal-actions">
             <button type="button" id="report-done-btn" class="btn-primary">回報完成</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 成全備註：單位共用的一塊備忘，寫幾行都行 -->
+      <div id="dao-note-modal" class="modal hidden">
+        <div class="modal-content dao-note-content">
+          <button type="button" id="dao-note-close" class="modal-close" aria-label="關閉">×</button>
+          <h2>成全備註</h2>
+          <p class="hint-text">
+            整個單位共用的一塊備忘：開會的結論、要記得追的事、誰說了什麼——想到什麼先寫在這裡。
+            有道務權限的人都看得到也改得動，寫幾行都可以。
+          </p>
+          <p id="dao-note-warn" class="updates-warn hidden"></p>
+          <textarea id="dao-note-text" class="dao-note-text" rows="14" placeholder="在這裡寫下來…"></textarea>
+          <div class="modal-actions">
+            <span id="dao-note-status" class="hint-text dao-note-status"></span>
+            <button type="button" id="dao-note-save" class="btn-primary">儲存</button>
           </div>
         </div>
       </div>

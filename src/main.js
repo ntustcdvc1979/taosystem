@@ -2352,6 +2352,7 @@ const UPDATE_KINDS = {
   invite: "邀約狀況",
   report: "參與回報",
   event: "活動",
+  note: "成全備註",
   // 班務系統這幾種
   classEntry: "班務名單",
   lesson: "上課紀錄",
@@ -2361,7 +2362,7 @@ const UPDATE_KINDS = {
 
 // 類型的下拉只列出這個系統有的那幾種
 const SYSTEM_KINDS = {
-  dao: ["entry", "talk", "activity", "heat", "invite", "report", "event"],
+  dao: ["entry", "talk", "activity", "heat", "invite", "report", "event", "note"],
   class: ["classEntry", "lesson", "record", "course"],
 };
 
@@ -5605,6 +5606,113 @@ function renderResponseTable() {
       </tbody>
     </table>`;
 }
+
+// ---------- 成全備註 ----------
+// 整個單位共用的一塊備忘（一份文字，不是哪一個人的紀錄）：
+// units/{unitId}/notes/dao。只在視窗開著時訂閱。
+const DAO_NOTE_COLLECTION = "notes";
+const DAO_NOTE_DOC = "dao";
+const daoNoteBtn = document.getElementById("dao-note-btn");
+const daoNoteModal = document.getElementById("dao-note-modal");
+const daoNoteText = document.getElementById("dao-note-text");
+const daoNoteStatus = document.getElementById("dao-note-status");
+const daoNoteWarn = document.getElementById("dao-note-warn");
+const daoNoteSave = document.getElementById("dao-note-save");
+const daoNoteClose = document.getElementById("dao-note-close");
+
+let unsubDaoNote = null;
+let daoNoteLoaded = ""; // 打開（或上次儲存）時看到的內容，用來判斷有沒有動過
+
+function daoNoteDirty() {
+  return daoNoteText.value !== daoNoteLoaded;
+}
+
+function daoNoteMeta(data) {
+  if (!data?.updatedBy && !data?.updatedAt) return "還沒有人寫過。";
+  const when = data.updatedAt?.toDate ? updateTimeText(data.updatedAt) : "";
+  return `最後更新：${data.updatedBy || "（不明）"}${when ? `・${when}` : ""}`;
+}
+
+function openDaoNote() {
+  daoNoteModal.classList.remove("hidden");
+  daoNoteWarn.classList.add("hidden");
+  daoNoteStatus.textContent = "載入中...";
+  if (unsubDaoNote) return;
+  if (!myUnitId) {
+    // 還沒讀到帳號屬於哪個單位（剛登入那一瞬間）：不要去組一條空路徑
+    daoNoteStatus.textContent = "";
+    daoNoteWarn.textContent = "還在載入單位資料，請稍後再開一次。";
+    daoNoteWarn.classList.remove("hidden");
+    return;
+  }
+  unsubDaoNote = onSnapshot(
+    unitDoc(DAO_NOTE_COLLECTION, DAO_NOTE_DOC),
+    (snap) => {
+      const data = snap.data() || {};
+      const text = data.text || "";
+      daoNoteStatus.textContent = daoNoteMeta(data);
+      // 自己正在打字就不要把游標下的東西換掉，只提醒別人也動了這份
+      if (!daoNoteDirty()) {
+        daoNoteText.value = text;
+        daoNoteLoaded = text;
+        daoNoteWarn.classList.add("hidden");
+      } else if (text !== daoNoteLoaded) {
+        daoNoteWarn.textContent =
+          "別人剛剛也改了這份備註。你按「儲存」會蓋過他寫的——先把他的內容複製下來再存比較保險（關掉重開就會看到最新版）。";
+        daoNoteWarn.classList.remove("hidden");
+      }
+    },
+    (err) => {
+      console.error("讀取成全備註失敗", err);
+      daoNoteStatus.textContent = "";
+      daoNoteWarn.textContent =
+        err.code === "permission-denied"
+          ? "讀不到成全備註（權限不足）。這是新加的集合，請把 firestore.rules 貼到 Firebase Console 的「規則」再按發布。"
+          : `讀取失敗：${err.message}`;
+      daoNoteWarn.classList.remove("hidden");
+    }
+  );
+}
+
+function closeDaoNote() {
+  if (daoNoteDirty() && !confirm("備註還沒儲存，確定要關掉嗎？")) return;
+  daoNoteModal.classList.add("hidden");
+  if (unsubDaoNote) unsubDaoNote();
+  unsubDaoNote = null;
+}
+
+async function saveDaoNote() {
+  const text = daoNoteText.value;
+  daoNoteSave.disabled = true;
+  daoNoteStatus.textContent = "儲存中...";
+  try {
+    await setDoc(
+      unitDoc(DAO_NOTE_COLLECTION, DAO_NOTE_DOC),
+      {
+        text,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || null,
+      },
+      { merge: true }
+    );
+    daoNoteLoaded = text;
+    daoNoteWarn.classList.add("hidden");
+    daoNoteStatus.textContent = "已儲存。";
+    // 動態只記「誰改了」，內容收在「詳細內容」裡（這份本來就是全單位共用的）
+    logUpdate("note", "更新了成全備註", null, text.slice(0, 500));
+  } catch (err) {
+    daoNoteStatus.textContent = "";
+    alert("儲存失敗：" + err.message);
+  }
+  daoNoteSave.disabled = false;
+}
+
+daoNoteBtn.addEventListener("click", openDaoNote);
+daoNoteClose.addEventListener("click", closeDaoNote);
+daoNoteSave.addEventListener("click", saveDaoNote);
+daoNoteModal.addEventListener("click", (e) => {
+  if (e.target === daoNoteModal) closeDaoNote();
+});
 
 // ---------- 成全策略 ----------
 // 一張卡片寫一個策略，把名單上的人放進來，代表成全他要用這個策略。

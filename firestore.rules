@@ -140,6 +140,12 @@ service cloud.firestore {
         }
       }
 
+      // 成全備註：單位共用的一塊備忘（一整份文字，不是哪一個人的紀錄），
+      // 有道務權限的人共同維護。
+      match /notes/{noteId} {
+        allow read, write: if inUnit(unitId) && canDao();
+      }
+
       // 成全策略卡：卡片上寫策略，再把名單上的人放進來。
       // 跟活動一樣，有道務權限的人共同維護（卡片裡存的是 entryId，不是名字）。
       match /strategies/{strategyId} {
