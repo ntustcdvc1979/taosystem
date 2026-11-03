@@ -164,6 +164,7 @@ const aiHeatBtn = document.getElementById("ai-heat-btn");
 aiHeatBtn.classList.remove("hidden"); // 預設就是熱度模式
 const tagFilterList = document.getElementById("tag-filter-list");
 const tagFilterAll = document.getElementById("tag-filter-all");
+const tagModeBtn = document.getElementById("tag-mode-btn");
 
 // 成全熱度對話框
 const heatModal = document.getElementById("heat-modal");
@@ -200,9 +201,13 @@ const entriesList = document.getElementById("entries-list");
 // 其他標籤預設點亮。使用者調過之後依帳號記在這台裝置上。
 const TAG_FILTER_KEY = "tagFilter";
 
-// 選起來的標籤才顯示：有選＝只顯示帶有其中任一標籤的人；一個都沒選＝全部顯示。
-// 選擇依帳號記在這台裝置上。
+// 選起來的標籤才顯示；一個都沒選＝全部顯示。
+// 選了好幾個時有兩種算法：
+//   "any"（預設）＝帶有其中任一個就算（標籤一 OR 標籤二…）
+//   "all"＝每一個都要有（標籤一 AND 標籤二…）
+// 選擇與模式都依帳號記在這台裝置上。
 let selectedTags = new Set();
+let tagMatchMode = "any";
 
 // 依登入帳號分開存，共用電腦時不會互相蓋掉
 function tagFilterKey() {
@@ -212,9 +217,14 @@ function tagFilterKey() {
 
 function loadTagFilter() {
   selectedTags = new Set();
+  tagMatchMode = "any";
   try {
     const raw = localStorage.getItem(tagFilterKey());
-    if (raw) selectedTags = new Set(JSON.parse(raw).selected || []);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      selectedTags = new Set(saved.selected || []);
+      if (saved.mode === "all") tagMatchMode = "all";
+    }
   } catch {
     // 存壞了就當作沒選
   }
@@ -222,7 +232,10 @@ function loadTagFilter() {
 
 function saveTagFilter() {
   try {
-    localStorage.setItem(tagFilterKey(), JSON.stringify({ selected: [...selectedTags] }));
+    localStorage.setItem(
+      tagFilterKey(),
+      JSON.stringify({ selected: [...selectedTags], mode: tagMatchMode })
+    );
   } catch {
     // 無痕模式之類寫不進去就算了，只是這次不會記住
   }
@@ -2431,7 +2444,10 @@ async function logClassUpdate(kind, text, detail = "") {
 // 標籤篩選：一個都沒選就全部顯示；有選就只留帶有其中任一標籤的人
 function matchesTagFilter(entry) {
   if (selectedTags.size === 0) return true;
-  return (entry.tags || []).some((t) => selectedTags.has(t));
+  const tags = entry.tags || [];
+  return tagMatchMode === "all"
+    ? [...selectedTags].every((t) => tags.includes(t))
+    : tags.some((t) => selectedTags.has(t));
 }
 
 // 目前名單上出現過的所有標籤，常用的排前面（標籤輸入框的搜尋來源）
@@ -3476,6 +3492,15 @@ function renderTagFilter() {
         .join("")
     : `<span class="hint-text">名單上還沒有人被貼標籤。</span>`;
   tagFilterAll.classList.toggle("hidden", selectedTags.size === 0);
+  // 只選一個標籤時兩種算法結果一樣，按鈕就先不出來佔位置
+  const useful = selectedTags.size > 1;
+  tagModeBtn.classList.toggle("hidden", !useful);
+  const all = tagMatchMode === "all";
+  tagModeBtn.textContent = all ? "全部符合（AND）" : "任一符合（OR）";
+  tagModeBtn.classList.toggle("is-on", all);
+  tagModeBtn.title = all
+    ? "目前：選起來的標籤每一個都要有。點一下改成「任一符合」"
+    : "目前：有其中任何一個標籤就算。點一下改成「全部符合」";
 }
 
 // 標籤篩選改變後，名單與趨勢圖都要重畫
@@ -3500,6 +3525,13 @@ tagFilterList.addEventListener("click", (e) => {
 
 tagFilterAll.addEventListener("click", () => {
   selectedTags.clear();
+  saveTagFilter();
+  applyTagFilter();
+});
+
+// 任一（OR）↔ 全部（AND）
+tagModeBtn.addEventListener("click", () => {
+  tagMatchMode = tagMatchMode === "all" ? "any" : "all";
   saveTagFilter();
   applyTagFilter();
 });

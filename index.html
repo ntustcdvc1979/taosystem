@@ -102,9 +102,11 @@
 
         <!-- 標籤篩選：點亮的標籤才會顯示，名單與趨勢分析共用同一組設定 -->
         <div class="tag-bar" id="tag-bar">
-          <span class="tag-bar-label" title="選了標籤就只顯示帶有其中任一標籤的人；都沒選就全部顯示">標籤篩選</span>
+          <span class="tag-bar-label" title="選了標籤就只顯示有那些標籤的人；都沒選就全部顯示">標籤篩選</span>
           <div id="tag-filter-list" class="tag-toggle-list"></div>
           <button type="button" id="tag-filter-all" class="btn-link-plain hidden">清除選取</button>
+          <!-- 選了兩個以上才有差別：任一符合（OR）或全部符合（AND） -->
+          <button type="button" id="tag-mode-btn" class="tag-mode-btn hidden">任一符合（OR）</button>
         </div>
 
         <!-- 趨勢分析：夾在工具列與名單卡之間，點圖表就篩選下面的名單卡 -->

@@ -3884,3 +3884,29 @@ body:has(.modal:not(.hidden)) .chat-panel {
   margin-right: auto;
   align-self: center;
 }
+
+/* 標籤篩選最右邊的切換：任一符合（OR）／全部符合（AND） */
+.tag-mode-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid #d5d8dd;
+  border-radius: 999px;
+  background: #fff;
+  color: #6b7480;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.tag-mode-btn:hover {
+  border-color: #93b4f5;
+  color: #2f6fed;
+}
+
+/* AND 比較嚴格，亮起來提醒現在是這個模式 */
+.tag-mode-btn.is-on {
+  border-color: #b9cdf7;
+  background: #e8f0fe;
+  color: #2559c4;
+  font-weight: 600;
+}
