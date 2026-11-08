@@ -185,6 +185,7 @@ const noticeDismissBtn = document.getElementById("notice-dismiss");
 const reportNotice = document.getElementById("report-notice");
 const reportNoticeList = document.getElementById("report-notice-list");
 const reportModal = document.getElementById("report-modal");
+const eventReportBtn = document.getElementById("event-report-btn");
 const reportCloseBtn = document.getElementById("report-close-btn");
 const reportEventLabel = document.getElementById("report-event");
 const reportList = document.getElementById("report-list");
@@ -1937,12 +1938,18 @@ let reportingEventId = null;
 // 按了「重新回報」、還沒重新送出的那幾位。記著才能在視窗被重畫時
 // （別人也在回報同一場）維持在可以填的樣子，不會跳回已回報的結果。
 let redoingIds = new Set();
+// 打開這個視窗時，這場是不是「已經回報完」的狀態
+let reportingWasDone = false;
 
 function openReportModal(eventId) {
   reportingEventId = eventId;
   redoingIds = new Set();
+  // 這場本來就已經回報完了＝這次是進來改的，不是來收尾的
+  reportingWasDone = !!allEvents.find((x) => x.id === eventId)?.attendanceReported;
   renderReportModal();
   reportModal.classList.remove("hidden");
+  // 可能是從「活動管理」裡按進來的，要疊在那個對話框上面
+  reportModal.classList.add("is-stacked");
 }
 
 // 這個人的身分（自己那一階以上的人在 allEntries 裡看不到，改查姓名索引）
@@ -2091,7 +2098,9 @@ reportList.addEventListener("change", (e) => {
 
 function closeReportModal() {
   reportModal.classList.add("hidden");
+  reportModal.classList.remove("is-stacked");
   reportingEventId = null;
+  reportingWasDone = false;
 }
 
 async function markEventReported(ev, attendedIds) {
@@ -2234,7 +2243,9 @@ async function submitOneReport(entryId, btn) {
       entry,
       note ? `${came ? "反應" : "沒來的原因"}：${note}` : ""
     );
-    if (allDone) closeReportModal();
+    // 收尾的最後一位送出就關起來；但如果是進來改已經回報完的那種，
+    // 改一位就把視窗關掉很擾人，留著讓他繼續改。
+    if (allDone && !reportingWasDone) closeReportModal();
   } catch (err) {
     btn.disabled = false;
     reportStatus.textContent =
@@ -2319,6 +2330,11 @@ reportList.addEventListener("click", (e) => {
   }
   const redo = e.target.closest("[data-report-redo]");
   if (redo) redoReport(redo.dataset.reportRedo);
+});
+
+// 從活動編輯裡進回報：回報過的活動不會再出現在提醒列，這是唯一的入口
+eventReportBtn.addEventListener("click", () => {
+  if (editingEventId) openReportModal(editingEventId);
 });
 
 reportCloseBtn.addEventListener("click", closeReportModal);
@@ -4994,6 +5010,19 @@ function renderCalendar() {
   calendarEl.innerHTML = html;
 }
 
+// 活動編輯裡的回報按鈕。回報完（或按過「回報完成」）的活動就不再出現在
+// 提醒列表裡，等於沒有入口可以回去改——所以這顆按鈕要一直在。
+function applyEventReportBtn(ev) {
+  const { total, done } = reportProgress(ev);
+  const started = done > 0 || ev.attendanceReported;
+  eventReportBtn.textContent = started ? "重新回報" : "回報參與狀況";
+  eventReportBtn.title = started
+    ? `已經回報過 ${done} 位，點進去可以改——之前填的內容都會帶出來`
+    : "回報誰有來、當天的反應";
+  // 沒有人回覆可以、也還沒回報過任何人：沒有東西好回報
+  eventReportBtn.classList.toggle("hidden", total === 0 && !started);
+}
+
 // 進入編輯模式：把某活動載入表單（含邀約名單）
 function startEditEvent(ev) {
   editingEventId = ev.id;
@@ -5015,6 +5044,7 @@ function startEditEvent(ev) {
   closeInviteNoteEditor();
   renderInviteList();
   responseSection.classList.remove("hidden"); // 回應一覽同樣只在編輯既有活動時有意義
+  applyEventReportBtn(ev);
   photoSection.classList.remove("hidden"); // 照片也只在編輯既有活動時有意義
   photoStatus.textContent = "";
   loadEventPhotos(ev.id);
